@@ -1,36 +1,39 @@
-import importlib
 import functools
+import importlib
 import inspect
 import logging
+import uuid
+from time import time
+from typing import Union
+
+from crewai import LLM, Agent, Crew, Flow, Task
+from crewai.agents.agent_builder.base_agent import BaseAgent
+from crewai.tools.base_tool import BaseTool
+
+from ...logger import (
+    Generation,
+    GenerationConfigDict,
+    Logger,
+    Retrieval,
+    Span,
+    SpanConfigDict,
+    ToolCall,
+    Trace,
+)
+from ...scribe import scribe
 from .utils import (
     crew_kickoff_postprocess_inputs,
     crewai_postprocess_inputs,
-    get_task_display_name,
-    get_agent_display_name,
     dictify,
-    extract_tool_name,
     extract_tool_details,
+    extract_tool_name,
+    get_agent_display_name,
+    get_task_display_name,
 )
-import uuid
-from maxim.logger.components.trace import Trace
-from maxim.logger.components.span import Span
-from maxim.logger.components.generation import Generation
-from maxim.logger.components.tool_call import ToolCall
-from maxim.logger.components.retrieval import Retrieval
-from maxim import Logger
-from crewai import Agent, Task, Crew, Flow, LLM
-from crewai.tools.base_tool import BaseTool
-from crewai.agents.agent_builder.base_agent import BaseAgent
-from time import time
 
-_crewai_patched_print_only = False
-_global_maxim_trace: Trace | None = None
+_global_maxim_trace: Union[Trace, None] = None
 _last_llm_usages = {}
 _task_span_ids = {}
-
-# Configure basic logging
-logging.basicConfig(format="%(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
 
 
 def get_log_level(debug: bool) -> int:
@@ -60,12 +63,14 @@ class MaximUsageCallback:
                 }
             else:
                 _last_llm_usages[self.generation_id] = None  # Couldn't parse
-            logger.debug(
-                f"Callback captured usage: {_last_llm_usages[self.generation_id] is not None}"
+            scribe().debug(
+                f"[MaximSDK] Callback captured usage: {_last_llm_usages[self.generation_id] is not None}"
             )
         else:
             _last_llm_usages[self.generation_id] = None
-            logger.debug(f"Callback did not find usage info in response_obj")
+            scribe().debug(
+                "[MaximSDK] Callback did not find usage info in response_obj"
+            )
 
 
 # --- Wrapper Factory for _handle_non_streaming_response ---
@@ -74,13 +79,13 @@ def make_handle_non_streaming_wrapper(original_method):
     def handle_non_streaming_wrapper(
         self,
         params: dict,
-        callbacks: list | None = None,
-        available_functions: dict | None = None,
+        callbacks: Union[list, None] = None,
+        available_functions: Union[dict, None] = None,
     ):
         _maxim_generation_id = getattr(self, "_maxim_generation_id", None)
         if not isinstance(_maxim_generation_id, str):
-            logger.warning(
-                "No generation ID found for LLM call. Skipping usage capture."
+            scribe().warning(
+                "[MaximSDK] No generation ID found for LLM call. Skipping usage capture."
             )
             return original_method(self, params, callbacks, available_functions)
 
@@ -89,7 +94,9 @@ def make_handle_non_streaming_wrapper(original_method):
         # Ensure callbacks is a list and add our custom one
         current_callbacks = callbacks if callbacks is not None else []
         if not isinstance(current_callbacks, list):  # Safety check
-            logger.warning("Original callbacks is not a list, creating new list.")
+            scribe().warning(
+                "[MaximSDK] Original callbacks is not a list, creating new list."
+            )
             current_callbacks = []
         current_callbacks.append(custom_callback)
 
@@ -122,13 +129,10 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
         maxim_logger (Logger): A Maxim Logger instance for handling the tracing and logging operations.
         debug (bool): If True, show INFO and DEBUG logs. If False, show only WARNING and ERROR logs.
     """
-    global _crewai_patched_print_only, logger
-    if _crewai_patched_print_only:
-        logger.info("CrewAI already patched for printing.")
-        return
+    global logger
 
     # Set the logging level based on debug parameter
-    logger.setLevel(get_log_level(debug))
+    scribe().setLevel(get_log_level(debug))
 
     def make_maxim_wrapper(
         original_method,
@@ -139,8 +143,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
     ):
         @functools.wraps(original_method)
         def maxim_wrapper(self, *args, **kwargs):
-
-            logger.debug(f"――― Start: {base_op_name} ―――")
+            scribe().debug(f"――― Start: {base_op_name} ―――")
 
             global _global_maxim_trace
             global _task_span_ids
@@ -162,33 +165,35 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     try:
                         processed_inputs = input_processor(bound_args)
                     except Exception as e:
-                        logger.error(
-                            f"Failed to process inputs for {base_op_name}: {e}"
+                        scribe().error(
+                            f"[MaximSDK] Failed to process inputs for {base_op_name}: {e}"
                         )
 
                 if display_name_fn:
                     try:
                         final_op_name = display_name_fn(processed_inputs)
                     except Exception as e:
-                        logger.error(
-                            f"Failed to generate display name for {base_op_name}: {e}"
+                        scribe().error(
+                            f"[MaximSDK] Failed to generate display name for {base_op_name}: {e}"
                         )
 
             except Exception as e:
-                logger.error(f"Failed to bind/process inputs for {base_op_name}: {e}")
+                scribe().error(
+                    f"[MaximSDK] Failed to bind/process inputs for {base_op_name}: {e}"
+                )
                 # Fallback for inputs display
                 processed_inputs = {"self": self, "args": args, "kwargs": kwargs}
 
-            trace: Trace | None = None
-            span: Span | None = None
-            generation: Generation | None = None
-            tool_call: ToolCall | Retrieval | None = None
-            planner_span: Span | None = None
+            trace: Union[Trace, None] = None
+            span: Union[Span, None] = None
+            generation: Union[Generation, None] = None
+            tool_call: Union[ToolCall, Retrieval, None] = None
+            planner_span: Union[Span, None] = None
 
             if isinstance(self, Flow):
                 if _global_maxim_trace is None:
                     trace_id = str(uuid.uuid4())
-                    logger.debug(f"Creating trace for flow [{trace_id}]")
+                    scribe().debug(f"Creating trace for flow [{trace_id}]")
 
                     trace = maxim_logger.trace(
                         {
@@ -209,7 +214,9 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     trace_id = str(uuid.uuid4())
 
                     if original_method.__name__ == "kickoff_for_each":
-                        logger.debug(f"Creating trace for crew kickoff_for_each")
+                        scribe().debug(
+                            "[MaximSDK] Creating trace for crew kickoff_for_each"
+                        )
 
                         trace = maxim_logger.trace(
                             {
@@ -223,7 +230,9 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                         )
 
                     else:
-                        logger.debug(f"Creating trace for crew [{trace_id}]")
+                        scribe().debug(
+                            f"[MaximSDK] Creating trace for crew [{trace_id}]"
+                        )
 
                         trace = maxim_logger.trace(
                             {
@@ -239,11 +248,13 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
 
                         # Attach trace to all tasks in the crew
                         if hasattr(self, "tasks") and self.tasks:
-                            logger.debug(f"Attaching trace to {len(self.tasks)} tasks")
+                            scribe().debug(
+                                f"[MaximSDK] Attaching trace to {len(self.tasks)} tasks"
+                            )
                             for task in self.tasks:
                                 setattr(task, "_trace", trace)
-                                logger.debug(
-                                    f"Task: {task.description[:40]}{'...' if len(task.description) > 40 else ''}"
+                                scribe().debug(
+                                    f"[MaximSDK] Task: {task.description[:40]}{'...' if len(task.description) > 40 else ''}"
                                 )
 
                     _global_maxim_trace = trace
@@ -251,8 +262,8 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     span_id = str(uuid.uuid4())
 
                     if original_method.__name__ == "kickoff_for_each":
-                        logger.debug(
-                            f"Attaching span to crew kickoff_for_each [{span_id}]"
+                        scribe().debug(
+                            f"[MaximSDK] Attaching span to crew kickoff_for_each [{span_id}]"
                         )
 
                         span = _global_maxim_trace.span(
@@ -265,7 +276,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                             }
                         )
                     else:
-                        logger.debug(f"Attaching span to crew [{span_id}]")
+                        scribe().debug(f"[MaximSDK] Attaching span to crew [{span_id}]")
 
                         span = _global_maxim_trace.span(
                             {
@@ -280,11 +291,13 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
 
                         # Attach trace to all tasks in the crew
                         if hasattr(self, "tasks") and self.tasks:
-                            logger.debug(f"Attaching trace to {len(self.tasks)} tasks")
+                            scribe().debug(
+                                f"[MaximSDK] Attaching trace to {len(self.tasks)} tasks"
+                            )
                             for task in self.tasks:
                                 setattr(task, "_span", span)
-                                logger.debug(
-                                    f"Task: {task.description[:40]}{'...' if len(task.description) > 40 else ''}"
+                                scribe().debug(
+                                    f"[MaximSDK] Task: {task.description[:40]}{'...' if len(task.description) > 40 else ''}"
                                 )
 
             elif isinstance(self, Task):
@@ -299,29 +312,41 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
 
                 span_id = str(uuid.uuid4())
 
-                logger.debug(
-                    f"Task span [{span_id}] for '{self.name or self.description[:40]}'"
+                scribe().debug(
+                    f"[MaximSDK] Task span [{span_id}] for '{self.name or self.description[:40]}'"
                 )
 
-                config = {
-                    "id": span_id,
-                    "name": f"Task: {self.name or 'None'}",
-                    "tags": {"task_id": str(getattr(self, "id", ""))},
-                }
+                task_span_config = SpanConfigDict(
+                    {
+                        "id": span_id,
+                        "name": f"Task: {self.name or 'None'}",
+                        "tags": {"task_id": str(getattr(self, "id", ""))},
+                    }
+                )
 
                 if not trace and not span:  # Will happen for Planner tasks
                     # TODO get crew info for flow workflows crew placement
-                    logger.debug(
-                        f"Parent trace/span not found, creating new task span on global trace"
+                    scribe().debug(
+                        "[MaximSDK] Parent trace/span not found, creating new task span on global trace"
                     )
-                    span = _global_maxim_trace.span(config)
+                    if _global_maxim_trace is None:
+                        scribe().warning(
+                            "[MaximSDK] No global trace found, skipping logging"
+                        )
+                        return
+                    span = _global_maxim_trace.span(task_span_config)
                 else:
                     if trace:
-                        logger.debug(f"Found parent trace: {trace.id}")
-                        span = trace.span(config)
+                        scribe().debug(f"[MaximSDK] Found parent trace: {trace.id}")
+                        span = trace.span(task_span_config)
                     else:
-                        logger.debug(f"Found parent span: {span.id}")
-                        span = span.span(config)
+                        if not span:
+                            scribe().warning(
+                                "[MaximSDK] No parent span found, skipping logging"
+                            )
+                            return
+                        scribe().debug(f"[MaximSDK] Found parent span: {span.id}")
+                        span = span.span(task_span_config)
 
                 metadata = {
                     "name": self.name or "None",
@@ -346,7 +371,9 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 _task_span_ids[self.id] = span_id
 
                 if self.agent is not None:
-                    logger.debug(f"Attaching span to agent [{self.agent.id}]")
+                    scribe().debug(
+                        f"[MaximSDK] Attaching span to agent [{self.agent.id}]"
+                    )
                     setattr(self.agent, "_span", span)
                 else:
                     # Check if agent is provided in args/kwargs
@@ -363,8 +390,8 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     agent_to_use = agent_from_kwargs or agent_from_args
 
                     if agent_to_use:
-                        logger.debug(
-                            f"Found agent in args, attaching span to agent [{agent_to_use.role}]"
+                        scribe().debug(
+                            f"[MaximSDK] Found agent in args, attaching span to agent [{agent_to_use.role}]"
                         )
                         setattr(agent_to_use, "_span", span)
 
@@ -375,7 +402,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                             args_list[0] = agent_to_use
                             args = tuple(args_list)  # Convert back to tuple
                     else:
-                        logger.warning(f"Task has no agent assigned")
+                        scribe().warning("[MaximSDK] Task has no agent assigned")
 
                 trace = None
 
@@ -386,22 +413,23 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
 
                 span_id = str(uuid.uuid4())
 
-                config = {
-                    "id": span_id,
-                    "name": f"Agent: {self.role}",
-                    "tags": {"agent_id": str(getattr(self, "id", ""))},
-                }
+                agent_span_config = SpanConfigDict(
+                    {
+                        "id": span_id,
+                        "name": f"Agent: {self.role}",
+                        "tags": {"agent_id": str(getattr(self, "id", ""))},
+                    }
+                )
 
                 skip_logging = False
 
                 if span:
-                    logger.debug(f"Agent span [{span_id}] for '{self.role}'")
-                    span = span.span(config)
+                    scribe().debug(
+                        f"[MaximSDK] Agent span [{span_id}] for '{self.role}'"
+                    )
+                    span = span.span(agent_span_config)
                 else:
-                    logger.debug(f"Agent has no span, checking task")
-
-                    if len(args) > 0:
-                        logger.debug(args[0])
+                    scribe().debug("[MaximSDK] Agent has no span, checking task")
 
                     # First check args/kwargs for task
                     task: Task = None
@@ -409,8 +437,8 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                         task = args[0]
 
                     if task:
-                        logger.debug(
-                            f"Found task in args: {task.id} and task description: {task.description}"
+                        scribe().debug(
+                            f"[MaximSDK] Found task in args: {task.id} and task description: {task.description}"
                         )
 
                     # Fallback to agent_executor.task if no task found in args
@@ -420,42 +448,52 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     if task:
                         span_id = _task_span_ids.get(task.id)
                         if span_id:
-                            span = logger.span_add_sub_span(span_id, config)
+                            span = maxim_logger.span_add_sub_span(
+                                span_id, agent_span_config
+                            )
                         else:
-                            logger.debug(
-                                f"No span found for task {task.id}, creating new task span"
+                            scribe().debug(
+                                f"[MaximSDK] No span found for task {task.id}, creating new task span"
                             )
                             # Create a new task span since none exists
                             task_span_id = str(uuid.uuid4())
-                            task_config = {
-                                "id": task_span_id,
-                                "name": f"Task: {task.name or task.description}",
-                                "tags": {
-                                    "task_id": str(task.id),
-                                },
-                            }
+                            task_config = SpanConfigDict(
+                                {
+                                    "id": task_span_id,
+                                    "name": f"Task: {task.name or task.description}",
+                                    "tags": {
+                                        "task_id": str(task.id),
+                                    },
+                                }
+                            )
                             if _global_maxim_trace:  # TODO check for check in flows
                                 span = _global_maxim_trace.span(task_config)
                                 _task_span_ids[task.id] = task_span_id
                                 # Now create the agent span as a child of the task span
-                                span = span.span(config)
+                                span = span.span(agent_span_config)
                             else:
-                                logger.debug("No global trace found, skipping logging")
+                                scribe().debug(
+                                    "[MaximSDK] No global trace found, skipping logging"
+                                )
                                 skip_logging = True
                     else:
-                        logger.warning(
-                            f"Agent {self.role} has no task or span, skipping logging"
+                        scribe().warning(
+                            f"[MaximSDK] Agent {self.role} has no task or span, skipping logging"
                         )
                         skip_logging = True
 
                 if not skip_logging:
                     if hasattr(self, "llm") and self.llm:
-                        logger.debug(f"LLM: {getattr(self.llm, 'model', 'unknown')}")
+                        scribe().debug(
+                            f"[MaximSDK] LLM: {getattr(self.llm, 'model', 'unknown')}"
+                        )
                     if isinstance(self.llm, LLM):
                         setattr(self.llm, "_span", span)
 
                     if hasattr(self, "tools") and self.tools:
-                        logger.debug(f"Attaching span to {len(self.tools)} tools")
+                        scribe().debug(
+                            f"[MaximSDK] Attaching span to {len(self.tools)} tools"
+                        )
                         for tool in self.tools:
                             setattr(tool, "_span", span)
 
@@ -466,36 +504,43 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
 
                 generation_id = str(uuid.uuid4())
                 setattr(self, "_maxim_generation_id", generation_id)
-                logger.debug(f"LLM generation [{generation_id}]")
+                scribe().debug(f"[MaximSDK] LLM generation [{generation_id}]")
 
-                config = {
-                    "id": generation_id,
-                    "name": "LLM Call",
-                    "provider": (
-                        "anthropic" if self.is_anthropic else "openai"
-                    ),  # TODO: Add more providers
-                    "model": str(getattr(self, "model", "unknown")),
-                    "messages": args[0],
-                }
+                llm_generation_config = GenerationConfigDict(
+                    {
+                        "id": generation_id,
+                        "name": "LLM Call",
+                        "provider": (
+                            "anthropic" if self.is_anthropic else "openai"
+                        ),  # TODO: Add more providers
+                        "model": str(getattr(self, "model", "unknown")),
+                        "messages": args[0],
+                    }
+                )
 
                 if span:
-                    config["span_id"] = span.id
-                    generation = span.generation(config)
+                    llm_generation_config["span_id"] = span.id
+                    generation = span.generation(llm_generation_config)
 
                     span = None
                 else:
-                    logger.warning(
-                        f"No parent span found for LLM call, creating new planner span"
+                    scribe().warning(
+                        "[MaximSDK] No parent span found for LLM call, creating new planner span"
                     )
+                    if _global_maxim_trace is None:
+                        scribe().warning(
+                            "[MaximSDK] No global trace found, skipping logging"
+                        )
+                        return
                     planner_span = _global_maxim_trace.span(
                         {
                             "id": str(uuid.uuid4()),
                             "name": "Planner",
                         }
                     )
-                    config["span_id"] = planner_span.id
+                    llm_generation_config["span_id"] = planner_span.id
 
-                    generation = planner_span.generation(config)
+                    generation = planner_span.generation(llm_generation_config)
 
             elif isinstance(self, BaseTool):
                 span = getattr(self, "_span", None)
@@ -507,7 +552,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     tool_name = extract_tool_name(final_op_name)
 
                     if tool_name == "RagTool":
-                        logger.debug(f"RAG: Retrieval tool [{tool_id}]")
+                        scribe().debug(f"[MaximSDK] RAG: Retrieval tool [{tool_id}]")
                         tool_call = span.retrieval(
                             {
                                 "id": tool_id,
@@ -517,7 +562,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                         )
                         tool_call.input(processed_inputs["query"])
                     else:
-                        logger.debug(f"TOOL: {self.name} [{tool_id}]")
+                        scribe().debug(f"[MaximSDK] TOOL: {self.name} [{tool_id}]")
 
                         tool_details = extract_tool_details(self.description)
                         tool_call = span.tool_call(
@@ -537,37 +582,39 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
 
                     span = None
                 else:
-                    logger.warning(f"No parent span found for tool call")
+                    scribe().warning("[MaximSDK] No parent span found for tool call")
 
-            logger.debug(f"\n--- Calling: {final_op_name} ---")
+            scribe().debug(f"\n[MaximSDK] --- Calling: {final_op_name} ---")
 
             try:
                 # Call the original method (bound to self)
                 output = original_method.__get__(self, self.__class__)(*args, **kwargs)
             except Exception as e:
-                logger.error(f"{type(e).__name__} in {final_op_name}")
+                scribe().error(f"[MaximSDK] {type(e).__name__} in {final_op_name}")
 
                 if tool_call:
                     if isinstance(tool_call, Retrieval):
                         tool_call.output("Error occurred while calling tool")
-                        logger.debug("RAG: Completed retrieval with error")
+                        scribe().debug("[MaximSDK] RAG: Completed retrieval with error")
                     else:
                         tool_call.result("Error occurred while calling tool")
-                        logger.debug("TOOL: Completed tool call with error")
+                        scribe().debug(
+                            "[MaximSDK] TOOL: Completed tool call with error"
+                        )
 
                 if generation:
                     generation.error({"message": str(e)})
-                    logger.debug("GEN: Completed generation with error")
+                    scribe().debug("[MaximSDK] GEN: Completed generation with error")
 
                 if span:
                     span.add_error({"message": str(e)})
                     span.end()
-                    logger.debug("SPAN: Completed span with error")
+                    scribe().debug("[MaximSDK] SPAN: Completed span with error")
 
                 if trace and "crewai.Crew" in final_op_name:
                     trace.add_error({"message": str(e)})
                     trace.end()
-                    logger.debug("TRACE: Completed trace with error")
+                    scribe().debug("[MaximSDK] TRACE: Completed trace with error")
                     _global_maxim_trace = None
 
                 raise e  # Re-raise the original exception
@@ -577,15 +624,15 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 try:
                     processed_output = output_processor(output)
                 except Exception as e:
-                    logger.error(f"Failed to process output: {e}")
+                    scribe().error(f"[MaximSDK] Failed to process output: {e}")
 
             if tool_call:
                 if isinstance(tool_call, Retrieval):
                     tool_call.output(processed_output)
-                    logger.debug("RAG: Completed retrieval")
+                    scribe().debug("[MaximSDK] RAG: Completed retrieval")
                 else:
                     tool_call.result(processed_output)
-                    logger.debug("TOOL: Completed tool call")
+                    scribe().debug("[MaximSDK] TOOL: Completed tool call")
 
             if generation:
                 # Create a structured result compatible with GenerationResult
@@ -595,22 +642,23 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 prompt_tokens = 0
                 completion_tokens = 0
                 total_tokens = 0
-                usage_data = _last_llm_usages[generation_id]
+
+                usage_data = _last_llm_usages[generation.id]
 
                 if usage_data and isinstance(usage_data, dict):
                     prompt_tokens = usage_data.get("prompt_tokens", 0)
                     completion_tokens = usage_data.get("completion_tokens", 0)
                     total_tokens = usage_data.get("total_tokens", 0)
-                    logger.debug(
-                        f"GEN: Using captured token usage: P={prompt_tokens}, C={completion_tokens}, T={total_tokens}"
+                    scribe().debug(
+                        f"[MaximSDK] GEN: Using captured token usage: P={prompt_tokens}, C={completion_tokens}, T={total_tokens}"
                     )
                 else:
-                    logger.debug(
-                        f"GEN: Using default token usage (0). Captured data: {usage_data}"
+                    scribe().debug(
+                        f"[MaximSDK] GEN: Using default token usage (0). Captured data: {usage_data}"
                     )
 
                 result = {
-                    "id": f"gen_{generation_id}",
+                    "id": f"gen_{generation.id}",
                     "object": "chat.completion",
                     "created": int(time()),
                     "model": str(getattr(self, "model", "unknown")),
@@ -632,36 +680,26 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 }
 
                 generation.result(result)
-                logger.debug("GEN: Completed generation")
+                scribe().debug("[MaximSDK] GEN: Completed generation")
 
                 if planner_span:
                     planner_span.end()
-                    logger.debug("PLANNER: Completed planner")
+                    scribe().debug("[MaximSDK] PLANNER: Completed planner")
 
-                del _last_llm_usages[generation_id]
+                del _last_llm_usages[generation.id]
 
             if span:
                 span.output(str(processed_output))
-                logger.debug("SPAN: Completing span")
+                scribe().debug("[MaximSDK] SPAN: Completing span")
                 span.end()
 
             if trace:
-                logger.debug(f"TRACE: Completing trace [{trace.id}]")
+                scribe().debug(f"[MaximSDK] TRACE: Completing trace [{trace.id}]")
                 trace.set_output(str(processed_output))
-                # if isinstance(output, CrewOutput):
-                #     logger.debug(
-                #         f"In crewai.Crew.kickoff, output is of type: {type(output)}"
-                #     )
-                #     token_usage = output.token_usage.model_dump()
-
-                #     logger.info(f"Token usage: {token_usage}")
-
-                #     trace.add_metadata(token_usage)
-
                 trace.end()
                 _global_maxim_trace = None
 
-            logger.debug(f"――― End: {final_op_name} ―――\n")
+            scribe().debug(f"――― End: {final_op_name} ―――\n")
 
             return output
 
@@ -672,8 +710,8 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
         original_handle_method = getattr(LLM, "_handle_non_streaming_response")
         wrapper_handle = make_handle_non_streaming_wrapper(original_handle_method)
         setattr(LLM, "_handle_non_streaming_response", wrapper_handle)
-        logger.info(
-            "Patched crewai.LLM._handle_non_streaming_response to capture usage."
+        scribe().info(
+            "[MaximSDK] Patched crewai.LLM._handle_non_streaming_response to capture usage."
         )
 
     # --- 1. Patch Crew Methods ---
@@ -688,7 +726,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 input_processor=crew_kickoff_postprocess_inputs,
             )
             setattr(Crew, method_name, wrapper)
-            logger.info(f"Patched crewai.Crew.{method_name} for printing.")
+            scribe().info(f"[MaximSDK] Patched crewai.Crew.{method_name} for printing.")
 
     # --- 2. Patch Agent.execute_task ---
     agent_methods_to_patch = ["execute_task", "execute_task_async"]
@@ -703,7 +741,9 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 display_name_fn=get_agent_display_name,
             )
             setattr(Agent, method_name, wrapper)
-            logger.info(f"Patched crewai.Agent.{method_name} for printing.")
+            scribe().info(
+                f"[MaximSDK] Patched crewai.Agent.{method_name} for printing."
+            )
 
     # --- 3. Patch Task.execute_sync ---
     task_methods_to_patch = ["execute_sync", "execute_sync_async"]
@@ -711,14 +751,14 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
         if hasattr(Task, method_name):
             original_method = getattr(Task, method_name)
             op_name = f"crewai.Task.{method_name}"
-        wrapper = make_maxim_wrapper(
-            original_method,
-            op_name,
-            input_processor=crewai_postprocess_inputs,
-            display_name_fn=get_task_display_name,
-        )
-        setattr(Task, method_name, wrapper)
-        logger.info(f"Patched crewai.Task.{method_name} for printing.")
+            wrapper = make_maxim_wrapper(
+                original_method,
+                op_name,
+                input_processor=crewai_postprocess_inputs,
+                display_name_fn=get_task_display_name,
+            )
+            setattr(Task, method_name, wrapper)
+            scribe().info(f"[MaximSDK] Patched crewai.Task.{method_name} for printing.")
 
     # --- 4. Patch LLM.call ---
     if LLM is not None and hasattr(LLM, "call"):
@@ -732,7 +772,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
             output_processor=lambda output: dictify(output),
         )
         setattr(LLM, "call", wrapper)
-        logger.info("Patched crewai.LLM.call for printing.")
+        scribe().info("[MaximSDK] Patched crewai.LLM.call for printing.")
 
     # --- 5. Patch CrewAI Tools ---
     try:
@@ -760,14 +800,18 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                         output_processor=lambda output: dictify(output),
                     )
                     setattr(tool_class, "_run", wrapper)
-                    logger.info(f"Patched {op_name} for printing.")
+                    scribe().info(f"[MaximSDK] Patched {op_name} for printing.")
             except (AttributeError, TypeError, ImportError) as e:
-                logger.warning(f"Skipping patching for tool {tool_name}: {e}")
+                scribe().warning(
+                    f"[MaximSDK] Skipping patching for tool {tool_name}: {e}"
+                )
                 continue
     except ImportError:
-        logger.warning("crewai_tools or BaseTool not found. Skipping tool patching.")
+        scribe().warning(
+            "[MaximSDK] crewai_tools or BaseTool not found. Skipping tool patching."
+        )
     except Exception as e:
-        logger.error(f"ERROR during tool patching: {e}")
+        scribe().error(f"[MaximSDK] ERROR during tool patching: {e}")
 
     # --- 6. Patch Flow Methods/Decorators (If Flow exists) ---
     if Flow is not None:
@@ -784,7 +828,8 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     output_processor=lambda output: dictify(output),
                 )
                 setattr(Flow, method_name, wrapper)
-                logger.info(f"Patched crewai.Flow.{method_name} for printing.")
+                scribe().info(
+                    f"[MaximSDK] Patched crewai.Flow.{method_name} for printing."
+                )
 
-    _crewai_patched_print_only = True
-    logger.info("Finished applying patches to CrewAI.")
+    scribe().info("[MaximSDK] Finished applying patches to CrewAI.")

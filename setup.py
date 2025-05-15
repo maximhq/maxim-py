@@ -8,7 +8,7 @@ here = os.path.abspath(os.path.dirname(__file__))
 with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
     long_description = "\n" + fh.read()
 
-VERSION = "3.6.3"
+VERSION = "3.6.4"
 DESCRIPTION = "Maxim Python Library"
 LONG_DESCRIPTION = "A package that allows you to use the Maxim Python Library to interact with the Maxim Platform"
 

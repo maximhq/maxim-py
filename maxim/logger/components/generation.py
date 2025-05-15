@@ -10,7 +10,7 @@ from ..parsers.generation_parser import parse_model_parameters, parse_result
 from ..writer import LogWriter
 from .attachment import FileAttachment, FileDataAttachment, UrlAttachment
 from .base import BaseContainer
-from .types import Entity, GenerationError, object_to_dict
+from .types import Entity, GenerationError, GenerationErrorTypedDict, object_to_dict
 
 
 class GenerationRequestMessageContent(TypedDict):
@@ -134,6 +134,29 @@ class GenerationResult(TypedDict):
     model: str
     choices: List[GenerationResultChoice]
     usage: GenerationUsage
+
+
+def get_generation_error_config_dict(
+    config: Union[GenerationError, GenerationErrorTypedDict],
+) -> GenerationErrorTypedDict:
+    """
+    Convert a TraceConfig object to a TraceConfigDict.
+
+    Args:
+        config: Either a TraceConfig object or a TraceConfigDict dictionary.
+
+    Returns:
+        A TraceConfigDict dictionary representation of the config.
+    """
+    return (
+        GenerationErrorTypedDict(
+            message=config.message,
+            code=config.code,
+            type=config.type,
+        )
+        if isinstance(config, GenerationError)
+        else config
+    )
 
 
 class Generation(BaseContainer):
@@ -438,19 +461,20 @@ class Generation(BaseContainer):
                 traceback.format_exc(),
             )
 
-    def error(self, error: GenerationError):
-        if not error.code:
-            error.code = ""
-        if not error.type:
-            error.type = ""
+    def error(self, error: Union[GenerationError, GenerationErrorTypedDict]):
+        final_error = get_generation_error_config_dict(error)
+        if not final_error.get("code"):
+            final_error["code"] = ""
+        if not final_error.get("type"):
+            final_error["type"] = ""
         self._commit(
             "result",
             {
                 "result": {
                     "error": {
-                        "message": error.message,
-                        "code": error.code,
-                        "type": error.type,
+                        "message": final_error.get("message", ""),
+                        "code": final_error.get("code", ""),
+                        "type": final_error.get("type", ""),
                     },
                     "id": str(uuid4()),
                 }
@@ -459,11 +483,16 @@ class Generation(BaseContainer):
         self.end()
 
     @staticmethod
-    def error_(writer: LogWriter, id: str, error: GenerationError):
-        if not error.code:
-            error.code = ""
-        if not error.type:
-            error.type = ""
+    def error_(
+        writer: LogWriter,
+        id: str,
+        error: Union[GenerationError, GenerationErrorTypedDict],
+    ):
+        final_error = get_generation_error_config_dict(error)
+        if not final_error.get("code"):
+            final_error["code"] = ""
+        if not final_error.get("type"):
+            final_error["type"] = ""
         BaseContainer._commit_(
             writer,
             Entity.GENERATION,
@@ -472,9 +501,9 @@ class Generation(BaseContainer):
             {
                 "result": {
                     "error": {
-                        "message": error.message,
-                        "code": error.code,
-                        "type": error.type,
+                        "message": final_error.get("message", ""),
+                        "code": final_error.get("code", ""),
+                        "type": final_error.get("type", ""),
                     },
                     "id": str(uuid4()),
                 }
