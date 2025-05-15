@@ -1,0 +1,32 @@
+{
+	"name": "maxim-py",
+	"$schema": "../../node_modules/nx/schemas/project-schema.json",
+	"sourceRoot": "libs/maxim-py",
+	"projectType": "library",
+	"targets": {
+		"install": {
+			"command": "pip3 install ."
+		},
+		"test": {
+			"command": "cd libs/maxim-py/maxim && python -m unittest discover -s tests -p '*_test.py'"
+		},
+		"build": {
+			"command": "export PATH=$PATH:/libs/maxim-py/maxim-py-env/bin  && cd libs/maxim-py && source maxim-py-env/bin/activate && python -m ensurepip --default-pip &&  pip3 install setuptools && pip3 install wheel &&  rm -rf build && rm -rf dist && rm -rf maxim_py.egg-info && python3 setup.py sdist bdist_wheel"
+		},
+		"venv:create": {
+			"command": "cd libs/maxim-py && python3 -m venv maxim-py-env"
+		},
+		"publish": {
+			"command": "export PATH=$PATH:/libs/maxim-py/maxim-py-env/bin  && cd libs/maxim-py  && source maxim-py-env/bin/activate && pip3 install twine && twine upload dist/*",
+			"dependsOn": [
+				"build"
+			]
+		},
+		"publish:test": {
+			"command": "export PATH=$PATH:/libs/maxim-py/maxim-py-env/bin  && cd libs/maxim-py  && source maxim-py-env/bin/activate && pip3 install twine && twine upload --repository-url https://test.pypi.org/legacy/ dist/*",
+			"dependsOn": [
+				"build"
+			]
+		}
+	}
+}
