@@ -105,6 +105,11 @@ trace.end()
 
 ## Version changelog
 
+### 3.6.4
+
+- chore: crewai python 3.9+ support
+
+
 ### 3.6.3
 
 - fix: now reports metadata errors silently

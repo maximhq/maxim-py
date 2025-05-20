@@ -1,10 +1,7 @@
-import warnings
-from typing import Any
-import re
-from typing import Any, Sequence
-import warnings
-from typing import Any
 import ast
+import re
+import warnings
+from typing import Any, Sequence, Union
 
 EXCLUDE_TASK_ATTRS = {"agent": True}
 
@@ -19,7 +16,7 @@ def is_primitive(obj: Any) -> bool:
 
 
 def dictify(
-    obj: Any, maxdepth: int = 0, depth: int = 1, seen: set[int] | None = None
+    obj: Any, maxdepth: int = 0, depth: int = 1, seen: Union[set[int], None] = None
 ) -> Any:
     """Recursively compute a dictionary representation of an object."""
     if seen is None:
@@ -283,7 +280,7 @@ def extract_tool_details(description: str) -> dict[str, Any]:
     try:
         name_match = re.search(r"Tool Name:\s*(.+)", description)
         tool_name = name_match.group(1).strip() if name_match else None
-    except Exception as e:
+    except Exception:
         tool_name = None
 
     # Extract Tool Arguments as Python dict
@@ -294,14 +291,14 @@ def extract_tool_details(description: str) -> dict[str, Any]:
         )
         if args_match:
             tool_args = ast.literal_eval(args_match.group(1))
-    except Exception as e:
+    except Exception:
         tool_args = None
 
     # Extract Tool Description
     try:
         desc_match = re.search(r"Tool Description:\s*(.+)", description)
         tool_description = desc_match.group(1).strip() if desc_match else None
-    except Exception as e:
+    except Exception:
         tool_description = None
 
     return {
