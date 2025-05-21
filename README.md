@@ -105,6 +105,10 @@ trace.end()
 
 ## Version changelog
 
+### 3.6.5
+
+- feat: LiveKit one line integration (beta)
+
 ### 3.6.4
 
 - chore: crewai python 3.9+ support
