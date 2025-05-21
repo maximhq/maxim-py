@@ -1,10 +1,14 @@
 from livekit.agents import Agent, AgentSession, JobContext, Worker
 from livekit.agents.llm import RealtimeSession
+from livekit.agents.voice.agent_activity import AgentActivity
+from livekit.rtc import Room
 
 from .agent import handle_agent
+from .agent_activity import instrument_agent_activity
 from .agent_session import instrument_agent_session
 from .job_context import instrument_job_context
 from .realtime_session import instrument_realtime_session
+from .room import instrument_room
 from .worker import instrument_worker
 
 
@@ -61,3 +65,19 @@ def instrument_livekit():
     ]:
         if name != "__class__" and not name.startswith("__"):
             setattr(RealtimeSession, name, instrument_realtime_session(orig, name))
+
+    # Instrument Room methods
+    for name, orig in [
+        (n, getattr(Room, n)) for n in dir(Room) if callable(getattr(Room, n))
+    ]:
+        if name != "__class__" and not name.startswith("__"):
+            setattr(Room, name, instrument_room(orig, name))
+
+    # Instrument AgentActivity methods
+    for name, orig in [
+        (n, getattr(AgentActivity, n))
+        for n in dir(AgentActivity)
+        if callable(getattr(AgentActivity, n))
+    ]:
+        if name != "__class__" and not name.startswith("__"):
+            setattr(AgentActivity, name, instrument_agent_activity(orig, name))

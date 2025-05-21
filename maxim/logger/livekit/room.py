@@ -27,7 +27,7 @@ def post_hook(self, result, hook_name, args, kwargs):
         )
 
 
-def handle_agent(orig, name):
+def instrument_room(orig, name):
     if inspect.iscoroutinefunction(orig):
 
         async def async_wrapper(self, *args, **kwargs):

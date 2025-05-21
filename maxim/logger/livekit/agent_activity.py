@@ -5,6 +5,13 @@ import traceback
 from ...scribe import scribe
 
 
+def intercept_post_start(self, *args, **kwargs):
+    scribe().debug(f"[{self.__class__.__name__}] post start called")
+    # Trying to get AgentSession and RealtimeSession handles
+    print(f"sessionid: {id(self._session)}")
+    print(f"rt_sessionid: {id(self._rt_session)}")
+
+
 def pre_hook(self, hook_name, args, kwargs):
     try:
         scribe().debug(
@@ -21,13 +28,15 @@ def post_hook(self, result, hook_name, args, kwargs):
         scribe().debug(
             f"[{self.__class__.__name__}] {hook_name} completed; result={result}"
         )
+        if hook_name == "start":
+            intercept_post_start(self, *args, **kwargs)
     except Exception as e:
         scribe().error(
             f"[{self.__class__.__name__}] {hook_name} failed; error={str(e)}\n{traceback.format_exc()}"
         )
 
 
-def handle_agent(orig, name):
+def instrument_agent_activity(orig, name):
     if inspect.iscoroutinefunction(orig):
 
         async def async_wrapper(self, *args, **kwargs):
