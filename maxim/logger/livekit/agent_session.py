@@ -1,10 +1,12 @@
 import functools
 import inspect
 import traceback
+import uuid
 
 from livekit.agents import Agent, AgentSession
 
 from ...scribe import scribe
+from .store import SessionStoreEntry, get_session_store
 
 
 def intercept_session_start(self: AgentSession, *args, **kwargs):
@@ -25,15 +27,21 @@ def intercept_session_start(self: AgentSession, *args, **kwargs):
     print("##############CREATING SESSION################")
     # creating trace as well
     print("##############CREATING TRACE################")
-    # get_session_store().set_session(
-    #     room_id,
-    #     SessionStoreEntry(
-    #         room_id=room_id,
-    #         agent_id=agent.get("agent_id", None),
-    #         session_id=session_id,
-    #         current_trace_id=current_trace_id,
-    #     ),
-    # )
+    session_id = str(uuid.uuid4())
+    trace_id = str(uuid.uuid4())
+    get_session_store().set_session(
+        SessionStoreEntry(
+            room_id=room_id,
+            agent_id=id(agent),
+            session_id=id(self),
+            session=self,
+            rt_session_id=None,
+            rt_session=None,
+            rt_session_info={},
+            mx_current_trace_id=trace_id,
+            mx_session_id=session_id,
+        ),
+    )
 
 
 def intercept_update_agent_state(self, *args, **kwargs):
@@ -53,10 +61,20 @@ def intercept_generate_reply(self, *args, **kwargs):
     """
     instructions = kwargs.get("instructions", None)
     scribe().debug(
-        f"[{self.__class__.__name__}] Reply generated; instructions={instructions} kwargs={kwargs}"
+        f"[{self.__class__.__name__}] Generate reply; instructions={instructions} kwargs={kwargs}"
     )
-    print("###########CREATING LLM CALL###########")
+    print("###########Adding trace input###########")
 
+
+def intercept_user_state_changed(self, *args, **kwargs):
+    """
+    This function is called when the user state is changed.
+    """
+    new_state = args[0]
+    scribe().debug(
+        f"[{self.__class__.__name__}] User state changed; new_state={new_state}"
+    )
+    print("###########SENDING USER STATE CHANGED EVENT###########")
 
 def pre_hook(self, hook_name, args, kwargs):
     try:
@@ -66,6 +84,8 @@ def pre_hook(self, hook_name, args, kwargs):
             intercept_update_agent_state(self, *args, **kwargs)
         elif hook_name == "generate_reply":
             intercept_generate_reply(self, *args, **kwargs)
+        elif hook_name == "_update_user_state":
+            intercept_user_state_changed(self, *args, **kwargs)
         else:
             scribe().debug(
                 f"[{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
