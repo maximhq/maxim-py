@@ -1,18 +1,21 @@
+
 from livekit.agents import Agent, AgentSession, JobContext, Worker
 from livekit.agents.llm import RealtimeSession
 from livekit.agents.voice.agent_activity import AgentActivity
 from livekit.rtc import Room
 
+from ...logger import Logger
 from .agent import handle_agent
 from .agent_activity import instrument_agent_activity
 from .agent_session import instrument_agent_session
 from .job_context import instrument_job_context
 from .realtime_session import instrument_realtime_session
 from .room import instrument_room
+from .store import set_maxim_logger
 from .worker import instrument_worker
 
 
-def instrument_livekit():
+def instrument_livekit(logger: Logger):
     """Instrument LiveKit classes with logging.
 
     This function adds logging instrumentation to LiveKit classes (Agent, JobContext, LLM)
@@ -24,6 +27,8 @@ def instrument_livekit():
     2. Wraps all JobContext methods (except special methods)
     3. Wraps all LLM methods (except special methods)
     """
+    set_maxim_logger(logger)
+
     # Overriding agent methods
     for name, orig in [
         (n, getattr(Agent, n))

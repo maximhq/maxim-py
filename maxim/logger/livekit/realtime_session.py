@@ -1,12 +1,17 @@
 import functools
 import inspect
 import traceback
+from uuid import uuid4
 
 from livekit.agents.llm import RealtimeSession
 
 from ...scribe import scribe
 from .openai.realtime.handler import handle_openai_server_event_received
 from .store import get_session_store
+
+
+def handle_generation_create_called(self: RealtimeSession, *args, **kwargs):
+    pass
 
 
 def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
@@ -23,19 +28,18 @@ def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
         pass
     elif event == "openai_server_event_received":
         handle_openai_server_event_received(session_info, args[1])
+    elif event == "metrics_collected":
+        pass
     else:
         scribe().debug(
             f"[{self.__class__.__name__}] emit called; args={args}, kwargs={kwargs}"
         )
 
+
 def intercept_realtime_session_on(self, *args, **kwargs):
     action = args[0]
-    activity = args[1]
     if action == "generation_created":
-        print(f"Activity: {activity}")
-        scribe().debug(
-            f"[{self.__class__.__name__}] generation_created called; args={args}, kwargs={kwargs}"
-        )
+        handle_generation_create_called(self, args, kwargs)
     elif action == "input_speech_started":
         scribe().debug(
             f"[{self.__class__.__name__}] input_speech_started called; args={args}, kwargs={kwargs}"
@@ -50,6 +54,14 @@ def intercept_realtime_session_on(self, *args, **kwargs):
         )
 
 
+def handle_interrupt(self, args, **kwargs):
+    rt_session_id = id(self)
+    trace = get_session_store().get_current_trace_from_rt_session_id(rt_session_id)
+    if trace is None:
+        return
+    trace.event(id=str(uuid4()), name="Interrupt", tags={"type": "interrupt"})
+
+
 def pre_hook(self, hook_name, args, kwargs):
     try:
         if hook_name == "emit":
@@ -57,7 +69,7 @@ def pre_hook(self, hook_name, args, kwargs):
         elif hook_name == "on":
             intercept_realtime_session_on(self, *args, **kwargs)
         elif hook_name == "interrupt":
-            print("###########INTERRUPTED EVENT############")
+            handle_interrupt(self, *args, **kwargs)
         else:
             scribe().debug(
                 f"[{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
@@ -80,6 +92,7 @@ def post_hook(self, result, hook_name, args, kwargs):
         scribe().error(
             f"[{self.__class__.__name__}] {hook_name} failed; error={str(e)}\n{traceback.format_exc()}"
         )
+
 
 def instrument_realtime_session(orig, name):
     if inspect.iscoroutinefunction(orig):

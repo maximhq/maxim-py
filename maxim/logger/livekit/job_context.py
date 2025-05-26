@@ -1,16 +1,25 @@
 import functools
 import inspect
 import traceback
+from uuid import uuid4
+
+from livekit.agents import JobContext
 
 from ...scribe import scribe
+from .store import get_session_store
 
 
-def intercept_participant_available(self, *args, **kwargs):
+def intercept_participant_available(self: JobContext, *args, **kwargs):
     participant = args[0]
-    scribe().debug(
-        f"[{self.__class__.__name__}] new participant available; participant={participant}"
+    trace = get_session_store().get_current_trace_for_room_id(id(self.room))
+    if trace is None:
+        return
+    trace.event(
+        str(uuid4()),
+        "Participant available",
+        {"type": "participant_available"},
+        {"participant": participant},
     )
-    print("###########SENDING PARTICIPANT AVAILABLE EVENT###########")
 
 
 def pre_hook(self, hook_name, args, kwargs):
