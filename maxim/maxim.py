@@ -103,7 +103,7 @@ class Maxim:
     This class provides methods for interacting with the Maxim API.
     """
 
-    def __init__(self, config: Union[Config, ConfigDict] = Config()):
+    def __init__(self, config: Union[Config, ConfigDict]):
         """
         Initializes a new instance of the Maxim class.
 
@@ -316,6 +316,7 @@ class Maxim:
             if prompt_version.config
             else {},
             model=prompt_version.config.model if prompt_version.config else None,
+            provider=prompt_version.config.provider if prompt_version.config else None
         )
 
     def __format_prompt_chain(

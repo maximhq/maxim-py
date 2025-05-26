@@ -12,6 +12,7 @@ class RunnablePrompt:
     messages: List[Message]
     model_parameters: Dict[str, Union[str, int, bool, Dict, None]]
     model: Optional[str] = None
+    provider: Optional[str] = None
     tags: Optional[Dict[str, Union[str, int, bool, None]]] = None
 
     def __init__(self, prompt: Prompt, maxim_api: MaximAPI):
@@ -20,6 +21,7 @@ class RunnablePrompt:
         self.messages = prompt.messages
         self.model_parameters = prompt.model_parameters
         self.model = prompt.model
+        self.provider = prompt.provider
         self.tags = prompt.tags
         self.maxim_api = maxim_api
 
