@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import threading
@@ -8,7 +9,7 @@ from typing import Any, Dict, List, Optional, TypedDict, Union
 from typing_extensions import deprecated
 
 from .apis import MaximAPI
-from .cache import MaximCache, MaximInMemoryCache
+from .cache import AsyncMaximCache, MaximCache, MaximInMemoryCache
 from .filter_objects import (
     IncomingQuery,
     QueryObject,
@@ -64,7 +65,7 @@ class Config:
     Attributes:
         api_key (str): The API key for the Maxim instance.
         base_url (Optional[str], optional): The base URL for the Maxim instance. Defaults to "https://app.getmaxim.ai".
-        cache (Optional[MaximCache], optional): The cache to use for the Maxim instance. Defaults to None.
+        cache (Optional[MaximCache,AsyncMaximCache], optional): The cache to use for the Maxim instance. Defaults to None.
         debug (Optional[bool], optional): Whether to enable debug logging. Defaults to False.
         raise_exceptions (Optional[bool], optional): Whether to raise exceptions during logging operations. Defaults to False.
         prompt_management (Optional[bool], optional): Whether to enable prompt management. Defaults to False.
@@ -72,7 +73,7 @@ class Config:
 
     api_key: Optional[str] = os.environ.get("MAXIM_API_KEY")
     base_url: Optional[str] = None
-    cache: Optional[MaximCache] = None
+    cache: Optional[Union[MaximCache, AsyncMaximCache]] = None
     debug: Optional[bool] = False
     raise_exceptions: Optional[bool] = False
     prompt_management: Optional[bool] = False
@@ -134,7 +135,9 @@ class Maxim:
         self.__loggers: Dict[str, Logger] = {}
         self.prompt_management = final_config.get("prompt_management", False)
         if self.prompt_management:
-            self.__cache = final_config.get("cache", MaximInMemoryCache())
+            self.__cache: Union[MaximCache, AsyncMaximCache] = final_config.get(
+                "cache", MaximInMemoryCache()
+            )
             self.__sync_thread = threading.Thread(target=self.__sync_timer)
             self.__sync_thread.daemon = True
             self.__sync_thread.start()
@@ -155,28 +158,65 @@ class Maxim:
         if not self.prompt_management:
             return
         while self.is_running:
-            self.__sync_entities()
+            asyncio.run(self.__sync_entities())
             time.sleep(60)
 
-    def __sync_entities(self):
+    ## Cache wrapper methods
+    async def __cache_get_entry(self, key: str) -> Optional[str]:
+        if self.__cache is None:
+            raise ValueError("[MaximSDK] Maxim cache is not initialized")
+        if isinstance(self.__cache, MaximCache):
+            return self.__cache.get(key)
+        elif isinstance(self.__cache, AsyncMaximCache):
+            return await self.__cache.a_get(key)
+        return None
+
+    async def __cache_set_entry(self, key: str, val: str):
+        if self.__cache is None:
+            raise ValueError("[MaximSDK] Maxim cache is not initialized")
+        if isinstance(self.__cache, MaximCache):
+            self.__cache.set(key, val)
+        elif isinstance(self.__cache, AsyncMaximCache):
+            await self.__cache.a_set(key, val)
+
+    async def __cache_get_all_keys(self) -> List[str]:
+        if self.__cache is None:
+            raise ValueError("[MaximSDK] Maxim cache is not initialized")
+        if isinstance(self.__cache, MaximCache):
+            return self.__cache.get_all_keys()
+        elif isinstance(self.__cache, AsyncMaximCache):
+            return await self.__cache.a_get_all_keys()
+        return []
+
+    async def __cache_delete_entry(self, key: str):
+        if self.__cache is None:
+            raise ValueError("[MaximSDK] Maxim cache is not initialized")
+        if isinstance(self.__cache, MaximCache):
+            self.__cache.delete(key)
+        elif isinstance(self.__cache, AsyncMaximCache):
+            await self.__cache.a_delete(key)
+
+    ## Cache wrapper methods end
+
+    async def __sync_entities(self):
         scribe().debug("[MaximSDK] Syncing prompts and folders")
         if not self.prompt_management:
             return
         if not self.is_running:
             return
-        self.__sync_prompts()
-        self.__sync_prompt_chains()
-        self.__syncFolders()
+        await self.__sync_prompts()
+        await self.__sync_prompt_chains()
+        await self.__syncFolders()
         scribe().debug("[MaximSDK] Syncing completed")
 
-    def __sync_prompts(self):
+    async def __sync_prompts(self):
         scribe().debug("[MaximSDK] Syncing prompts")
         try:
             prompts = self.maxim_api.get_prompts()
             scribe().debug(f"[MaximSDK] Found {len(prompts)} prompts")
             for prompt in prompts:
                 try:
-                    self.__cache.set(
+                    await self.__cache_set_entry(
                         self.__get_cache_key(EntityType["PROMPT"], prompt.promptId),
                         json.dumps(prompt, cls=VersionAndRulesWithPromptIdEncoder),
                     )
@@ -189,14 +229,14 @@ class Maxim:
             if self.raise_exceptions:
                 raise err
 
-    def __sync_prompt_chains(self):
+    async def __sync_prompt_chains(self):
         scribe().debug("[MaximSDK] Syncing prompt Chains")
         try:
             prompt_chains = self.maxim_api.get_prompt_chains()
             scribe().debug(f"[MaximSDK] Found {len(prompt_chains)} prompt chains")
             for prompt_chain in prompt_chains:
                 try:
-                    self.__cache.set(
+                    await self.__cache_set_entry(
                         self.__get_cache_key(
                             EntityType["PROMPT_CHAIN"], prompt_chain.promptChainId
                         ),
@@ -215,14 +255,14 @@ class Maxim:
             if self.raise_exceptions:
                 raise err
 
-    def __syncFolders(self):
+    async def __syncFolders(self):
         scribe().debug("[MaximSDK] Syncing folders")
         try:
             folders = self.maxim_api.get_folders()
             scribe().debug(f"[MaximSDK] Found {len(folders)} folders")
             for folder in folders:
                 try:
-                    self.__cache.set(
+                    await self.__cache_set_entry(
                         self.__get_cache_key(EntityType["FOLDER"], folder.id),
                         json.dumps(folder, cls=FolderEncoder),
                     )
@@ -241,18 +281,22 @@ class Maxim:
         else:
             return f"folder:{id}"
 
-    def __get_prompt_from_cache(self, key: str) -> Optional[VersionsAndRules]:
-        data = self.__cache.get(key)
+    async def __get_prompt_from_cache(self, key: str) -> Optional[VersionsAndRules]:
+        data = await self.__cache_get_entry(key)
         if not data:
             return None
         json_data = json.loads(data)
         return VersionAndRulesWithPromptId.from_dict(json_data)
 
-    def __get_all_prompts_from_cache(self) -> Optional[List[VersionsAndRules]]:
-        keys = self.__cache.get_all_keys()
+    async def __get_all_prompts_from_cache(self) -> Optional[List[VersionsAndRules]]:
+        keys = await self.__cache_get_all_keys()
         if not keys:
             return None
-        data = [self.__cache.get(key) for key in keys if key.startswith("prompt:")]
+        data = [
+            await self.__cache_get_entry(key)
+            for key in keys
+            if key.startswith("prompt:")
+        ]
         prompt_list = []
         for d in data:
             if d is not None:
@@ -262,23 +306,25 @@ class Maxim:
                 prompt_list.append(VersionsAndRules.from_dict(json_data))
         return prompt_list
 
-    def __get_prompt_chain_from_cache(
+    async def __get_prompt_chain_from_cache(
         self, key: str
     ) -> Optional[PromptChainVersionsAndRules]:
-        data = self.__cache.get(key)
+        data = await self.__cache_get_entry(key)
         if not data:
             return None
         parsed_data = json.loads(data)
         return PromptChainVersionsAndRules.from_dict(parsed_data)
 
-    def __get_all_prompt_chains_from_cache(
+    async def __get_all_prompt_chains_from_cache(
         self,
     ) -> Optional[List[PromptChainVersionsAndRules]]:
-        keys = self.__cache.get_all_keys()
+        keys = await self.__cache_get_all_keys()
         if not keys:
             return None
         data = [
-            self.__cache.get(key) for key in keys if key.startswith("prompt_chain:")
+            await self.__cache_get_entry(key)
+            for key in keys
+            if key.startswith("prompt_chain:")
         ]
         prompt_chain_list = []
         for d in data:
@@ -291,18 +337,22 @@ class Maxim:
                 )
         return prompt_chain_list
 
-    def __get_folder_from_cache(self, key: str) -> Optional[Folder]:
-        data = self.__cache.get(key)
+    async def __get_folder_from_cache(self, key: str) -> Optional[Folder]:
+        data = await self.__cache_get_entry(key)
         if not data:
             return None
         json_data = json.loads(data)
         return Folder(**json_data)
 
-    def __get_all_folders_from_cache(self) -> Optional[List[Folder]]:
-        keys = self.__cache.get_all_keys()
+    async def __get_all_folders_from_cache(self) -> Optional[List[Folder]]:
+        keys = await self.__cache_get_all_keys()
         if not keys:
             return None
-        data = [self.__cache.get(key) for key in keys if key.startswith("folder:")]
+        data = [
+            await self.__cache_get_entry(key)
+            for key in keys
+            if key.startswith("folder:")
+        ]
         return [Folder(**json.loads(d)) for d in data if d is not None]
 
     def __format_prompt(self, prompt_version: PromptVersion) -> Prompt:
@@ -537,17 +587,21 @@ class Maxim:
                 "prompt_management is disabled. You can enable it by initializing Maxim with Config(...prompt_management=True)."
             )
         key = self.__get_cache_key("PROMPT", id)
-        version_and_rules_with_prompt_id = self.__get_prompt_from_cache(key)
+        version_and_rules_with_prompt_id = asyncio.run(
+            self.__get_prompt_from_cache(key)
+        )
         if version_and_rules_with_prompt_id is None:
             version_and_rules_with_prompt_id = self.maxim_api.get_prompt(id)
             if len(version_and_rules_with_prompt_id.versions) == 0:
                 return None
-            self.__cache.set(
-                id,
-                json.dumps(
-                    version_and_rules_with_prompt_id,
-                    cls=VersionAndRulesWithPromptIdEncoder,
-                ),
+            asyncio.run(
+                self.__cache_set_entry(
+                    id,
+                    json.dumps(
+                        version_and_rules_with_prompt_id,
+                        cls=VersionAndRulesWithPromptIdEncoder,
+                    ),
+                )
             )
         if not version_and_rules_with_prompt_id:
             return None
@@ -573,11 +627,11 @@ class Maxim:
             raise Exception(
                 "prompt_management is disabled. Please enable it in config."
             )
-        version_and_rules = self.__get_all_prompts_from_cache()
+        version_and_rules = asyncio.run(self.__get_all_prompts_from_cache())
         prompts: list[RunnablePrompt] = []
         if version_and_rules is None or len(version_and_rules) == 0:
-            self.__sync_entities()
-            version_and_rules = self.__get_all_prompts_from_cache()
+            asyncio.run(self.__sync_entities())
+            version_and_rules = asyncio.run(self.__get_all_prompts_from_cache())
         if not version_and_rules:
             return []
         for v in version_and_rules:
@@ -612,16 +666,18 @@ class Maxim:
                 "prompt_management is disabled. Please enable it in config by setting Config(...,prompt_management=True)."
             )
         key = self.__get_cache_key("PROMPT_CHAIN", id)
-        version_and_rules = self.__get_prompt_chain_from_cache(key)
+        version_and_rules = asyncio.run(self.__get_prompt_chain_from_cache(key))
         if version_and_rules is None:
             version_and_rules = self.maxim_api.getPromptChain(id)
             if len(version_and_rules.versions) == 0:
                 return None
-            self.__cache.set(
-                id,
-                json.dumps(
-                    version_and_rules, cls=VersionAndRulesWithPromptChainIdEncoder
-                ),
+            asyncio.run(
+                self.__cache_set_entry(
+                    id,
+                    json.dumps(
+                        version_and_rules, cls=VersionAndRulesWithPromptChainIdEncoder
+                    ),
+                )
             )
         if not version_and_rules:
             return None
@@ -649,13 +705,15 @@ class Maxim:
                 "prompt_management is disabled. Please enable it in config."
             )
         key = self.__get_cache_key("FOLDER", id)
-        folder = self.__get_folder_from_cache(key)
+        folder = asyncio.run(self.__get_folder_from_cache(key))
         if folder is None:
             try:
                 folder = self.maxim_api.get_folder(id)
                 if not folder:
                     return None
-                self.__cache.set(key, json.dumps(folder, cls=FolderEncoder))
+                asyncio.run(
+                    self.__cache_set_entry(key, json.dumps(folder, cls=FolderEncoder))
+                )
             except Exception:
                 return None
         return folder
@@ -674,10 +732,10 @@ class Maxim:
             raise Exception(
                 "prompt_management is disabled. Please enable it in config."
             )
-        folders = self.__get_all_folders_from_cache()
+        folders = asyncio.run(self.__get_all_folders_from_cache())
         if folders is None or len(folders) == 0:
-            self.__sync_entities()
-            folders = self.__get_all_folders_from_cache()
+            asyncio.run(self.__sync_entities())
+            folders = asyncio.run(self.__get_all_folders_from_cache())
         if not folders:
             return []
         return self.__get_folders_for_rule(folders, rule)

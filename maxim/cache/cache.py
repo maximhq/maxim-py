@@ -1,16 +1,30 @@
+from abc import ABC, abstractmethod
 from typing import List, Optional
 
 
-class MaximCache():
+class MaximCache(ABC):
+    @abstractmethod
+    def get_all_keys(self) -> List[str]: ...
 
-    def get_all_keys(self) -> List[str]:
-        return []
+    @abstractmethod
+    def get(self, key: str) -> Optional[str]: ...
 
-    def get(self, key: str) -> Optional[str]:
-        pass
+    @abstractmethod
+    def set(self, key: str, value: str) -> None: ...
 
-    def set(self, key: str, value: str) -> None:
-        pass
+    @abstractmethod
+    def delete(self, key: str) -> None: ...
 
-    def delete(self, key: str) -> None:
-        pass
+
+class AsyncMaximCache(ABC):
+    @abstractmethod
+    async def a_get_all_keys(self) -> List[str]: ...
+
+    @abstractmethod
+    async def a_get(self, key: str) -> Optional[str]: ...
+
+    @abstractmethod
+    async def a_set(self, key: str, value: str) -> None: ...
+
+    @abstractmethod
+    async def a_delete(self, key: str) -> None: ...
