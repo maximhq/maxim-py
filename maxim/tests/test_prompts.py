@@ -2,9 +2,12 @@ import json
 import logging
 import os
 import unittest
+from typing import List, Optional
 
 from maxim import Config, Maxim
+from maxim.cache import AsyncMaximCache
 from maxim.models import QueryBuilder
+from redis.asyncio import Redis
 
 # reading testConfig.json and setting the values
 
@@ -12,7 +15,7 @@ with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
     data = json.load(f)
 
 # local config
-env = "beta"
+env = "prod"
 apiKey = data[env]["apiKey"]
 promptId = data[env]["promptId"]
 promptVersionId = data[env]["promptVersionId"]
@@ -34,7 +37,7 @@ class TestMaximPromptManagement(unittest.TestCase):
         if prompt is None:
             raise Exception("Prompt not found")
         self.assertEqual(prompt.prompt_id, promptId)
-        self.assertEqual(prompt.model, "gpt-3.5-turbo-16k")
+        self.assertEqual(prompt.model, "gpt-3.5-turbo")
         self.assertEqual(prompt.version_id, promptVersionId)
         self.assertEqual(prompt.messages[0].content, "You are a helpful assistant")
         # self.assertEqual(len(prompt.messages), 1)
@@ -90,15 +93,15 @@ class TestMaximPromptManagement(unittest.TestCase):
             promptId,
             QueryBuilder()
             .and_()
-            .deployment_var("Environment", "Prod")
-            .deployment_var("TenantId", 123)
+            .deployment_var("Environment", "prod")
+            .deployment_var("TenantID", 123)
             .build(),
         )
         if prompt is None:
             raise Exception("Prompt not found")
         self.assertEqual(prompt.prompt_id, promptId)
         self.assertEqual(prompt.version_id, data[env]["prodAndT123PromptVersionId"])
-        self.assertEqual(len(prompt.messages), 2)
+        self.assertEqual(len(prompt.messages), 1)
 
     def test_getPrompt_with_deployment_variables_Environment_stage_and_TenantId_123(
         self,
@@ -122,8 +125,8 @@ class TestMaximPromptManagement(unittest.TestCase):
             promptId,
             QueryBuilder()
             .and_()
-            .deployment_var("Environment", "Prod")
-            .deployment_var("TenantId", 123)
+            .deployment_var("Environment", "prod")
+            .deployment_var("TenantID", 123)
             .build(),
         )
         if prompt is None:
@@ -134,8 +137,8 @@ class TestMaximPromptManagement(unittest.TestCase):
             promptId,
             QueryBuilder()
             .and_()
-            .deployment_var("Environment", "Prod")
-            .deployment_var("TenantId", 123)
+            .deployment_var("Environment", "prod")
+            .deployment_var("TenantID", 123)
             .build(),
         )
         if prompt2 is None:
@@ -257,6 +260,76 @@ class TestMaximPromptManagement(unittest.TestCase):
                 data["dev"]["fakeDataSetIdToThrowError"], [self.payload]
             )
         self.assertEqual(str(context.exception), "Error: 404 - Not Found")
+
+
+class RedisCache(AsyncMaximCache):
+    def __init__(self):
+        self.redis_client = Redis(
+            host=data["redis"]["host"],
+            port=data["redis"]["port"],
+            db=data["redis"]["db"],
+        )
+
+    async def a_get_all_keys(self) -> List[str]:
+        data = await self.redis_client.keys()
+        if data is None:
+            return []
+        return [d.decode("utf-8") for d in data]
+
+    async def a_get(self, key: str) -> Optional[str]:
+        data = await self.redis_client.get(key)
+        if data is None:
+            return None
+        return data.decode("utf-8")
+
+    async def a_set(self, key: str, value: str) -> None:
+        print(f"[RedisCache] Setting {key} to {value}")
+        await self.redis_client.set(key, value)
+
+    async def a_delete(self, key: str) -> None:
+        await self.redis_client.delete(key)
+
+
+class TestMaximPromptManagementAsyncCache(unittest.TestCase):
+    def setUp(self):
+        self.maxim = Maxim(
+            Config(
+                api_key=apiKey,
+                base_url=baseUrl,
+                debug=True,
+                prompt_management=True,
+                cache=RedisCache(),
+            )
+        )
+
+    def test_getPrompt_with_deployment_variables(self):
+        prompt = self.maxim.get_prompt(
+            promptId,
+            QueryBuilder().and_().deployment_var("Environment", "prod").build(),
+        )
+        if prompt is None:
+            raise Exception("Prompt not found")
+        self.assertEqual(prompt.prompt_id, promptId)
+        self.assertEqual(prompt.version_id, data[env]["prodPromptVersionId"])
+        self.assertEqual(prompt.messages[0].content, "You are a helpful assistant")
+
+    def test_getPrompt_with_deployment_variables_and_tenant_123(self):
+        prompt = self.maxim.get_prompt(
+            promptId,
+            QueryBuilder()
+            .and_()
+            .deployment_var("Environment", "prod")
+            .deployment_var("TenantID", "123")
+            .build(),
+        )
+        if prompt is None:
+            raise Exception("Prompt not found")
+        self.assertEqual(prompt.prompt_id, promptId)
+        self.assertEqual(prompt.version_id, data[env]["prodAndT123PromptVersionId"])
+        self.assertEqual(
+            prompt.messages[0].content,
+            "You are a helpful assistant. \n\nBe polite in every case",
+        )
 
 
 if __name__ == "__main__":

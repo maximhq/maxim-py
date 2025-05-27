@@ -42,6 +42,7 @@ from .models import (
 from .runnable import RunnablePrompt, RunnablePromptChain
 from .scribe import scribe
 from .test_runs import TestRunBuilder
+from .utils import run_async
 from .version import current_version
 
 
@@ -587,14 +588,12 @@ class Maxim:
                 "prompt_management is disabled. You can enable it by initializing Maxim with Config(...prompt_management=True)."
             )
         key = self.__get_cache_key("PROMPT", id)
-        version_and_rules_with_prompt_id = asyncio.run(
-            self.__get_prompt_from_cache(key)
-        )
+        version_and_rules_with_prompt_id = run_async(self.__get_prompt_from_cache(key))
         if version_and_rules_with_prompt_id is None:
             version_and_rules_with_prompt_id = self.maxim_api.get_prompt(id)
             if len(version_and_rules_with_prompt_id.versions) == 0:
                 return None
-            asyncio.run(
+            run_async(
                 self.__cache_set_entry(
                     id,
                     json.dumps(
@@ -627,11 +626,11 @@ class Maxim:
             raise Exception(
                 "prompt_management is disabled. Please enable it in config."
             )
-        version_and_rules = asyncio.run(self.__get_all_prompts_from_cache())
+        version_and_rules = run_async(self.__get_all_prompts_from_cache())
         prompts: list[RunnablePrompt] = []
         if version_and_rules is None or len(version_and_rules) == 0:
-            asyncio.run(self.__sync_entities())
-            version_and_rules = asyncio.run(self.__get_all_prompts_from_cache())
+            run_async(self.__sync_entities())
+            version_and_rules = run_async(self.__get_all_prompts_from_cache())
         if not version_and_rules:
             return []
         for v in version_and_rules:
@@ -666,12 +665,12 @@ class Maxim:
                 "prompt_management is disabled. Please enable it in config by setting Config(...,prompt_management=True)."
             )
         key = self.__get_cache_key("PROMPT_CHAIN", id)
-        version_and_rules = asyncio.run(self.__get_prompt_chain_from_cache(key))
+        version_and_rules = run_async(self.__get_prompt_chain_from_cache(key))
         if version_and_rules is None:
             version_and_rules = self.maxim_api.getPromptChain(id)
             if len(version_and_rules.versions) == 0:
                 return None
-            asyncio.run(
+            run_async(
                 self.__cache_set_entry(
                     id,
                     json.dumps(
@@ -705,13 +704,13 @@ class Maxim:
                 "prompt_management is disabled. Please enable it in config."
             )
         key = self.__get_cache_key("FOLDER", id)
-        folder = asyncio.run(self.__get_folder_from_cache(key))
+        folder = run_async(self.__get_folder_from_cache(key))
         if folder is None:
             try:
                 folder = self.maxim_api.get_folder(id)
                 if not folder:
                     return None
-                asyncio.run(
+                run_async(
                     self.__cache_set_entry(key, json.dumps(folder, cls=FolderEncoder))
                 )
             except Exception:
@@ -732,10 +731,10 @@ class Maxim:
             raise Exception(
                 "prompt_management is disabled. Please enable it in config."
             )
-        folders = asyncio.run(self.__get_all_folders_from_cache())
+        folders = run_async(self.__get_all_folders_from_cache())
         if folders is None or len(folders) == 0:
-            asyncio.run(self.__sync_entities())
-            folders = asyncio.run(self.__get_all_folders_from_cache())
+            run_async(self.__sync_entities())
+            folders = run_async(self.__get_all_folders_from_cache())
         if not folders:
             return []
         return self.__get_folders_for_rule(folders, rule)
