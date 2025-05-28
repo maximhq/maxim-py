@@ -108,7 +108,7 @@ class TestMaximPromptManagement(unittest.TestCase):
             QueryBuilder()
             .and_()
             .deployment_var("Environment", "prod")
-            .deployment_var("TenantID", 123)
+            .deployment_var("TenantId", 123)
             .build(),
         )
         if prompt is None:
@@ -297,7 +297,6 @@ class RedisCache(AsyncMaximCache):
         return data.decode("utf-8")
 
     async def a_set(self, key: str, value: str) -> None:
-        print(f"[RedisCache] Setting {key} to {value}")
         await self.redis_client.set(key, value)
 
     async def a_delete(self, key: str) -> None:
@@ -333,7 +332,7 @@ class TestMaximPromptManagementAsyncCache(unittest.TestCase):
             QueryBuilder()
             .and_()
             .deployment_var("Environment", "prod")
-            .deployment_var("TenantID", "123")
+            .deployment_var("TenantId", "123")
             .build(),
         )
         if prompt is None:

@@ -148,11 +148,14 @@ class Maxim:
     def enable_prompt_management(self) -> "Maxim":
         self.prompt_management = True
         if not self.__sync_thread.is_alive():
-            self.__sync_thread = threading.Thread(
-                target=lambda: asyncio.run(self.__sync_timer())
-            )
-            self.__sync_thread.daemon = True
-            self.__sync_thread.start()
+            if isinstance(self.__cache, MaximCache):
+                self.__sync_thread = threading.Thread(
+                    target=lambda: asyncio.run(self.__sync_timer())
+                )
+                self.__sync_thread.daemon = True
+                self.__sync_thread.start()
+            elif isinstance(self.__cache, AsyncMaximCache):
+                asyncio.create_task(self.__sync_timer())
         return self
 
     def enable_exceptions(self, val: bool) -> "Maxim":
