@@ -28,7 +28,13 @@ setup(
     long_description_content_type="text/markdown",
     long_description=long_description,
     packages=packages,
-    install_requires=["requests", "urllib3", "typing-extensions", "filetype"],
+    install_requires=[
+        "requests",
+        "urllib3",
+        "typing-extensions",
+        "filetype",
+        "nest_asyncio",
+    ],
     extras_require={},
     keywords=["python", "prompts", "logs", "workflow", "testing"],
     classifiers=[

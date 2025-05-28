@@ -2,9 +2,12 @@ import json
 import logging
 import os
 import unittest
+from typing import List, Optional
 
-from maxim import Maxim
+from maxim import Config, Maxim
+from maxim.cache import AsyncMaximCache
 from maxim.models import QueryBuilder
+from redis.asyncio import Redis
 
 # reading testConfig.json and setting the values
 
@@ -16,7 +19,7 @@ with open(config_path) as f:
     data = json.load(f)
 
 # local config
-env = "dev"
+env = "prod"
 apiKey = data[env]["apiKey"]
 promptId = data[env]["promptId"]
 promptVersionId = data[env]["promptVersionId"]
@@ -27,7 +30,12 @@ folderID = data[env]["folderId"]
 class TestMaximPromptManagement(unittest.TestCase):
     def setUp(self):
         self.maxim = Maxim(
-            {"api_key": apiKey, "base_url": baseUrl, "debug": True, "prompt_management": True}
+            {
+                "api_key": apiKey,
+                "base_url": baseUrl,
+                "debug": True,
+                "prompt_management": True,
+            }
         )
 
     def test_getPrompt_with_deployment_variables_and_execute(self):
@@ -41,15 +49,16 @@ class TestMaximPromptManagement(unittest.TestCase):
         print(f"Provider: {prompt.provider}")
 
         self.assertEqual(prompt.prompt_id, promptId)
-        self.assertEqual(prompt.model, "claude-3-5-sonnet-latest")
-        self.assertEqual(prompt.provider, "anthropic")
+        self.assertEqual(prompt.model, "gpt-3.5-turbo")
         self.assertEqual(prompt.version_id, promptVersionId)
         # self.assertEqual(prompt.messages[0].content, "You are a helpful assistant")
         # self.assertEqual(len(prompt.messages), 1)
         resp = prompt.run(
             "who is sachin tendulkar",
         )
-        print(f">>>RESPONSE: {resp.choices[0].message.content if resp else 'No response'}")
+        print(
+            f">>>RESPONSE: {resp.choices[0].message.content if resp else 'No response'}"
+        )
 
     def test_run_hosted_prompt_with_vision_model(self):
         prompt = self.maxim.get_prompt(
@@ -98,7 +107,7 @@ class TestMaximPromptManagement(unittest.TestCase):
             promptId,
             QueryBuilder()
             .and_()
-            .deployment_var("Environment", "Prod")
+            .deployment_var("Environment", "prod")
             .deployment_var("TenantId", 123)
             .build(),
         )
@@ -106,7 +115,7 @@ class TestMaximPromptManagement(unittest.TestCase):
             raise Exception("Prompt not found")
         self.assertEqual(prompt.prompt_id, promptId)
         self.assertEqual(prompt.version_id, data[env]["prodAndT123PromptVersionId"])
-        self.assertEqual(len(prompt.messages), 2)
+        self.assertEqual(len(prompt.messages), 1)
 
     def test_getPrompt_with_deployment_variables_Environment_stage_and_TenantId_123(
         self,
@@ -130,8 +139,8 @@ class TestMaximPromptManagement(unittest.TestCase):
             promptId,
             QueryBuilder()
             .and_()
-            .deployment_var("Environment", "Prod")
-            .deployment_var("TenantId", 123)
+            .deployment_var("Environment", "prod")
+            .deployment_var("TenantID", 123)
             .build(),
         )
         if prompt is None:
@@ -142,8 +151,8 @@ class TestMaximPromptManagement(unittest.TestCase):
             promptId,
             QueryBuilder()
             .and_()
-            .deployment_var("Environment", "Prod")
-            .deployment_var("TenantId", 123)
+            .deployment_var("Environment", "prod")
+            .deployment_var("TenantID", 123)
             .build(),
         )
         if prompt2 is None:
@@ -265,6 +274,76 @@ class TestMaximPromptManagement(unittest.TestCase):
                 data["dev"]["fakeDataSetIdToThrowError"], [self.payload]
             )
         self.assertEqual(str(context.exception), "Error: 404 - Not Found")
+
+
+class RedisCache(AsyncMaximCache):
+    def __init__(self):
+        self.redis_client = Redis(
+            host=data["redis"]["host"],
+            port=data["redis"]["port"],
+            db=data["redis"]["db"],
+        )
+
+    async def a_get_all_keys(self) -> List[str]:
+        data = await self.redis_client.keys()
+        if data is None:
+            return []
+        return [d.decode("utf-8") for d in data]
+
+    async def a_get(self, key: str) -> Optional[str]:
+        data = await self.redis_client.get(key)
+        if data is None:
+            return None
+        return data.decode("utf-8")
+
+    async def a_set(self, key: str, value: str) -> None:
+        await self.redis_client.set(key, value)
+
+    async def a_delete(self, key: str) -> None:
+        await self.redis_client.delete(key)
+
+
+class TestMaximPromptManagementAsyncCache(unittest.TestCase):
+    def setUp(self):
+        self.maxim = Maxim(
+            Config(
+                api_key=apiKey,
+                base_url=baseUrl,
+                debug=True,
+                prompt_management=True,
+                cache=RedisCache(),
+            )
+        )
+
+    def test_getPrompt_with_deployment_variables(self):
+        prompt = self.maxim.get_prompt(
+            promptId,
+            QueryBuilder().and_().deployment_var("Environment", "prod").build(),
+        )
+        if prompt is None:
+            raise Exception("Prompt not found")
+        self.assertEqual(prompt.prompt_id, promptId)
+        self.assertEqual(prompt.version_id, data[env]["prodPromptVersionId"])
+        self.assertEqual(prompt.messages[0].content, "You are a helpful assistant")
+
+    def test_getPrompt_with_deployment_variables_and_tenant_123(self):
+        prompt = self.maxim.get_prompt(
+            promptId,
+            QueryBuilder()
+            .and_()
+            .deployment_var("Environment", "prod")
+            .deployment_var("TenantId", "123")
+            .build(),
+        )
+        if prompt is None:
+            raise Exception("Prompt not found")
+        print(f"prompt: {prompt}")
+        self.assertEqual(prompt.prompt_id, promptId)
+        self.assertEqual(prompt.version_id, data[env]["prodAndT123PromptVersionId"])
+        self.assertEqual(
+            prompt.messages[0].content,
+            "You are a helpful assistant. \n\nBe polite in every case",
+        )
 
 
 if __name__ == "__main__":

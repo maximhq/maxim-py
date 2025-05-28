@@ -203,10 +203,10 @@ class PromptVersionConfig():
         messages = [Message.from_dict(message) for message in obj['messages']]
         return PromptVersionConfig(
             messages=messages,
-            modelParameters=obj['modelParameters'],
-            model=obj['model'],
-            provider=obj['provider'],
-            tags=obj.get('tags', None)
+            modelParameters=obj["modelParameters"],
+            model=obj["model"],
+            provider=obj.get("provider", None),
+            tags=obj.get("tags", None),
         )
 
 

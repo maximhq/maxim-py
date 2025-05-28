@@ -1,7 +1,9 @@
 from typing import List, Optional
 
+from .cache import MaximCache
 
-class MaximInMemoryCache():
+
+class MaximInMemoryCache(MaximCache):
     def __init__(self):
         self.cache = {}
 

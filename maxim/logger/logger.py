@@ -819,11 +819,11 @@ class Logger:
         """
         return self._id
 
-    def flush(self):
+    def flush(self, sync: bool = False):
         """
         Flushes the writer.
         """
-        self.writer.flush()
+        self.writer.flush(sync)
 
     def cleanup(self):
         """
