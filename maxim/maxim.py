@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import threading
@@ -138,14 +139,18 @@ class Maxim:
             self.__cache: Union[MaximCache, AsyncMaximCache] = final_config.get(
                 "cache", MaximInMemoryCache()
             )
-            self.__sync_thread = threading.Thread(target=self.__sync_timer)
+            self.__sync_thread = threading.Thread(
+                target=lambda: asyncio.run(self.__sync_timer())
+            )
             self.__sync_thread.daemon = True
             self.__sync_thread.start()
 
     def enable_prompt_management(self) -> "Maxim":
         self.prompt_management = True
         if not self.__sync_thread.is_alive():
-            self.__sync_thread = threading.Thread(target=self.__sync_timer)
+            self.__sync_thread = threading.Thread(
+                target=lambda: asyncio.run(self.__sync_timer())
+            )
             self.__sync_thread.daemon = True
             self.__sync_thread.start()
         return self
@@ -154,11 +159,11 @@ class Maxim:
         self.raise_exceptions = val
         return self
 
-    def __sync_timer(self):
+    async def __sync_timer(self):
         if not self.prompt_management:
             return
         while self.is_running:
-            run_async(self.__sync_entities())
+            await self.__sync_entities()
             time.sleep(60)
 
     ## Cache wrapper methods
