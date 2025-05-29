@@ -105,6 +105,10 @@ trace.end()
 
 ## Version changelog
 
+### 3.7.1
+
+- fix: Signal registration only happens if the current thread is main thread
+
 ### 3.7.0
 
 - feat: Prompt, PromptVersionConfig, and RunnablePrompt now expose a `provider` field to indicate the LLM provider (e.g., 'openai', 'anthropic').

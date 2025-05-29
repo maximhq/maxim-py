@@ -115,8 +115,10 @@ class Maxim:
         """
         self.has_cleaned_up = False
         atexit.register(self.cleanup)
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        # Initialize signal handlers in the main thread
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
         self.ascii_logo = (
             f"\033[32m[MaximSDK] Initializing Maxim AI(v{current_version})\033[0m"
         )
