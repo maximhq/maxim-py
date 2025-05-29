@@ -16,7 +16,7 @@ with open(config_path) as f:
     data = json.load(f)
 
 # local config
-env = "dev"
+env = "prod"
 apiKey = data[env]["apiKey"]
 promptId = data[env]["promptId"]
 promptVersionId = data[env]["promptVersionId"]
@@ -41,8 +41,8 @@ class TestMaximPromptManagement(unittest.TestCase):
         print(f"Provider: {prompt.provider}")
 
         self.assertEqual(prompt.prompt_id, promptId)
-        self.assertEqual(prompt.model, "claude-3-5-sonnet-latest")
-        self.assertEqual(prompt.provider, "anthropic")
+        self.assertEqual(prompt.model, "gpt-3.5-turbo")
+        self.assertEqual(prompt.provider, "openai")
         self.assertEqual(prompt.version_id, promptVersionId)
         # self.assertEqual(prompt.messages[0].content, "You are a helpful assistant")
         # self.assertEqual(len(prompt.messages), 1)
@@ -78,6 +78,8 @@ class TestMaximPromptManagement(unittest.TestCase):
             raise Exception("Prompt not found")
         self.assertEqual(prompt.prompt_id, promptId)
         self.assertEqual(prompt.version_id, data[env]["prodPromptVersionId"])
+        self.assertEqual(prompt.model, "gpt-3.5-turbo")
+        self.assertEqual(prompt.provider, "openai")
         self.assertEqual(prompt.messages[0].content, "You are a helpful assistant")
 
     def test_custom_prompt_execution(self) -> None:

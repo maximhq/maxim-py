@@ -108,6 +108,7 @@ trace.end()
 ### 3.7.0
 
 - feat: Prompt, PromptVersionConfig, and RunnablePrompt now expose a `provider` field to indicate the LLM provider (e.g., 'openai', 'anthropic').
+- improvement: Maxim SDK listens for `atexit` and termination signals, and triggers cleanup automatically
 
 ### 3.6.4
 

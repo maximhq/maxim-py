@@ -825,8 +825,8 @@ class Logger:
         """
         self.writer.flush()
 
-    def cleanup(self):
+    def cleanup(self, is_sync=False):
         """
         Cleans up the writer.
         """
-        self.writer.cleanup()
+        self.writer.cleanup(is_sync)
