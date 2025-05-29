@@ -487,7 +487,7 @@ class LogWriter:
         if self.queue.qsize() > self.max_in_memory_logs:
             self.flush()
 
-    def flush_upload_attachment_logs(self):
+    def flush_upload_attachment_logs(self, is_sync=False):
         """
         Flush all queued attachments to the Maxim API.
 
@@ -505,13 +505,13 @@ class LogWriter:
         scribe().debug(
             f"[MaximSDK] Flushing attachments to server {time.strftime('%Y-%m-%dT%H:%M:%S')} with {len(items)} items"
         )
-        if self.is_running_on_lambda():
+        if self.is_running_on_lambda() or is_sync:
             self.upload_attachments(items)
         else:
             self.upload_executor.submit(self.upload_attachments, items)
         scribe().debug(f"[MaximSDK] Flushed {len(items)} attachments")
 
-    def flush_commit_logs(self):
+    def flush_commit_logs(self, is_sync=False):
         """
         Flush all queued commit logs to the Maxim API.
 
@@ -531,20 +531,20 @@ class LogWriter:
         for item in items:
             scribe().debug(f"[MaximSDK] {item.serialize()}")
         # if we are running on lambda - we will flush without submitting to the executor
-        if self.is_running_on_lambda():
+        if self.is_running_on_lambda() or is_sync:
             self.flush_logs(items)
         else:
             self.executor.submit(self.flush_logs, items)
         scribe().debug(f"[MaximSDK] Flushed {len(items)} logs")
 
-    def flush(self):
+    def flush(self, is_sync=False):
         """
         Flush all queued logs to the Maxim API.
         """
-        self.flush_commit_logs()
-        self.flush_upload_attachment_logs()
+        self.flush_commit_logs(is_sync)
+        self.flush_upload_attachment_logs(is_sync)
 
-    def cleanup(self):
+    def cleanup(self, is_sync=False):
         """
         Clean up resources used by the LogWriter.
 
@@ -553,7 +553,7 @@ class LogWriter:
         """
         scribe().debug("[MaximSDK] Cleaning up writer")
         self.is_running = False
-        self.flush()
+        self.flush(is_sync)
         scribe().debug("[MaximSDK] Waiting for executor to shutdown")
         self.executor.shutdown(wait=True)
         self.upload_executor.shutdown(wait=True)
