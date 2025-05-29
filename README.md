@@ -105,20 +105,24 @@ trace.end()
 
 ## Version changelog
 
-### 3.6.5
+
+### 3.7.1
 
 - feat: LiveKit one line integration (beta)
+
+### 3.7.0
+
+- feat: Prompt, PromptVersionConfig, and RunnablePrompt now expose a `provider` field to indicate the LLM provider (e.g., 'openai', 'anthropic').
+- improvement: Maxim SDK listens for `atexit` and termination signals, and triggers cleanup automatically
 
 ### 3.6.4
 
 - chore: crewai python 3.9+ support
 
-
 ### 3.6.3
 
 - fix: now reports metadata errors silently
 - fix: minor fixes to crew-ai instrumentation
-
 
 ### 3.6.2
 
@@ -147,7 +151,6 @@ trace.end()
 - chore: Adds new Maxim SDK level logger. You can set specific level for Maxim SDK by `logging.getLogger('maxim').setLevel(logging.DEBUG)`
 - fix: minor cleanups on Langchain tracer.
 
-
 ### 3.5.5
 
 - feat: adds special handling for apps running on AWS lambda. As runtime execution is unpredictable, logger.flush() now pushes logs immediately vs submitting to a thread pool worker.
@@ -157,7 +160,7 @@ trace.end()
 
 - fix: adds special handling when langchain streaming response handler raises an exception in user-land.
 
-### 3.5.3 
+### 3.5.3
 
 - fix: fixes empty cache issue for prompt management
 
@@ -177,7 +180,6 @@ trace.end()
 - deprecate: old Config classes - now all logging constructs support TypedDict
 - feat: adds one line integration for OpenAI
 - fix: fixes agents import in OpenAI SDK
-
 
 ### 3.4.17
 

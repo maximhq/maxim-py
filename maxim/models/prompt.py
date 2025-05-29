@@ -118,6 +118,7 @@ class Prompt:
     messages: List[Message]
     model_parameters: Dict[str, Union[str, int, bool, Dict, None]]
     model: Optional[str] = None
+    provider: Optional[str] = None
     tags: Optional[Dict[str, Union[str, int, bool, None]]] = None
 
     @staticmethod
@@ -129,6 +130,7 @@ class Prompt:
             messages=[Message.from_dict(m) for m in data['messages']],
             model_parameters=data['modelParameters'],
             model=data['model'],
+            provider=data['provider'],
             tags=data['tags']
         )
 
@@ -193,12 +195,19 @@ class PromptVersionConfig():
     messages: List[Message]
     modelParameters: Dict[str, Union[str, int, bool, Dict, None]]
     model: str
+    provider: str
     tags: Optional[Dict[str, Union[str, int, bool, None]]] = None
 
     @staticmethod
     def from_dict(obj: Dict):
         messages = [Message.from_dict(message) for message in obj['messages']]
-        return PromptVersionConfig(messages=messages, modelParameters=obj['modelParameters'], model=obj['model'], tags=obj.get('tags', None))
+        return PromptVersionConfig(
+            messages=messages,
+            modelParameters=obj['modelParameters'],
+            model=obj['model'],
+            provider=obj['provider'],
+            tags=obj.get('tags', None)
+        )
 
 
 @dataclass

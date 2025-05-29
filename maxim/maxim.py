@@ -1,5 +1,8 @@
+import atexit
 import json
 import os
+import signal
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -103,13 +106,17 @@ class Maxim:
     This class provides methods for interacting with the Maxim API.
     """
 
-    def __init__(self, config: Union[Config, ConfigDict] = Config()):
+    def __init__(self, config: Union[Config, ConfigDict]):
         """
         Initializes a new instance of the Maxim class.
 
         Args:
             config (Config): The configuration for the Maxim instance.
         """
+        self.has_cleaned_up = False
+        atexit.register(self.cleanup)
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
         self.ascii_logo = (
             f"\033[32m[MaximSDK] Initializing Maxim AI(v{current_version})\033[0m"
         )
@@ -316,6 +323,7 @@ class Maxim:
             if prompt_version.config
             else {},
             model=prompt_version.config.model if prompt_version.config else None,
+            provider=prompt_version.config.provider if prompt_version.config else None
         )
 
     def __format_prompt_chain(
@@ -776,14 +784,23 @@ class Maxim:
         """
         return self.maxim_api.run_prompt(model, messages, tools, **kwargs)
 
+    def _signal_handler(self, signum, frame):
+        if self.has_cleaned_up:
+            return
+        self.has_cleaned_up = True
+        self.cleanup()
+        sys.exit(0)
+
     def cleanup(self):
         """
         Cleans up the Maxim sync thread.
         """
+        if self.has_cleaned_up:
+            return
         # We sleep to allow all pending writes in the queue to come in and then we can flush
         time.sleep(2)
         scribe().debug("[MaximSDK] Cleaning up Maxim sync thread")
         self.is_running = False
         for logger in self.__loggers.values():
-            logger.cleanup()
+            logger.cleanup(is_sync=True)
         scribe().debug("[MaximSDK] Cleanup done")
