@@ -1,13 +1,17 @@
-import threading
+import time
 import weakref
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, TypedDict, Union
+from threading import Lock
+from typing import Callable, Optional, TypedDict, Union
 
 from livekit.agents import AgentSession
 from livekit.agents.llm import RealtimeSession
 
-from ..logger import GenerationRequestMessage, Logger, Trace
+from ...scribe import scribe
+from ..components import FileDataAttachment
+from ..logger import Logger, Trace
+from ..utils import pcm16_to_wav_bytes
 
 
 class SessionState(Enum):
@@ -20,8 +24,11 @@ class Turn(TypedDict):
     turn_id: str
     turn_sequence: int
     turn_timestamp: datetime
-    turn_audio_buffer: bytes
-    messages: List[GenerationRequestMessage]
+    is_interrupted: bool
+    turn_input_transcription: str
+    turn_output_transcription: str
+    turn_input_audio_buffer: bytes
+    turn_output_audio_buffer: bytes
 
 
 class LLMConfig(TypedDict):
@@ -47,12 +54,16 @@ class LLMConfig(TypedDict):
 
 
 class SessionStoreEntry(TypedDict):
-    room_id: int
+    room_sid: str
     state: SessionState
+    provider: str
+    user_speaking: bool
+    conversation_buffer_index: int
+    conversation_buffer: bytes
     llm_config: Optional[LLMConfig]
     agent_id: Optional[int]
-    session_id: Optional[int]
-    session: Optional[weakref.ref[AgentSession]]
+    agent_session_id: Optional[int]
+    agent_session: Optional[weakref.ref[AgentSession]]
     rt_session_id: Optional[int]
     rt_session: Optional[weakref.ref[RealtimeSession]]
     mx_current_trace_id: Optional[str]
@@ -61,7 +72,20 @@ class SessionStoreEntry(TypedDict):
     current_turn: Optional[Turn]
 
 
+MaximLiveKitCallback = Callable[[str, dict], None]
+livekit_callback: MaximLiveKitCallback = None
+
 maxim_logger: Union[Logger, None] = None
+
+
+def set_livekit_callback(callback: MaximLiveKitCallback) -> None:
+    global livekit_callback
+    livekit_callback = callback
+
+
+def get_livekit_callback() -> Optional[MaximLiveKitCallback]:
+    global livekit_callback
+    return livekit_callback
 
 
 def get_maxim_logger() -> Logger:
@@ -77,51 +101,72 @@ def set_maxim_logger(logger: Logger) -> None:
     maxim_logger = logger
 
 
-class LivekitSessionStore:
+class LiveKitSessionStore:
     def __init__(self):
-        self.mx_livekit_session_store: list[SessionStoreEntry] = []
+        self.mx_live_kit_session_store: list[SessionStoreEntry] = []
+        self._lock = Lock()
 
-    def get_session_by_room_id(self, room_id: int) -> Union[SessionStoreEntry, None]:
-        for entry in self.mx_livekit_session_store:
-            if "room_id" in entry and entry["room_id"] == room_id:
-                return entry
-        return None
+    def get_session_by_room_sid(self, room_sid: str) -> Union[SessionStoreEntry, None]:
+        with self._lock:
+            for entry in self.mx_live_kit_session_store:
+                if "room_sid" in entry and entry["room_sid"] == room_sid:
+                    return entry
+            return None
 
-    def get_session_by_session_id(
+    def get_session_by_agent_session_id(
         self, session_id: int
     ) -> Union[SessionStoreEntry, None]:
-        for entry in self.mx_livekit_session_store:
-            if "session_id" in entry and entry["session_id"] == session_id:
-                return entry
-        return None
+        with self._lock:
+            for entry in self.mx_live_kit_session_store:
+                if (
+                    "agent_session_id" in entry
+                    and entry["agent_session_id"] == session_id
+                ):
+                    return entry
+            return None
 
     def get_session_by_rt_session_id(
         self, rt_session_id: int
     ) -> Union[SessionStoreEntry, None]:
-        for entry in self.mx_livekit_session_store:
-            if "rt_session_id" in entry and entry["rt_session_id"] == rt_session_id:
-                return entry
-        return None
+        with self._lock:
+            for entry in self.mx_live_kit_session_store:
+                if "rt_session_id" in entry and entry["rt_session_id"] == rt_session_id:
+                    return entry
+            return None
 
     def set_session(self, entry: SessionStoreEntry):
-        if "room_id" in entry:
-            # find the entry and replace
-            for i, e in enumerate(self.mx_livekit_session_store):
-                if e["room_id"] == entry["room_id"]:
-                    self.mx_livekit_session_store[i] = entry
-                    return
-        self.mx_livekit_session_store.append(entry)
+        with self._lock:
+            if "agent_session_id" in entry:
+                # find the entry and replace
+                for i, e in enumerate(self.mx_live_kit_session_store):
+                    if (
+                        "agent_session_id" in e
+                        and e["agent_session_id"] == entry["agent_session_id"]
+                    ):
+                        self.mx_live_kit_session_store[i] = entry
+                        return
+            self.mx_live_kit_session_store.append(entry)
 
-    def delete_session(self, room_id):
-        for entry in self.mx_livekit_session_store:
-            if "room_id" in entry and entry["room_id"] == room_id:
-                self.mx_livekit_session_store.remove(entry)
+    def delete_session(self, agent_session_id: int):
+        with self._lock:
+            # Use list comprehension to avoid modifying list while iterating
+            self.mx_live_kit_session_store = [
+                entry
+                for entry in self.mx_live_kit_session_store
+                if not (
+                    "agent_session_id" in entry
+                    and entry["agent_session_id"] == agent_session_id
+                )
+            ]
 
     def clear_all_sessions(self):
-        self.mx_livekit_session_store.clear()
+        with self._lock:
+            self.mx_live_kit_session_store.clear()
 
-    def get_current_trace_for_session(self, session_id: int) -> Union[Trace, None]:
-        session = self.get_session_by_session_id(session_id)
+    def get_current_trace_for_agent_session(
+        self, agent_session_id: int
+    ) -> Union[Trace, None]:
+        session = self.get_session_by_agent_session_id(agent_session_id)
         if session is None:
             return None
         trace_id = session["mx_current_trace_id"]
@@ -129,8 +174,8 @@ class LivekitSessionStore:
             return None
         return get_maxim_logger().trace({"id": trace_id})
 
-    def get_current_trace_for_room_id(self, room_id: int) -> Union[Trace, None]:
-        session = self.get_session_by_room_id(room_id)
+    def get_current_trace_for_room_sid(self, room_sid: str) -> Union[Trace, None]:
+        session = self.get_session_by_room_sid(room_sid)
         if session is None:
             return None
         trace_id = session["mx_current_trace_id"]
@@ -150,15 +195,33 @@ class LivekitSessionStore:
         return get_maxim_logger().trace({"id": trace_id})
 
     def get_all_sessions(self):
-        return self.mx_livekit_session_store
+        with self._lock:
+            return self.mx_live_kit_session_store.copy()
+
+    def close_session(self, session_info: SessionStoreEntry):
+        with self._lock:
+            scribe().debug(
+                f"[MaximSDK] Closing session {session_info['mx_session_id']}"
+            )
+            session_id = session_info["mx_session_id"]
+            index = session_info["conversation_buffer_index"]
+
+            get_maxim_logger().session_add_attachment(
+                session_id,
+                FileDataAttachment(
+                    data=pcm16_to_wav_bytes(session_info["conversation_buffer"]),
+                    tags={"attach-to": "input"},
+                    name=f"Conversation part {index}",
+                    timestamp=int(time.time()),
+                ),
+            )
+            get_maxim_logger().session_end(session_id=session_id)
 
 
 # Create a thread-local storage for the session store
-_thread_local = threading.local()
+_session_store = LiveKitSessionStore()
 
 
 def get_session_store():
-    """Get the thread-local session store instance."""
-    if not hasattr(_thread_local, "session_store"):
-        _thread_local.session_store = LivekitSessionStore()
-    return _thread_local.session_store
+    """Get the global session store instance."""
+    return _session_store

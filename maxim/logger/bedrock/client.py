@@ -20,7 +20,6 @@ class MaximBedrockClient:
         logger: Logger,
         client: BaseClient,
     ):
-        print("Initializing MaximBedrockAsyncClient")
         self._client = client
         self._logger = logger
         self._async_client = MaximBedrockAsyncClient(logger, client)

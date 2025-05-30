@@ -29,8 +29,9 @@ class SessionCreatedEvent(TypedDict):
     session: Session
 
 
-def get_model_params(session: Session) -> Dict[str, Any]:
-    params = session.__dict__
+def get_model_params(session: Session) -> Dict[str, Any]:    
+    params = dict(session)
     # Removing some keys as they are not part of the model parameters
-    del params["instructions"]
+    params.pop("model",None)
+    params.pop("instructions", None)
     return params

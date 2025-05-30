@@ -1,21 +1,19 @@
-
 from livekit.agents import Agent, AgentSession, JobContext, Worker
-from livekit.agents.llm import RealtimeSession
+from livekit.agents.llm import RealtimeModel, RealtimeSession
 from livekit.agents.voice.agent_activity import AgentActivity
 from livekit.rtc import Room
 
 from ...logger import Logger
-from .agent import handle_agent
 from .agent_activity import instrument_agent_activity
 from .agent_session import instrument_agent_session
+from .gemini.instrumenter import instrument_gemini
 from .job_context import instrument_job_context
 from .realtime_session import instrument_realtime_session
-from .room import instrument_room
-from .store import set_maxim_logger
+from .store import MaximLiveKitCallback, set_livekit_callback, set_maxim_logger
 from .worker import instrument_worker
 
 
-def instrument_livekit(logger: Logger):
+def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
     """Instrument LiveKit classes with logging.
 
     This function adds logging instrumentation to LiveKit classes (Agent, JobContext, LLM)
@@ -27,25 +25,11 @@ def instrument_livekit(logger: Logger):
     2. Wraps all JobContext methods (except special methods)
     3. Wraps all LLM methods (except special methods)
     """
+    print(
+        "[MaximSDK] Warning: LiveKit instrumentation is in alpha state. Please report any issues here: https://github.com/maximhq/maxim-py/issues"
+    )
     set_maxim_logger(logger)
-
-    # Overriding agent methods
-    for name, orig in [
-        (n, getattr(Agent, n))
-        for n in dir(Agent)
-        if callable(getattr(Agent, n)) and n.startswith("on_")
-    ]:
-        setattr(Agent, name, handle_agent(orig, name))
-
-    # Overriding JobContext methods
-    for name, orig in [
-        (n, getattr(JobContext, n))
-        for n in dir(JobContext)
-        if callable(getattr(JobContext, n))
-    ]:
-        if name != "__class__" and not name.startswith("__"):
-            setattr(JobContext, name, instrument_job_context(orig, name))
-
+    set_livekit_callback(callback)
     # Instrument AgentSession methods
     for name, orig in [
         (n, getattr(AgentSession, n))
@@ -71,13 +55,6 @@ def instrument_livekit(logger: Logger):
         if name != "__class__" and not name.startswith("__"):
             setattr(RealtimeSession, name, instrument_realtime_session(orig, name))
 
-    # Instrument Room methods
-    for name, orig in [
-        (n, getattr(Room, n)) for n in dir(Room) if callable(getattr(Room, n))
-    ]:
-        if name != "__class__" and not name.startswith("__"):
-            setattr(Room, name, instrument_room(orig, name))
-
     # Instrument AgentActivity methods
     for name, orig in [
         (n, getattr(AgentActivity, n))
@@ -86,3 +63,15 @@ def instrument_livekit(logger: Logger):
     ]:
         if name != "__class__" and not name.startswith("__"):
             setattr(AgentActivity, name, instrument_agent_activity(orig, name))
+
+    # Instrument JobContext methods
+    for name, orig in [
+        (n, getattr(JobContext, n))
+        for n in dir(JobContext)
+        if callable(getattr(JobContext, n))
+    ]:
+        if name != "__class__" and not name.startswith("__"):
+            setattr(JobContext, name, instrument_job_context(orig, name))
+
+    # Instrument gemini models if present
+    instrument_gemini()

@@ -118,7 +118,7 @@ class LogWriter:
                 raise ValueError(
                     "flush_interval is set to None.flush_interval has to be a number"
                 )
-
+    
     @property
     def repository_id(self):
         """
@@ -506,9 +506,19 @@ class LogWriter:
             f"[MaximSDK] Flushing attachments to server {time.strftime('%Y-%m-%dT%H:%M:%S')} with {len(items)} items"
         )
         if self.is_running_on_lambda() or is_sync:
+            # uploading attachments synchronously
             self.upload_attachments(items)
+            # and once attached flushing commands again
+            # as upload generates a few more commands
+            self.flush_commit_logs(True)
         else:
-            self.upload_executor.submit(self.upload_attachments, items)
+            try:
+                self.upload_executor.submit(self.upload_attachments, items)
+            except Exception as e:
+                scribe().error(
+                    f"[MaximSDK] Error while flushing attachments from worker. Error: {e}.\nFlushing synchronously"
+                )
+                self.upload_attachments(items)
         scribe().debug(f"[MaximSDK] Flushed {len(items)} attachments")
 
     def flush_commit_logs(self, is_sync=False):
@@ -518,7 +528,7 @@ class LogWriter:
         This method empties the queue and sends all logs to the API,
         with special handling for AWS Lambda environments.
         """
-        items = []
+        items: list[CommitLog] = []
         while not self.queue.empty():
             items.append(self.queue.get())
         if len(items) == 0:
@@ -531,10 +541,17 @@ class LogWriter:
         for item in items:
             scribe().debug(f"[MaximSDK] {item.serialize()}")
         # if we are running on lambda - we will flush without submitting to the executor
+
         if self.is_running_on_lambda() or is_sync:
             self.flush_logs(items)
         else:
-            self.executor.submit(self.flush_logs, items)
+            try:
+                self.executor.submit(self.flush_logs, items)
+            except Exception as e:
+                scribe().error(
+                    f"[MaximSDK] Error while flushing logs from worker. Error: {e}.\nFlushing synchronously"
+                )
+                self.flush_logs(items)
         scribe().debug(f"[MaximSDK] Flushed {len(items)} logs")
 
     def flush(self, is_sync=False):

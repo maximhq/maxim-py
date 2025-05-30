@@ -10,7 +10,11 @@ from .store import get_session_store
 
 
 def intercept_participant_available(self: JobContext, *args, **kwargs):
+    if not args or len(args) == 0:
+        return
     participant = args[0]
+    if not participant:
+        return
     trace = get_session_store().get_current_trace_for_room_id(id(self.room))
     if trace is None:
         return
@@ -51,18 +55,24 @@ def instrument_job_context(orig, name):
 
         async def async_wrapper(self, *args, **kwargs):
             pre_hook(self, name, args, kwargs)
-            result = await orig(self, *args, **kwargs)
-            post_hook(self, result, name, args, kwargs)
-            return result
+            result = None
+            try:
+                result = await orig(self, *args, **kwargs)
+                return result
+            finally:
+                post_hook(self, result, name, args, kwargs)            
 
         wrapper = async_wrapper
     else:
 
         def sync_wrapper(self, *args, **kwargs):
             pre_hook(self, name, args, kwargs)
-            result = orig(self, *args, **kwargs)
-            post_hook(self, result, name, args, kwargs)
-            return result
+            result = None
+            try:
+                result = orig(self, *args, **kwargs)
+                return result
+            finally:
+                post_hook(self, result, name, args, kwargs)
 
         wrapper = sync_wrapper
     return functools.wraps(orig)(wrapper)
