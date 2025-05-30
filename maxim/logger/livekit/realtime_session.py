@@ -1,17 +1,19 @@
 import functools
 import inspect
 import traceback
+import uuid
+from datetime import datetime, timezone
 from uuid import uuid4
 
-from livekit.agents.llm import RealtimeModelError, RealtimeSession
+from livekit.agents.llm import (
+    InputTranscriptionCompleted,
+    RealtimeModelError,
+    RealtimeSession,
+)
 
 from ...scribe import scribe
 from .openai.realtime.handler import handle_openai_server_event_received
-from .store import get_session_store
-
-
-def handle_generation_create_called(self: RealtimeSession, *args, **kwargs):
-    pass
+from .store import Turn, get_maxim_logger, get_session_store
 
 
 def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
@@ -29,6 +31,70 @@ def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
         handle_openai_server_event_received(session_info, args[1])
     elif event == "metrics_collected":
         pass
+    elif event == "generation_created":
+        pass
+    elif event == "input_audio_transcription_completed":
+        # adding a new generation to the current trace
+        session_info = get_session_store().get_session_by_rt_session_id(id(self))
+        if session_info is None:
+            scribe().error("[MaximSDK] session info is none at realtime session emit")
+            return
+        trace = get_session_store().get_current_trace_from_rt_session_id(id(self))
+        if trace is None:
+            return
+        # adding a new generation
+        turn = session_info["current_turn"]
+        if turn is None:
+            return
+        model = "unknown"
+        llm_config = session_info.get("llm_config", None)
+        if llm_config is not None:
+            model = llm_config.get("model", "unknown")
+        model_parameters = {}
+        if llm_config is not None:
+            model_parameters = llm_config.get("model_parameters", {})
+        input_transcription: InputTranscriptionCompleted = args[1]
+        trace.generation(
+            {
+                "id": turn["turn_id"],
+                "model": model,
+                "provider": "openai",
+                "model_parameters": model_parameters,
+                "messages": [
+                    {"role": "user", "content": input_transcription.transcript}
+                ],
+            }
+        )
+
+    elif event == "input_speech_started":
+        # Ending current trace and turn
+        session_info = get_session_store().get_session_by_rt_session_id(id(self))
+        if session_info is None:
+            scribe().error("[MaximSDK] session info is none at realtime session emit")
+            return
+        trace = get_session_store().get_current_trace_from_rt_session_id(id(self))
+        if trace is not None:
+            trace.end()
+        # Creating a new turn and new trace
+        session_id = session_info["mx_session_id"]
+        trace_id = str(uuid.uuid4())
+        tags = {}
+        if session_info["room_id"] is not None:
+            tags["room_id"] = session_info["room_id"]
+        if session_info["agent_id"] is not None:
+            tags["agent_id"] = session_info["agent_id"]
+        get_maxim_logger().trace(
+            {"id": trace_id, "session_id": session_id, "tags": tags}
+        )
+        current_turn = Turn(
+            turn_id=str(uuid.uuid4()),
+            turn_sequence=0,
+            turn_timestamp=datetime.now(timezone.utc),
+            turn_audio_buffer=bytes(),
+        )
+        session_info["current_turn"] = current_turn
+        session_info["mx_current_trace_id"] = trace_id
+        get_session_store().set_session(session_info)
     elif event == "error":
         scribe().debug(
             f"=====[{self.__class__.__name__}] error; args={args}, kwargs={kwargs}"
@@ -57,24 +123,6 @@ def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
         )
 
 
-def intercept_realtime_session_on(self, *args, **kwargs):
-    action = args[0]
-    if action == "generation_created":
-        handle_generation_create_called(self, args, kwargs)
-    elif action == "input_speech_started":
-        scribe().debug(
-            f"[{self.__class__.__name__}] input_speech_started called; args={args}, kwargs={kwargs}"
-        )
-    elif action == "input_speech_stopped":
-        scribe().debug(
-            f"[{self.__class__.__name__}] input_speech_stopped called; args={args}, kwargs={kwargs}"
-        )
-    elif action == "input_audio_transcription_completed":
-        scribe().debug(
-            f"[{self.__class__.__name__}] input_audio_transcription_completed called; args={args}, kwargs={kwargs}"
-        )
-
-
 def handle_interrupt(self, args, **kwargs):
     rt_session_id = id(self)
     trace = get_session_store().get_current_trace_from_rt_session_id(rt_session_id)
@@ -87,8 +135,6 @@ def pre_hook(self, hook_name, args, kwargs):
     try:
         if hook_name == "emit":
             intercept_realtime_session_emit(self, *args, **kwargs)
-        elif hook_name == "on":
-            intercept_realtime_session_on(self, *args, **kwargs)
         elif hook_name == "interrupt":
             handle_interrupt(self, *args, **kwargs)
         else:

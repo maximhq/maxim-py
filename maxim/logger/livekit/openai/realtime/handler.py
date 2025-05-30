@@ -1,9 +1,12 @@
 import base64
+import io
 import time
+import wave
 from typing import Any, List, Union
 
 from ....components import (
     AudioContent,
+    FileDataAttachment,
     GenerationResult,
     GenerationResultChoice,
     ImageContent,
@@ -11,6 +14,29 @@ from ....components import (
 )
 from ...store import SessionStoreEntry, get_maxim_logger, get_session_store
 from .events import SessionCreatedEvent, get_model_params
+
+
+def pcm16_to_wav_bytes(
+    pcm_bytes: bytes, num_channels: int = 1, sample_rate: int = 24000
+) -> bytes:
+    """
+    Convert PCM-16 audio data to WAV format bytes.
+
+    Args:
+        pcm_bytes (bytes): Raw PCM-16 audio data
+        num_channels (int): Number of audio channels (default: 2)
+        sample_rate (int): Sample rate in Hz (default: 44100)
+
+    Returns:
+        bytes: WAV format audio data
+    """
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wavfile:
+        wavfile.setnchannels(num_channels)
+        wavfile.setsampwidth(2)  # 16-bit PCM = 2 bytes
+        wavfile.setframerate(sample_rate)
+        wavfile.writeframes(pcm_bytes)
+    return buffer.getvalue()
 
 
 def handle_session_created(session_info: SessionStoreEntry, event: SessionCreatedEvent):
@@ -28,12 +54,17 @@ def handle_session_created(session_info: SessionStoreEntry, event: SessionCreate
     turn = session_info["current_turn"]
     if turn is None:
         return
+    llm_config = session_info["llm_config"]
+    system_prompt = ""
+    if llm_config is not None:
+        system_prompt = llm_config["instructions"]
     trace.generation(
         {
             "id": turn["turn_id"],
             "model": event["session"]["model"],
             "provider": "openai",
             "model_parameters": get_model_params(event["session"]),
+            "messages": [{"role": "system", "content": system_prompt}],
         }
     )
 
@@ -50,15 +81,16 @@ def handle_openai_client_event_queued(session_info: SessionStoreEntry, event: di
 
 
 def buffer_audio(entry: SessionStoreEntry, event):
-    print("buffer audio")
     # Buffering audio to the current session_entry
     if entry["current_turn"] is None:
         return
+    print("#############BUFFERING AUDIO############")
     turn = entry["current_turn"]
     if turn["turn_audio_buffer"] is None:
         turn["turn_audio_buffer"] = b""
     turn["turn_audio_buffer"] += base64.b64decode(event["delta"])
     entry["current_turn"] = turn
+    get_session_store().set_session(entry)
 
 
 def handle_openai_server_event_received(session_info: SessionStoreEntry, event: Any):
@@ -101,9 +133,20 @@ def handle_openai_server_event_received(session_info: SessionStoreEntry, event: 
         # push audio buffer data to the server
         # mark the LLM call complete
         print(f"#############LLM CALL COMPLETE############ {event}")
+        # Attaching the audio buffer as attachment to the generation
         turn = session_info["current_turn"]
         if turn is None:
             return
+        get_maxim_logger().generation_add_attachment(
+            turn["turn_id"],
+            FileDataAttachment(
+                data=pcm16_to_wav_bytes(turn["turn_audio_buffer"]),
+                tags={"attach-to": "output"},
+                name="Assistant Response",
+                timestamp=int(time.time()),
+                metadata={"attach-to": "output"},
+            ),
+        )
         response = event["response"]
         # Adding result to the generation
         usage = response["usage"]
@@ -128,7 +171,9 @@ def handle_openai_server_event_received(session_info: SessionStoreEntry, event: 
 
             choice: GenerationResultChoice = {
                 "index": index,
-                "finish_reason": "stop",
+                "finish_reason": response["status"]
+                if response["status"] is not None
+                else "stop",
                 "logprobs": None,
                 "message": {
                     "role": "assistant",
@@ -186,9 +231,9 @@ def handle_openai_server_event_received(session_info: SessionStoreEntry, event: 
         # Setting up the generation
         get_maxim_logger().generation_result(turn["turn_id"], result)
         # Setting the output to the trace
-        if session_info["session_id"] is not None:
-            trace = get_session_store().get_current_trace_for_session(
-                session_info["session_id"]
+        if session_info["rt_session_id"] is not None:
+            trace = get_session_store().get_current_trace_from_rt_session_id(
+                session_info["rt_session_id"]
             )
             if (
                 trace is not None

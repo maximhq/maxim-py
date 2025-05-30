@@ -103,8 +103,8 @@ def parse_result(data: Any) -> Dict[str, Any]:
 
     choices_data = data.get("choices")
     validate_type_to_be_one_of(choices_data, [list, List], "choices")
-    if not choices_data:
-        raise ValueError("choices must not be empty")
+    if choices_data is None:
+        choices_data = []
     choices = [parse_choice(choice) for choice in choices_data]
     usage = parse_usage(data.get("usage", None))
     error = parse_generation_error(data.get("error", None))

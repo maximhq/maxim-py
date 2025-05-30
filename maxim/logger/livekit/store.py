@@ -7,8 +7,7 @@ from typing import Optional, TypedDict, Union
 from livekit.agents import AgentSession
 from livekit.agents.llm import RealtimeSession
 
-from ..components import GenerationResult
-from ..logger import GenerationRequestMessage, Logger, Trace
+from ..logger import Logger, Trace
 
 
 class SessionState(Enum):
@@ -22,8 +21,6 @@ class Turn(TypedDict):
     turn_sequence: int
     turn_timestamp: datetime
     turn_audio_buffer: bytes
-    request: GenerationRequestMessage
-    response: Optional[GenerationResult]
 
 
 class LLMConfig(TypedDict):
@@ -53,8 +50,8 @@ class SessionStoreEntry(TypedDict):
     state: SessionState
     llm_config: Optional[LLMConfig]
     agent_id: Optional[int]
-    session_id: Optional[int]
-    session: Optional[weakref.ref[AgentSession]]
+    agent_session_id: Optional[int]
+    agent_session: Optional[weakref.ref[AgentSession]]
     rt_session_id: Optional[int]
     rt_session: Optional[weakref.ref[RealtimeSession]]
     mx_current_trace_id: Optional[str]
@@ -89,11 +86,11 @@ class LivekitSessionStore:
                 return entry
         return None
 
-    def get_session_by_session_id(
+    def get_session_by_agent_session_id(
         self, session_id: int
     ) -> Union[SessionStoreEntry, None]:
         for entry in self.mx_livekit_session_store:
-            if "session_id" in entry and entry["session_id"] == session_id:
+            if "agent_session_id" in entry and entry["agent_session_id"] == session_id:
                 return entry
         return None
 
@@ -122,8 +119,10 @@ class LivekitSessionStore:
     def clear_all_sessions(self):
         self.mx_livekit_session_store.clear()
 
-    def get_current_trace_for_session(self, session_id: int) -> Union[Trace, None]:
-        session = self.get_session_by_session_id(session_id)
+    def get_current_trace_for_agent_session(
+        self, agent_session_id: int
+    ) -> Union[Trace, None]:
+        session = self.get_session_by_agent_session_id(agent_session_id)
         if session is None:
             return None
         trace_id = session["mx_current_trace_id"]

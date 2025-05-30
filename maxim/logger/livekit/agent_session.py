@@ -53,15 +53,14 @@ def intercept_session_start(self: AgentSession, *args, **kwargs):
         turn_sequence=0,
         turn_timestamp=datetime.now(timezone.utc),
         turn_audio_buffer=bytes(),
-        messages=[],
     )
     get_session_store().set_session(
         SessionStoreEntry(
             room_id=room_id,
             state=SessionState.INITIALIZED,
             agent_id=id(agent),
-            session_id=id(self),
-            session=weakref.ref(self),
+            agent_session_id=id(self),
+            agent_session=weakref.ref(self),
             rt_session_id=None,
             rt_session=None,
             llm_config=None,
@@ -81,7 +80,7 @@ def intercept_update_agent_state(self, *args, **kwargs):
     scribe().debug(
         f"[{self.__class__.__name__}] Agent state updated; new_state={new_state}"
     )
-    trace = get_session_store().get_current_trace_for_session(id(self))
+    trace = get_session_store().get_current_trace_for_agent_session(id(self))
     if trace is not None:
         trace.event(str(uuid.uuid4()), "agent_state_updated", {"new_state": new_state})
 
@@ -94,7 +93,7 @@ def intercept_generate_reply(self, *args, **kwargs):
     scribe().debug(
         f"[{self.__class__.__name__}] Generate reply; instructions={instructions} kwargs={kwargs}"
     )
-    trace = get_session_store().get_current_trace_for_session(id(self))
+    trace = get_session_store().get_current_trace_for_agent_session(id(self))
     if trace is not None:
         trace.set_input(instructions)
 
@@ -107,7 +106,7 @@ def intercept_user_state_changed(self, *args, **kwargs):
     scribe().debug(
         f"[{self.__class__.__name__}] User state changed; new_state={new_state}"
     )
-    trace = get_session_store().get_current_trace_for_session(id(self))
+    trace = get_session_store().get_current_trace_for_agent_session(id(self))
     if trace is not None:
         trace.event(str(uuid.uuid4()), "user_state_changed", {"new_state": new_state})
 
