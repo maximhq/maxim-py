@@ -255,20 +255,49 @@ def crew_kickoff_postprocess_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_task_display_name(inputs: dict) -> str:
-    name = inputs.get("self", {}).get("name", "").strip()
-    name = name.replace("\n", "").strip()
-    if not name:
+    task_representation = inputs.get("self")
+    name_value = None  # Variable to hold the raw value of name
+
+    if isinstance(task_representation, dict):
+        # If 'self' is a dictionary, get the 'name' value
+        name_value = task_representation.get("name")
+    elif task_representation is not None:
+        # If 'self' is an object, get the 'name' attribute, defaulting to None if not found or if attribute itself is None
+        name_value = getattr(task_representation, "name", None)
+
+    # Process the name_value: if it's a string, clean it; otherwise, use an empty string
+    if isinstance(name_value, str):
+        name = name_value.replace("\\n", "").strip()
+    else:
+        name = ""  # Default to empty string if name_value is None or not a string
+
+    if not name:  # Check the cleaned and stripped name
         return "crewai.Task"
     return name
 
 
 def get_agent_display_name(inputs: dict) -> str:
-    title = inputs.get("self", {}).get("role", "")
-    if not title:
-        title = inputs.get("self", {}).get("name", "")
-    if not title:
+    agent_representation = inputs.get("self")
+    title = ""
+
+    if isinstance(agent_representation, dict):
+        # If 'self' is a dictionary (likely already serialized)
+        title = agent_representation.get("role", "")
+        if not title:
+            title = agent_representation.get("name", "")
+    elif agent_representation is not None:
+        # If 'self' is not a dictionary but is not None,
+        # assume it's an object (e.g., Agent instance) and try to access attributes.
+        # Use getattr for safe access with a default empty string.
+        title = getattr(agent_representation, "role", "")
+        if not title:  # If role is not found or is empty, try name
+            title = getattr(agent_representation, "name", "")
+
+    if not title:  # If title is still empty after trying role and name
         return "crewai.Agent"
-    return title.replace("\n", "").strip()
+
+    # Ensure title is a string before calling string methods, then clean and strip
+    return str(title).replace("\n", "").strip()
 
 
 def extract_tool_name(text: str) -> str:
