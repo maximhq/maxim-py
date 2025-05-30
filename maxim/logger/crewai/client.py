@@ -438,16 +438,20 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     scribe().debug("[MaximSDK] Agent has no span, checking task")
 
                     # First check args/kwargs for task
-                    task: Task = None
+                    task: Union[Task, None] = None
                     if len(args) > 0:
-                        task = args[0]
+                        for arg in args:
+                            if isinstance(arg, Task):
+                                task = arg
+                                break
 
-                    if task:
-                        scribe().debug(
-                            f"[MaximSDK] Found task in args: {task.id} and task description: {task.description}"
-                        )
+                    if not task and kwargs:  # Check kwargs if task not found in args
+                        for kwarg_value in kwargs.values():
+                            if isinstance(kwarg_value, Task):
+                                task = kwarg_value
+                                break
 
-                    # Fallback to agent_executor.task if no task found in args
+                    # Fallback to agent_executor.task if no task found in args or kwargs
                     if not task and hasattr(self, "agent_executor"):
                         task = self.agent_executor.task
 
