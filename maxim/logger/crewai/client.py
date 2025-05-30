@@ -169,7 +169,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     try:
                         processed_inputs = input_processor(bound_args)
                     except Exception as e:
-                        scribe().error(
+                        scribe().debug(
                             f"[MaximSDK] Failed to process inputs for {base_op_name}: {e}"
                         )
 
@@ -177,12 +177,12 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     try:
                         final_op_name = display_name_fn(processed_inputs)
                     except Exception as e:
-                        scribe().error(
+                        scribe().debug(
                             f"[MaximSDK] Failed to generate display name for {base_op_name}: {e}"
                         )
 
             except Exception as e:
-                scribe().error(
+                scribe().debug(
                     f"[MaximSDK] Failed to bind/process inputs for {base_op_name}: {e}"
                 )
                 # Fallback for inputs display
@@ -695,7 +695,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 try:
                     processed_output = output_processor(output)
                 except Exception as e:
-                    scribe().error(f"[MaximSDK] Failed to process output: {e}")
+                    scribe().debug(f"[MaximSDK] Failed to process output: {e}")
 
             if tool_call:
                 if isinstance(tool_call, Retrieval):
