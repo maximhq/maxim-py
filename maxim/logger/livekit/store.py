@@ -2,11 +2,12 @@ import threading
 import weakref
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, TypedDict, Union
+from typing import Optional, TypedDict, Union
 
 from livekit.agents import AgentSession
 from livekit.agents.llm import RealtimeSession
 
+from ..components import GenerationResult
 from ..logger import GenerationRequestMessage, Logger, Trace
 
 
@@ -21,7 +22,8 @@ class Turn(TypedDict):
     turn_sequence: int
     turn_timestamp: datetime
     turn_audio_buffer: bytes
-    messages: List[GenerationRequestMessage]
+    request: GenerationRequestMessage
+    response: Optional[GenerationResult]
 
 
 class LLMConfig(TypedDict):

@@ -23,9 +23,30 @@ def parse_tool_calls(tool_calls_data):
     return tool_calls_data
 
 
+def parse_content_list(content_list_data):
+    for content in content_list_data:
+        if content is None:
+            continue
+        if "type" in content and content["type"] == "audio":
+            validate_type(content.get("transcript"), str, "transcript")
+        elif "type" in content and content["type"] == "text":
+            validate_type(content.get("text"), str, "text")
+        elif "type" in content and content["type"] == "image_url":
+            validate_type(content.get("image_url"), str, "image_url")
+        else:
+            raise ValueError(
+                f"Invalid content type. We expect 'text', 'image' or 'audio' type. Got: {content.get('type')}"
+            )
+    return content_list_data
+
+
 def parse_chat_completion_choice(messages_data):
     validate_type(messages_data.get("role"), str, "role")
-    validate_optional_type(messages_data.get("content"), str, "content")
+    # Here it can be either string or list
+    if isinstance(messages_data.get("content"), list):
+        parse_content_list(messages_data.get("content"))
+    else:
+        validate_optional_type(messages_data.get("content"), str, "content")
     if messages_data.get("function_call") is not None:
         parse_function_call(messages_data.get("function_call"))
     elif messages_data.get("tool_calls") is not None:

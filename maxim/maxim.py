@@ -106,13 +106,20 @@ class Maxim:
     This class provides methods for interacting with the Maxim API.
     """
 
-    def __init__(self, config: Union[Config, ConfigDict]):
+    def __init__(self, config: Union[Config, ConfigDict, None] = None):
         """
         Initializes a new instance of the Maxim class.
 
         Args:
             config (Config): The configuration for the Maxim instance.
         """
+        # Thread-safe singleton pattern implementation
+        with threading.Lock():
+            if hasattr(Maxim, "_instance"):
+                raise RuntimeError(
+                    "Maxim instance already exists. Only one instance is allowed per process."
+                )
+            Maxim._instance = self
         self.has_cleaned_up = False
         atexit.register(self.cleanup)
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -122,6 +129,8 @@ class Maxim:
         )
         # Print the ASCII logo when initializing
         print(self.ascii_logo)
+        if config is None:
+            config = ConfigDict()
         final_config = get_config_dict(config)
         if final_config.get("api_key", None) is None:
             # Checking in the env variable

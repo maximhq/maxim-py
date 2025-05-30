@@ -3,7 +3,7 @@ import inspect
 import traceback
 from uuid import uuid4
 
-from livekit.agents.llm import RealtimeSession
+from livekit.agents.llm import RealtimeModelError, RealtimeSession
 
 from ...scribe import scribe
 from .openai.realtime.handler import handle_openai_server_event_received
@@ -18,18 +18,39 @@ def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
     """
     This function is called when the realtime session emits an event.
     """
-    session_info = get_session_store().get_session_by_rt_session_id(id(self))
-    if session_info is None:
-        scribe().error("[MaximSDK] session info is none at realtime session emit")
-        return
-    get_session_store().set_session(session_info)
     event = args[0]
     if event == "openai_client_event_queued":
         pass
     elif event == "openai_server_event_received":
+        session_info = get_session_store().get_session_by_rt_session_id(id(self))
+        if session_info is None:
+            scribe().error("[MaximSDK] session info is none at realtime session emit")
+            return
         handle_openai_server_event_received(session_info, args[1])
     elif event == "metrics_collected":
         pass
+    elif event == "error":
+        scribe().debug(
+            f"=====[{self.__class__.__name__}] error; args={args}, kwargs={kwargs}"
+        )
+        if args[1] is not None and isinstance(args[1], RealtimeModelError):
+            main_error: RealtimeModelError = args[1]
+            trace = get_session_store().get_current_trace_from_rt_session_id(id(self))
+            if trace is not None:
+                trace.add_error(
+                    {
+                        "id": str(uuid4()),
+                        "name": main_error.type,
+                        "type": main_error.label,
+                        "message": main_error.error.__str__(),
+                        "metadata": {
+                            "recoverable": main_error.recoverable,
+                            "trace": main_error.error.with_traceback,
+                        },
+                    }
+                )
+        else:
+            scribe().error(f"[{self.__class__.__name__}] error; error={args[1]}")
     else:
         scribe().debug(
             f"[{self.__class__.__name__}] emit called; args={args}, kwargs={kwargs}"
