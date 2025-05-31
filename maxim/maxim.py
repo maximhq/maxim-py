@@ -122,8 +122,9 @@ class Maxim:
             Maxim._instance = self
         self.has_cleaned_up = False
         atexit.register(self.cleanup)
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
         self.ascii_logo = (
             f"\033[32m[MaximSDK] Initializing Maxim AI(v{current_version})\033[0m"
         )
@@ -754,7 +755,7 @@ class Maxim:
         def check():
             exists = self.maxim_api.does_log_repository_exist(logger.repo_id)
             if not exists:
-                scribe().warning(f"[MaximSDK] Log repository not found: {logger.repo_id}")
+                scribe().error(f"[MaximSDK] Log repository not found: {logger.repo_id}. All logs will be dropped.")
                 if self.raise_exceptions:
                     raise Exception("Log repository not found")
                 return

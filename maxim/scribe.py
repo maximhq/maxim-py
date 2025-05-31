@@ -26,21 +26,6 @@ class Scribe():
             return
         self.logger.error(msg, *args, **kwargs)
 
-    def critical(self, msg, *args, **kwargs):
-        if self.disable_internal_logs and msg.startswith("[Internal]"):
-            return
-        self.logger.critical(msg, *args, **kwargs)
-
-    def exception(self, msg, *args, **kwargs):
-        if self.disable_internal_logs and msg.startswith("[Internal]"):
-            return
-        self.logger.exception(msg, *args, **kwargs)
-
-    def trace(self, msg, *args, **kwargs):
-        if self.disable_internal_logs and msg.startswith("[Internal]"):
-            return
-        self.logger.trace(msg, *args, **kwargs)
-
     def info(self, msg, *args, **kwargs):
         if self.disable_internal_logs and msg.startswith("[Internal]"):
             return
