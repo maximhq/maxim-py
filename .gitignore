@@ -52,6 +52,7 @@ logs/
 .env.local
 .DS_Store
 
-maxim-py-env
+.venv
 
 maxim/tests/testConfig.json
+.pypirc
