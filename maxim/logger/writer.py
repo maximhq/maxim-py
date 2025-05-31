@@ -119,6 +119,12 @@ class LogWriter:
                     "flush_interval is set to None.flush_interval has to be a number"
                 )
 
+    def _set_drop_logs(self, drop_logs: bool):
+        """
+        Sets the drop_logs flag.
+        """
+        self._drop_logs = drop_logs
+
     @property
     def repository_id(self):
         """

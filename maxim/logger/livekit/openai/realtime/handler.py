@@ -115,7 +115,6 @@ def handle_openai_server_event_received(session_info: SessionStoreEntry, event: 
         # compute tokens
         # push audio buffer data to the server
         # mark the LLM call complete
-        print(f"#############LLM CALL COMPLETE############ {event}")
         # Attaching the audio buffer as attachment to the generation
         turn = session_info["current_turn"]
         if turn is None:

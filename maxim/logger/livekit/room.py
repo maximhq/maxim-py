@@ -8,7 +8,7 @@ from ...scribe import scribe
 def pre_hook(self, hook_name, args, kwargs):
     try:
         scribe().debug(
-            f"[{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
+            f"[Internal][{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
         )
     except Exception as e:
         scribe().error(
@@ -19,7 +19,7 @@ def pre_hook(self, hook_name, args, kwargs):
 def post_hook(self, result, hook_name, args, kwargs):
     try:
         scribe().debug(
-            f"[{self.__class__.__name__}] {hook_name} completed; result={result}"
+            f"[Internal][{self.__class__.__name__}] {hook_name} completed; result={result}"
         )
     except Exception as e:
         scribe().error(

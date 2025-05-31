@@ -85,7 +85,7 @@ def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
         pass
     elif event == "error":
         scribe().debug(
-            f"=====[{self.__class__.__name__}] error; args={args}, kwargs={kwargs}"
+            f"[Internal]=====[{self.__class__.__name__}] error; args={args}, kwargs={kwargs}"
         )
         if args[1] is not None and isinstance(args[1], RealtimeModelError):
             main_error: RealtimeModelError = args[1]
@@ -107,7 +107,7 @@ def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
             scribe().error(f"[{self.__class__.__name__}] error; error={args[1]}")
     else:
         scribe().debug(
-            f"[{self.__class__.__name__}] emit called; args={args}, kwargs={kwargs}"
+            f"[Internal][{self.__class__.__name__}] emit called; args={args}, kwargs={kwargs}"
         )
 
 
@@ -127,7 +127,7 @@ def pre_hook(self, hook_name, args, kwargs):
             handle_interrupt(self, *args, **kwargs)
         else:
             scribe().debug(
-                f"[{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
+                f"[Internal][{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
             )
     except Exception as e:
         scribe().error(
@@ -141,7 +141,7 @@ def post_hook(self, result, hook_name, args, kwargs):
             pass
         else:
             scribe().debug(
-                f"[{self.__class__.__name__}] {hook_name} completed; result={result}"
+                f"[Internal][{self.__class__.__name__}] {hook_name} completed; result={result}"
             )
     except Exception as e:
         scribe().error(

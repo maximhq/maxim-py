@@ -10,6 +10,7 @@ Attributes:
     flush_interval (int): The interval (in seconds) at which to flush logs when auto_flush is True. Defaults to 10 seconds.
 """
 
+import threading
 from typing import Any, Dict, Optional, TypedDict, Union
 
 from typing_extensions import deprecated

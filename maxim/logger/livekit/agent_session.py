@@ -25,14 +25,14 @@ def intercept_session_start(self: AgentSession, *args, **kwargs):
     """
     maxim_logger = get_maxim_logger()
     scribe().debug(
-        f"[{self.__class__.__name__}] Session started; args={args}, kwargs={kwargs}"
+        f"[Internal][{self.__class__.__name__}] Session started; args={args}, kwargs={kwargs}"
     )
     # getting the room_id
     room_id = kwargs.get("room", None)
     agent: Agent = kwargs.get("agent", None)
-    scribe().debug(f"session key:{id(self)}")
-    scribe().debug(f"Room: {room_id}")
-    scribe().debug(f"Agent: {agent.instructions}")
+    scribe().debug(f"[Internal]session key:{id(self)}")
+    scribe().debug(f"[Internal]Room: {room_id}")
+    scribe().debug(f"[Internal]Agent: {agent.instructions}")
     # creating trace as well
     session_id = str(uuid.uuid4())
     session = maxim_logger.session({"id": session_id, "name": "livekit-session"})
@@ -80,7 +80,7 @@ def intercept_update_agent_state(self, *args, **kwargs):
     """
     new_state = args[0]
     scribe().debug(
-        f"[{self.__class__.__name__}] Agent state updated; new_state={new_state}"
+        f"[Internal][{self.__class__.__name__}] Agent state updated; new_state={new_state}"
     )
     trace = get_session_store().get_current_trace_for_agent_session(id(self))
     if trace is not None:
@@ -93,7 +93,7 @@ def intercept_generate_reply(self, *args, **kwargs):
     """
     instructions = kwargs.get("instructions", None)
     scribe().debug(
-        f"[{self.__class__.__name__}] Generate reply; instructions={instructions} kwargs={kwargs}"
+        f"[Internal][{self.__class__.__name__}] Generate reply; instructions={instructions} kwargs={kwargs}"
     )
     trace = get_session_store().get_current_trace_for_agent_session(id(self))
     if trace is not None:
@@ -106,7 +106,7 @@ def intercept_user_state_changed(self, *args, **kwargs):
     """
     new_state = args[0]
     scribe().debug(
-        f"[{self.__class__.__name__}] User state changed; new_state={new_state}"
+        f"[Internal][{self.__class__.__name__}] User state changed; new_state={new_state}"
     )
     trace = get_session_store().get_current_trace_for_agent_session(id(self))
     if trace is not None:
@@ -128,7 +128,7 @@ def pre_hook(self, hook_name, args, kwargs):
                 pass
         else:
             scribe().debug(
-                f"[{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
+                f"[Internal][{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
             )
     except Exception as e:
         scribe().error(
@@ -143,7 +143,7 @@ def post_hook(self, result, hook_name, args, kwargs):
                 pass
         else:
             scribe().debug(
-                f"[{self.__class__.__name__}] {hook_name} completed; result={result}"
+                f"[Internal][{self.__class__.__name__}] {hook_name} completed; result={result}"
             )
     except Exception as e:
         scribe().error(

@@ -13,7 +13,7 @@ agent_activity_f_skip_list = []
 
 
 def post_start(self: AgentActivity, *args, **kwargs):
-    scribe().debug(f"[{self.__class__.__name__}] post start called")
+    scribe().debug(f"[Internal][{self.__class__.__name__}] post start called")
     # Trying to get AgentSession and RealtimeSession handles
     session_id = id(self._session)
     rt_session_id = id(self._rt_session)
@@ -25,7 +25,7 @@ def post_start(self: AgentActivity, *args, **kwargs):
     if session_info is None:
         scribe().error("[MaximSDK] session info is none at realtime session start")
         return
-    scribe().debug(f"[{self.__class__.__name__}] session info: {session_info}")
+    scribe().debug(f"[Internal][{self.__class__.__name__}] session info: {session_info}")
     session_info["rt_session_id"] = rt_session_id
     session_info["rt_session"] = self._rt_session
     get_session_store().set_session(session_info)
@@ -40,7 +40,7 @@ def handle_interrupt(self: AgentActivity, *args, **kwargs):
 
 
 def handle_input_speech_started(self: AgentActivity, *args, **kwargs):
-    scribe().debug(f"[{self.__class__.__name__}] input speech started called")
+    scribe().debug(f"[Internal][{self.__class__.__name__}] input speech started called")
     # Ending current trace and turn
     session_info = get_session_store().get_session_by_agent_session_id(id(self._session))
     if session_info is None:
@@ -84,7 +84,7 @@ def pre_hook(self, hook_name, args, kwargs):
             handle_input_speech_started(self, args, kwargs)
         else:
             scribe().debug(
-                f"[{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
+                f"[Internal][{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
             )
     except Exception as e:
         scribe().error(
@@ -102,7 +102,7 @@ def post_hook(self, result, hook_name, args, kwargs):
             pass
         else:
             scribe().debug(
-                f"[{self.__class__.__name__}] {hook_name} completed; result={result}"
+                f"[Internal][{self.__class__.__name__}] {hook_name} completed; result={result}"
             )
     except Exception as e:
         scribe().error(

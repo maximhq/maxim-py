@@ -332,7 +332,7 @@ class Maxim:
             if prompt_version.config
             else {},
             model=prompt_version.config.model if prompt_version.config else None,
-            provider=prompt_version.config.provider if prompt_version.config else None
+            provider=prompt_version.config.provider if prompt_version.config else None,
         )
 
     def __format_prompt_chain(
@@ -733,14 +733,6 @@ class Maxim:
         repo_id = final_config.get("id", None)
         if repo_id is None:
             raise ValueError("Log repository id is required")
-        exists = self.maxim_api.does_log_repository_exist(repo_id)
-        if not exists:
-            if repo_id:
-                scribe().warning(
-                    f"[MaximSDK][Maxim] Log repository not found: {repo_id}"
-                )
-                if self.raise_exceptions:
-                    raise Exception("Log repository not found")
         if repo_id in self.__loggers:
             return self.__loggers[repo_id]
         logger = Logger(
@@ -751,7 +743,26 @@ class Maxim:
             raise_exceptions=self.raise_exceptions,
         )
         self.__loggers[repo_id] = logger
+
         return logger
+
+    def _check_if_repo_exists(self, logger: Logger):
+        """
+        Checks if the log repository exists.
+        """
+
+        def check():
+            exists = self.maxim_api.does_log_repository_exist(logger.repo_id)
+            if not exists:
+                scribe().warning(f"[MaximSDK] Log repository not found: {logger.repo_id}")
+                if self.raise_exceptions:
+                    raise Exception("Log repository not found")
+                return
+            scribe().debug(f"[MaximSDK] Log repository found: {logger.repo_id}")            
+
+        thread = threading.Thread(target=check)
+        thread.daemon = True
+        thread.start()
 
     def create_test_run(self, name: str, in_workspace_id: str) -> TestRunBuilder:
         """
