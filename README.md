@@ -105,6 +105,11 @@ trace.end()
 
 ## Version changelog
 
+
+### 3.7.1
+
+- feat: LiveKit one line integration (beta)
+
 ### 3.7.0
 
 - feat: Prompt, PromptVersionConfig, and RunnablePrompt now expose a `provider` field to indicate the LLM provider (e.g., 'openai', 'anthropic').

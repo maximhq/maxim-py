@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, TypedDict, Union
 
 from typing_extensions import deprecated
 
+from ..components import FileAttachment, FileDataAttachment, UrlAttachment
 from ..writer import LogWriter
 from .base import BaseContainer
 from .types import Entity
@@ -66,6 +67,21 @@ class Retrieval(BaseContainer):
         self._commit(
             "update", {"docs": final_docs, "endTimestamp": datetime.now(timezone.utc)})
         self.end()
+
+    def add_attachment(
+        self, attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment]
+    ):
+        self._commit("upload-attachment", attachment.to_dict())
+
+    @staticmethod
+    def add_attachment_(
+        writer: LogWriter,
+        id: str,
+        attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment],
+    ):
+        BaseContainer._commit_(
+            writer, Entity.RETRIEVAL, id, "upload-attachment", attachment.to_dict()
+        )
 
     @staticmethod
     def output_(writer: LogWriter, id: str, docs: Union[str, List[str]]):

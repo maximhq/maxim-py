@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional, TypedDict, Union
+from typing import Any, Dict, Iterator, List, Literal, Optional, TypedDict, Union
 from uuid import uuid4
 
 from typing_extensions import deprecated
@@ -108,9 +108,24 @@ class GenerationToolCall(TypedDict):
     function: GenerationToolCallFunction
 
 
+class TextContent(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class ImageContent(TypedDict):
+    type: Literal["image"]
+    image_url: str
+
+
+class AudioContent(TypedDict):
+    type: Literal["audio"]
+    transcript: str
+
+
 class GenerationResultMessage(TypedDict):
     role: str
-    content: Optional[str]
+    content: Optional[Union[List[Union[TextContent, ImageContent, AudioContent]], str]]
     tool_calls: Optional[List[GenerationToolCall]]
 
 
@@ -121,10 +136,19 @@ class GenerationResultChoice(TypedDict):
     finish_reason: Optional[str]
 
 
-class GenerationUsage(TypedDict):
+class TokenDetails(TypedDict):
+    text_tokens: int
+    audio_tokens: int
+    cached_tokens: int
+
+
+class GenerationUsage(TypedDict, total=False):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    input_token_details: Optional[TokenDetails]
+    output_token_details: Optional[TokenDetails]
+    cached_token_details: Optional[TokenDetails]
 
 
 class GenerationResult(TypedDict):

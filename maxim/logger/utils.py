@@ -1,10 +1,35 @@
 import collections.abc
 import inspect
+import io
 import re
 import types
+import wave
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+
+
+def pcm16_to_wav_bytes(
+    pcm_bytes: bytes, num_channels: int = 1, sample_rate: int = 24000
+) -> bytes:
+    """
+    Convert PCM-16 audio data to WAV format bytes.
+
+    Args:
+        pcm_bytes (bytes): Raw PCM-16 audio data
+        num_channels (int): Number of audio channels (default: 2)
+        sample_rate (int): Sample rate in Hz (default: 44100)
+
+    Returns:
+        bytes: WAV format audio data
+    """
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(num_channels)
+        wav_file.setsampwidth(2)  # 16-bit PCM = 2 bytes
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm_bytes)
+    return buffer.getvalue()
 
 
 def make_object_serializable(obj: Any) -> Any:

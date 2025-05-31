@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, TypedDict, Union
 
 from typing_extensions import deprecated
 
+from ...scribe import scribe
+
 
 class Entity(Enum):
     SESSION = "session"
@@ -54,6 +56,27 @@ class CommitLog:
             and "data" in self.data
         ):
             del self.data["data"]
+        # Here we will check if data is json parsable
+        # If not we wont error out but just log it
+        if self.data is not None:
+            try:
+                json.dumps(self.data, cls=DateTimeEncoder)
+            except Exception:
+                # Find the problematic key by trying to serialize each key-value pair
+                problematic_keys = []
+                for key, value in self.data.items():
+                    try:
+                        json.dumps({key: value}, cls=DateTimeEncoder)
+                    except Exception:
+                        problematic_keys.append(key)
+
+                # Remove only the problematic keys
+                for key in problematic_keys:
+                    del self.data[key]
+                    scribe().error(
+                        f"[MaximSDK] Key '{key}' is not serializable and will be removed from data"
+                    )
+
         return f"{self.entity.value}{{id={self.entity_id},action={self.action},data={json.dumps(self.data,cls=DateTimeEncoder)}}}"
 
 

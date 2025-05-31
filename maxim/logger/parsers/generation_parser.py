@@ -23,9 +23,30 @@ def parse_tool_calls(tool_calls_data):
     return tool_calls_data
 
 
+def parse_content_list(content_list_data):
+    for content in content_list_data:
+        if content is None:
+            continue
+        if "type" in content and content["type"] == "audio":
+            validate_type(content.get("transcript"), str, "transcript")
+        elif "type" in content and content["type"] == "text":
+            validate_type(content.get("text"), str, "text")
+        elif "type" in content and content["type"] == "image_url":
+            validate_type(content.get("image_url"), str, "image_url")
+        else:
+            raise ValueError(
+                f"Invalid content type. We expect 'text', 'image' or 'audio' type. Got: {content.get('type')}"
+            )
+    return content_list_data
+
+
 def parse_chat_completion_choice(messages_data):
     validate_type(messages_data.get("role"), str, "role")
-    validate_optional_type(messages_data.get("content"), str, "content")
+    # Here it can be either string or list
+    if isinstance(messages_data.get("content"), list):
+        parse_content_list(messages_data.get("content"))
+    else:
+        validate_optional_type(messages_data.get("content"), str, "content")
     if messages_data.get("function_call") is not None:
         parse_function_call(messages_data.get("function_call"))
     elif messages_data.get("tool_calls") is not None:
@@ -82,8 +103,8 @@ def parse_result(data: Any) -> Dict[str, Any]:
 
     choices_data = data.get("choices")
     validate_type_to_be_one_of(choices_data, [list, List], "choices")
-    if not choices_data:
-        raise ValueError("choices must not be empty")
+    if choices_data is None:
+        choices_data = []
     choices = [parse_choice(choice) for choice in choices_data]
     usage = parse_usage(data.get("usage", None))
     error = parse_generation_error(data.get("error", None))

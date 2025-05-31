@@ -193,7 +193,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
             generation: Union[Generation, None] = None
             tool_call: Union[ToolCall, Retrieval, None] = None
             planner_span: Union[Span, None] = None
-            trace_token: Union[contextvars.Token[Trace | None], None] = None
+            trace_token: Union[contextvars.Token[Union[Trace, None]], None] = None
 
             if isinstance(self, Flow):
                 if _global_maxim_trace.get() is None:

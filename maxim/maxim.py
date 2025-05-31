@@ -106,22 +106,32 @@ class Maxim:
     This class provides methods for interacting with the Maxim API.
     """
 
-    def __init__(self, config: Union[Config, ConfigDict]):
+    def __init__(self, config: Union[Config, ConfigDict, None] = None):
         """
         Initializes a new instance of the Maxim class.
 
         Args:
             config (Config): The configuration for the Maxim instance.
         """
+        # Thread-safe singleton pattern implementation
+        with threading.Lock():
+            if hasattr(Maxim, "_instance"):
+                raise RuntimeError(
+                    "Maxim instance already exists. Only one instance is allowed per process."
+                )
+            Maxim._instance = self
         self.has_cleaned_up = False
         atexit.register(self.cleanup)
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
         self.ascii_logo = (
             f"\033[32m[MaximSDK] Initializing Maxim AI(v{current_version})\033[0m"
         )
         # Print the ASCII logo when initializing
         print(self.ascii_logo)
+        if config is None:
+            config = ConfigDict()
         final_config = get_config_dict(config)
         if final_config.get("api_key", None) is None:
             # Checking in the env variable
@@ -323,7 +333,7 @@ class Maxim:
             if prompt_version.config
             else {},
             model=prompt_version.config.model if prompt_version.config else None,
-            provider=prompt_version.config.provider if prompt_version.config else None
+            provider=prompt_version.config.provider if prompt_version.config else None,
         )
 
     def __format_prompt_chain(
@@ -724,14 +734,6 @@ class Maxim:
         repo_id = final_config.get("id", None)
         if repo_id is None:
             raise ValueError("Log repository id is required")
-        exists = self.maxim_api.does_log_repository_exist(repo_id)
-        if not exists:
-            if repo_id:
-                scribe().warning(
-                    f"[MaximSDK][Maxim] Log repository not found: {repo_id}"
-                )
-                if self.raise_exceptions:
-                    raise Exception("Log repository not found")
         if repo_id in self.__loggers:
             return self.__loggers[repo_id]
         logger = Logger(
@@ -742,7 +744,26 @@ class Maxim:
             raise_exceptions=self.raise_exceptions,
         )
         self.__loggers[repo_id] = logger
+
         return logger
+
+    def _check_if_repo_exists(self, logger: Logger):
+        """
+        Checks if the log repository exists.
+        """
+
+        def check():
+            exists = self.maxim_api.does_log_repository_exist(logger.repo_id)
+            if not exists:
+                scribe().error(f"[MaximSDK] Log repository not found: {logger.repo_id}. All logs will be dropped.")
+                if self.raise_exceptions:
+                    raise Exception("Log repository not found")
+                return
+            scribe().debug(f"[MaximSDK] Log repository found: {logger.repo_id}")            
+
+        thread = threading.Thread(target=check)
+        thread.daemon = True
+        thread.start()
 
     def create_test_run(self, name: str, in_workspace_id: str) -> TestRunBuilder:
         """
