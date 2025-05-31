@@ -20,7 +20,8 @@ class Turn(TypedDict):
     turn_id: str
     turn_sequence: int
     turn_timestamp: datetime
-    turn_audio_buffer: bytes
+    turn_input_audio_buffer: bytes
+    turn_output_audio_buffer: bytes
 
 
 class LLMConfig(TypedDict):
@@ -48,6 +49,7 @@ class LLMConfig(TypedDict):
 class SessionStoreEntry(TypedDict):
     room_id: int
     state: SessionState
+    user_speaking: bool
     llm_config: Optional[LLMConfig]
     agent_id: Optional[int]
     agent_session_id: Optional[int]

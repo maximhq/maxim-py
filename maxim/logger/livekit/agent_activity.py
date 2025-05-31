@@ -1,11 +1,13 @@
 import functools
 import inspect
 import traceback
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from livekit.agents.voice.agent_activity import AgentActivity
 
 from ...scribe import scribe
-from .store import get_session_store
+from .store import Turn, get_maxim_logger, get_session_store
 
 agent_activity_f_skip_list = []
 
@@ -29,12 +31,57 @@ def post_start(self: AgentActivity, *args, **kwargs):
     get_session_store().set_session(session_info)
 
 
+def handle_interrupt(self: AgentActivity, *args, **kwargs):
+    trace = get_session_store().get_current_trace_for_agent_session(id(self._session))
+    if trace is None:
+        scribe().error("[MaximSDK] trace is none at realtime session interrupt")
+        return
+    trace.event(id=str(uuid4()), name="interrupted")
+
+
+def handle_input_speech_started(self: AgentActivity, *args, **kwargs):
+    scribe().debug(f"[{self.__class__.__name__}] input speech started called")
+    # Ending current trace and turn
+    session_info = get_session_store().get_session_by_agent_session_id(id(self._session))
+    if session_info is None:
+        scribe().error("[MaximSDK] session info is none at realtime session emit")
+        return
+    trace = get_session_store().get_current_trace_for_agent_session(id(self._session))
+    if trace is not None:
+        trace.end()
+    # Creating a new turn and new trace
+    session_id = session_info["mx_session_id"]
+    trace_id = str(uuid4())
+    tags = {}
+    if session_info["room_id"] is not None:
+        tags["room_id"] = session_info["room_id"]
+    if session_info["agent_id"] is not None:
+        tags["agent_id"] = session_info["agent_id"]
+    get_maxim_logger().trace(
+        {"id": trace_id, "session_id": session_id, "tags": tags}
+    )
+    current_turn = Turn(
+        turn_id=str(uuid4()),
+        turn_sequence=0,
+        turn_timestamp=datetime.now(timezone.utc),
+        turn_input_audio_buffer=bytes(),
+        turn_output_audio_buffer=bytes(),
+    )
+    session_info["user_speaking"] = True
+    session_info["current_turn"] = current_turn
+    session_info["mx_current_trace_id"] = trace_id
+    get_session_store().set_session(session_info)    
+
 def pre_hook(self, hook_name, args, kwargs):
     try:
         if hook_name == "push_audio":
             return
         elif hook_name == "_on_metrics_collected":
             pass
+        elif hook_name == "interrupt":
+            handle_interrupt(self, args, kwargs)
+        elif hook_name == "_on_input_speech_started":
+            handle_input_speech_started(self, args, kwargs)
         else:
             scribe().debug(
                 f"[{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"

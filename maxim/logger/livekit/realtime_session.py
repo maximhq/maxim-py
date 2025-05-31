@@ -12,7 +12,10 @@ from livekit.agents.llm import (
 )
 
 from ...scribe import scribe
-from .openai.realtime.handler import handle_openai_server_event_received
+from .openai.realtime.handler import (
+    handle_openai_client_event_queued,
+    handle_openai_server_event_received,
+)
 from .store import Turn, get_maxim_logger, get_session_store
 
 
@@ -22,13 +25,25 @@ def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
     """
     event = args[0]
     if event == "openai_client_event_queued":
-        pass
+        session_info = get_session_store().get_session_by_rt_session_id(id(self))
+        if session_info is None:
+            scribe().error("[MaximSDK] session info is none at realtime session emit")
+            return
+        if session_info["user_speaking"]:
+            handle_openai_client_event_queued(session_info, args[1])
     elif event == "openai_server_event_received":
         session_info = get_session_store().get_session_by_rt_session_id(id(self))
         if session_info is None:
             scribe().error("[MaximSDK] session info is none at realtime session emit")
             return
         handle_openai_server_event_received(session_info, args[1])
+    elif event == "input_speech_stopped":
+        session_info = get_session_store().get_session_by_rt_session_id(id(self))
+        if session_info is None:
+            scribe().error("[MaximSDK] session info is none at realtime session emit")
+            return
+        session_info["user_speaking"] = False
+        get_session_store().set_session(session_info)
     elif event == "metrics_collected":
         pass
     elif event == "generation_created":
@@ -67,34 +82,7 @@ def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
         )
 
     elif event == "input_speech_started":
-        # Ending current trace and turn
-        session_info = get_session_store().get_session_by_rt_session_id(id(self))
-        if session_info is None:
-            scribe().error("[MaximSDK] session info is none at realtime session emit")
-            return
-        trace = get_session_store().get_current_trace_from_rt_session_id(id(self))
-        if trace is not None:
-            trace.end()
-        # Creating a new turn and new trace
-        session_id = session_info["mx_session_id"]
-        trace_id = str(uuid.uuid4())
-        tags = {}
-        if session_info["room_id"] is not None:
-            tags["room_id"] = session_info["room_id"]
-        if session_info["agent_id"] is not None:
-            tags["agent_id"] = session_info["agent_id"]
-        get_maxim_logger().trace(
-            {"id": trace_id, "session_id": session_id, "tags": tags}
-        )
-        current_turn = Turn(
-            turn_id=str(uuid.uuid4()),
-            turn_sequence=0,
-            turn_timestamp=datetime.now(timezone.utc),
-            turn_audio_buffer=bytes(),
-        )
-        session_info["current_turn"] = current_turn
-        session_info["mx_current_trace_id"] = trace_id
-        get_session_store().set_session(session_info)
+        pass
     elif event == "error":
         scribe().debug(
             f"=====[{self.__class__.__name__}] error; args={args}, kwargs={kwargs}"

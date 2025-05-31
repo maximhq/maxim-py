@@ -4,6 +4,7 @@ import time
 import wave
 from typing import Any, List, Union
 
+from .....scribe import scribe
 from ....components import (
     AudioContent,
     FileDataAttachment,
@@ -12,31 +13,9 @@ from ....components import (
     ImageContent,
     TextContent,
 )
+from ....utils import pcm16_to_wav_bytes
 from ...store import SessionStoreEntry, get_maxim_logger, get_session_store
 from .events import SessionCreatedEvent, get_model_params
-
-
-def pcm16_to_wav_bytes(
-    pcm_bytes: bytes, num_channels: int = 1, sample_rate: int = 24000
-) -> bytes:
-    """
-    Convert PCM-16 audio data to WAV format bytes.
-
-    Args:
-        pcm_bytes (bytes): Raw PCM-16 audio data
-        num_channels (int): Number of audio channels (default: 2)
-        sample_rate (int): Sample rate in Hz (default: 44100)
-
-    Returns:
-        bytes: WAV format audio data
-    """
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wavfile:
-        wavfile.setnchannels(num_channels)
-        wavfile.setsampwidth(2)  # 16-bit PCM = 2 bytes
-        wavfile.setframerate(sample_rate)
-        wavfile.writeframes(pcm_bytes)
-    return buffer.getvalue()
 
 
 def handle_session_created(session_info: SessionStoreEntry, event: SessionCreatedEvent):
@@ -73,22 +52,26 @@ def handle_openai_client_event_queued(session_info: SessionStoreEntry, event: di
     """
     This function is called when the realtime session receives an event from the OpenAI client.
     """
-    # We ignore buffer audio type as it just fills it with silence`
     type = event.get("type")
     if type == "input_audio_buffer.append":
-        return
-    print(f"OpenAI client event queued:type:{type} {event}")
+        if session_info["current_turn"] is None:
+            return
+        turn = session_info["current_turn"]
+        if turn["turn_input_audio_buffer"] is None:
+            turn["turn_input_audio_buffer"] = b""
+        turn["turn_input_audio_buffer"] += base64.b64decode(event["audio"])
+        session_info["current_turn"] = turn
+        get_session_store().set_session(session_info)
 
 
 def buffer_audio(entry: SessionStoreEntry, event):
     # Buffering audio to the current session_entry
     if entry["current_turn"] is None:
         return
-    print("#############BUFFERING AUDIO############")
     turn = entry["current_turn"]
-    if turn["turn_audio_buffer"] is None:
-        turn["turn_audio_buffer"] = b""
-    turn["turn_audio_buffer"] += base64.b64decode(event["delta"])
+    if turn["turn_output_audio_buffer"] is None:
+        turn["turn_output_audio_buffer"] = b""
+    turn["turn_output_audio_buffer"] += base64.b64decode(event["delta"])
     entry["current_turn"] = turn
     get_session_store().set_session(entry)
 
@@ -140,11 +123,19 @@ def handle_openai_server_event_received(session_info: SessionStoreEntry, event: 
         get_maxim_logger().generation_add_attachment(
             turn["turn_id"],
             FileDataAttachment(
-                data=pcm16_to_wav_bytes(turn["turn_audio_buffer"]),
+                data=pcm16_to_wav_bytes(turn["turn_output_audio_buffer"]),
                 tags={"attach-to": "output"},
                 name="Assistant Response",
                 timestamp=int(time.time()),
-                metadata={"attach-to": "output"},
+            ),
+        )
+        get_maxim_logger().generation_add_attachment(
+            turn["turn_id"],
+            FileDataAttachment(
+                data=pcm16_to_wav_bytes(turn["turn_input_audio_buffer"]),
+                tags={"attach-to": "input"},
+                name="User Input",
+                timestamp=int(time.time()),
             ),
         )
         response = event["response"]

@@ -52,11 +52,13 @@ def intercept_session_start(self: AgentSession, *args, **kwargs):
         turn_id=str(uuid.uuid4()),
         turn_sequence=0,
         turn_timestamp=datetime.now(timezone.utc),
-        turn_audio_buffer=bytes(),
+        turn_input_audio_buffer=bytes(),
+        turn_output_audio_buffer=bytes(),
     )
     get_session_store().set_session(
         SessionStoreEntry(
             room_id=room_id,
+            user_speaking=False,
             state=SessionState.INITIALIZED,
             agent_id=id(agent),
             agent_session_id=id(self),
