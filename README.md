@@ -105,9 +105,10 @@ trace.end()
 
 ## Version changelog
 
-### 3.7.1
+### 3.7.2
 
 - chore: improvements in crewai logging integration
+- chore: deprecated span.output() method removed
 
 ### 3.7.0
 

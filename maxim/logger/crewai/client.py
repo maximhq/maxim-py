@@ -760,7 +760,6 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 del _last_llm_usages[generation.id]
 
             if span:
-                span.output(str(processed_output))
                 scribe().debug("[MaximSDK] SPAN: Completing span")
                 span.end()
 
