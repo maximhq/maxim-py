@@ -9,10 +9,10 @@ description = "A package that allows you to use the Maxim Python Library to inte
 readme = "README.md"
 requires-python = ">=3.9.20"
 dependencies = [
-  "requests",
-  "urllib3",
-  "typing-extensions",
-  "filetype"
+    "requests",
+    "urllib3",
+    "typing-extensions",
+    "filetype",    
 ]
 authors = [
   { name = "Maxim Engineering", email = "eng@getmaxim.ai" }
@@ -26,16 +26,17 @@ classifiers = [
   "Operating System :: Microsoft :: Windows"
 ]
 
-
 [dependency-groups]
 dev = [
-    "crewai>=0.5.0",
-    "filetype>=1.2.0",
-    "livekit>=1.0.8",
-    "livekit-agents[openai]>=1.0.22",
-    "livekit-agents[google]~=1.0",
-    "livekit-api>=1.0.2",
-    "requests>=2.32.3",
-    "typing-extensions>=4.13.2",
-    "urllib3>=2.4.0",
+  "crewai>=0.5.0",
+  "filetype>=1.2.0",
+  "livekit>=1.0.8",
+  "livekit-agents[openai]>=1.0.22",
+  "livekit-agents[google]~=1.0",
+  "livekit-api>=1.0.2",
+  "requests>=2.32.3",
+  "typing-extensions>=4.13.2",
+  "urllib3>=2.4.0",
+  "setuptools>=80.9.0",
+  "wheel>=0.45.1",
 ]

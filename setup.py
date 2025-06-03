@@ -17,6 +17,7 @@ print("Releasing version: ", VERSION)
 print("=============================")
 
 packages = find_packages()
+packages.remove("maxim.tests")
 # Setting up
 setup(
     name="maxim-py",
