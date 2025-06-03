@@ -14,7 +14,7 @@ from maxim.logger import (
     LoggerConfig,
     TraceConfig,
 )
-from maxim.logger.anthropic import MaximAnthropicClient,MaximAnthropicAsyncClient
+from maxim.logger.anthropic import MaximAnthropicAsyncClient, MaximAnthropicClient
 
 # Load test config
 with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
@@ -86,8 +86,7 @@ class TestAnthropic(unittest.TestCase):
             model="claude-3-sonnet-20240229",
             max_tokens=1000,
         )
-        generation.result(response)
-        print(response)
+        generation.result(response)        
 
     def test_messages_using_wrapper(self):
         client = MaximAnthropicClient(
@@ -97,8 +96,7 @@ class TestAnthropic(unittest.TestCase):
             messages=[{"role": "user", "content": "Explain how AI works"}],
             model="claude-3-sonnet-20240229",
             max_tokens=1000,
-        )
-        print(response)
+        )        
 
     def test_messages_stream_using_wrapper(self):
         client = MaximAnthropicClient(

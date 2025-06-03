@@ -10,6 +10,7 @@ Attributes:
     flush_interval (int): The interval (in seconds) at which to flush logs when auto_flush is True. Defaults to 10 seconds.
 """
 
+import threading
 from typing import Any, Dict, Optional, TypedDict, Union
 
 from typing_extensions import deprecated
@@ -21,6 +22,8 @@ from .components import (
     ErrorConfig,
     Feedback,
     FeedbackDict,
+    FileAttachment,
+    FileDataAttachment,
     Generation,
     GenerationConfig,
     GenerationConfigDict,
@@ -43,6 +46,7 @@ from .components import (
     Trace,
     TraceConfig,
     TraceConfigDict,
+    UrlAttachment,
 )
 from .components.base import EvaluateContainer
 from .writer import LogWriter, LogWriterConfig
@@ -213,6 +217,12 @@ class Logger:
             feedback (Feedback): The feedback to add.
         """
         Session.feedback_(self.writer, session_id, feedback)
+
+    def session_add_attachment(self, session_id: str, attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment]):
+        """
+        Adds an attachment to the session.
+        """
+        Session.add_attachment_(self.writer, session_id, attachment)
 
     def session_add_feedback(self, session_id: str, feedback: FeedbackDict):
         """
@@ -468,6 +478,16 @@ class Logger:
         """
         Trace.add_metadata_(self.writer, Entity.TRACE, trace_id, metadata)
 
+    def trace_add_attachment(
+        self,
+        trace_id: str,
+        attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment],
+    ):
+        """
+        Adds an attachment to the trace.
+        """
+        Trace.add_attachment_(self.writer, trace_id, attachment)
+
     def trace_end(self, trace_id: str):
         """
         Ends the trace.
@@ -487,6 +507,12 @@ class Logger:
             model (str): The model for the generation.
         """
         Generation.set_model_(self.writer, generation_id, model)
+
+    def generation_set_provider(self, generation_id: str, provider: str):
+        """
+        Sets the provider for the generation.
+        """
+        Generation.set_provider_(self.writer, generation_id, provider)
 
     def generation_add_message(
         self, generation_id: str, message: GenerationRequestMessage
@@ -521,6 +547,16 @@ class Logger:
             result (Any): The result for the generation.
         """
         Generation.result_(self.writer, generation_id, result)
+
+    def generation_add_attachment(
+        self,
+        generation_id: str,
+        attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment],
+    ):
+        """
+        Adds an attachment to the generation.
+        """
+        Generation.add_attachment_(self.writer, generation_id, attachment)
 
     def generation_end(self, generation_id: str):
         """
@@ -686,6 +722,16 @@ class Logger:
         """
         Span.add_metadata_(self.writer, Entity.SPAN, span_id, metadata)
 
+    def span_add_attachment(
+        self,
+        span_id: str,
+        attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment],
+    ):
+        """
+        Adds an attachment to the span.
+        """
+        Span.add_attachment_(self.writer, span_id, attachment)
+
     @deprecated(
         "This method will be removed in a future version. Use span_add_sub_span instead."
     )
@@ -768,6 +814,16 @@ class Logger:
 
     def retrieval_evaluate(self, retrieval_id: str) -> EvaluateContainer:
         return Retrieval._evaluate_(self.writer, Entity.RETRIEVAL, retrieval_id)
+
+    def retrieval_add_attachment(
+        self,
+        retrieval_id: str,
+        attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment],
+    ):
+        """
+        Adds an attachment to the retrieval.
+        """
+        Retrieval.add_attachment_(self.writer, retrieval_id, attachment)
 
     # Tool call methods
     def tool_call_update(self, tool_call_id: str, data: Dict[str, Any]):

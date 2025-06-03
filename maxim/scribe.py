@@ -5,8 +5,50 @@ import logging
 # this logger will respect that level setting
 
 
+class Scribe():
+    
+    def __init__(self, name):
+        self.disable_internal_logs = True
+        self.logger = logging.getLogger(name)
+        
+    def debug(self, msg, *args, **kwargs):
+        if self.disable_internal_logs and msg.startswith("[Internal]"):
+            return
+        self.logger.debug(msg, *args, **kwargs)
+        
+    def warning(self, msg, *args, **kwargs):
+        if self.disable_internal_logs and msg.startswith("[Internal]"):
+            return
+        self.logger.warning(msg, *args, **kwargs)
+
+    def error(self, msg, *args, **kwargs):
+        if self.disable_internal_logs and msg.startswith("[Internal]"):
+            return
+        self.logger.error(msg, *args, **kwargs)
+
+    def info(self, msg, *args, **kwargs):
+        if self.disable_internal_logs and msg.startswith("[Internal]"):
+            return
+        self.logger.info(msg, *args, **kwargs)    
+
+    def set_level(self, level):
+        self.logger.setLevel(level)
+
+    def get_level(self):
+        return self.logger.getLevel()
+    
+    @property
+    def level(self):
+        return self.logger.level
+    
+    @level.setter
+    def level(self, level):
+        self.logger.level = level
+    
+
 def scribe():
-    return logging.getLogger("maxim")
+    logger = Scribe("maxim")    
+    return logger
 
 
 if scribe().level == logging.NOTSET:
