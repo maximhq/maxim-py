@@ -54,7 +54,7 @@ class LLMConfig(TypedDict):
 
 
 class SessionStoreEntry(TypedDict):
-    room_sid: str
+    room_id: str
     state: SessionState
     provider: str
     user_speaking: bool
@@ -106,10 +106,10 @@ class LiveKitSessionStore:
         self.mx_live_kit_session_store: list[SessionStoreEntry] = []
         self._lock = Lock()
 
-    def get_session_by_room_sid(self, room_sid: str) -> Union[SessionStoreEntry, None]:
+    def get_session_by_room_id(self, room_id: str) -> Union[SessionStoreEntry, None]:
         with self._lock:
             for entry in self.mx_live_kit_session_store:
-                if "room_sid" in entry and entry["room_sid"] == room_sid:
+                if "room_id" in entry and entry["room_id"] == room_id:
                     return entry
             return None
 
@@ -174,8 +174,8 @@ class LiveKitSessionStore:
             return None
         return get_maxim_logger().trace({"id": trace_id})
 
-    def get_current_trace_for_room_sid(self, room_sid: str) -> Union[Trace, None]:
-        session = self.get_session_by_room_sid(room_sid)
+    def get_current_trace_for_room_id(self, room_id: str) -> Union[Trace, None]:
+        session = self.get_session_by_room_id(room_id)
         if session is None:
             return None
         trace_id = session["mx_current_trace_id"]
