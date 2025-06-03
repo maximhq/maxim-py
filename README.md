@@ -119,9 +119,16 @@ trace.end()
 
 ## Version changelog
 
+
 ### 3.7.2
 
+- LiveKit support for Google and OpenAI
+- chore: improvements in crewai logging integration
+- chore: deprecated span.output() method removed
 - feat: LiveKit one line integration (alpha)
+
+### 3.7.1
+- fix: Signal registration only happens if the current thread is main thread
 
 ### 3.7.0
 

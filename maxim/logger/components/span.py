@@ -39,6 +39,7 @@ class SpanConfig:
     name: Optional[str] = None
     tags: Optional[Dict[str, str]] = None
 
+
 class SpanConfigDict(TypedDict, total=False):
     id: str
     name: Optional[str]
@@ -57,6 +58,7 @@ def get_span_config_dict(config: Union[SpanConfig, SpanConfigDict]) -> dict[str,
         if isinstance(config, SpanConfig)
         else dict(config)
     )
+
 
 class Span(EventEmittingBaseContainer):
     ENTITY = Entity.SPAN
@@ -90,19 +92,6 @@ class Span(EventEmittingBaseContainer):
             span_id,
             "update",
             {"input": {"type": "text", "value": input}},
-        )
-
-    def output(self, output: str):
-        self._commit("update", {output: {"type": "text", "value": output}})
-
-    @staticmethod
-    def output_(writer: LogWriter, span_id: str, output: str):
-        Span._commit_(
-            writer,
-            Entity.SPAN,
-            span_id,
-            "update",
-            {"output": {"type": "text", "value": output}},
         )
 
     def add_error(self, config: ErrorConfig) -> Error:

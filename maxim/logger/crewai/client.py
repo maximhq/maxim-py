@@ -169,7 +169,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     try:
                         processed_inputs = input_processor(bound_args)
                     except Exception as e:
-                        scribe().error(
+                        scribe().debug(
                             f"[MaximSDK] Failed to process inputs for {base_op_name}: {e}"
                         )
 
@@ -177,12 +177,12 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     try:
                         final_op_name = display_name_fn(processed_inputs)
                     except Exception as e:
-                        scribe().error(
+                        scribe().debug(
                             f"[MaximSDK] Failed to generate display name for {base_op_name}: {e}"
                         )
 
             except Exception as e:
-                scribe().error(
+                scribe().debug(
                     f"[MaximSDK] Failed to bind/process inputs for {base_op_name}: {e}"
                 )
                 # Fallback for inputs display
@@ -438,16 +438,20 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     scribe().debug("[MaximSDK] Agent has no span, checking task")
 
                     # First check args/kwargs for task
-                    task: Task = None
+                    task: Union[Task, None] = None
                     if len(args) > 0:
-                        task = args[0]
+                        for arg in args:
+                            if isinstance(arg, Task):
+                                task = arg
+                                break
 
-                    if task:
-                        scribe().debug(
-                            f"[MaximSDK] Found task in args: {task.id} and task description: {task.description}"
-                        )
+                    if not task and kwargs:  # Check kwargs if task not found in args
+                        for kwarg_value in kwargs.values():
+                            if isinstance(kwarg_value, Task):
+                                task = kwarg_value
+                                break
 
-                    # Fallback to agent_executor.task if no task found in args
+                    # Fallback to agent_executor.task if no task found in args or kwargs
                     if not task and hasattr(self, "agent_executor"):
                         task = self.agent_executor.task
 
@@ -691,7 +695,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 try:
                     processed_output = output_processor(output)
                 except Exception as e:
-                    scribe().error(f"[MaximSDK] Failed to process output: {e}")
+                    scribe().debug(f"[MaximSDK] Failed to process output: {e}")
 
             if tool_call:
                 if isinstance(tool_call, Retrieval):
@@ -756,7 +760,6 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 del _last_llm_usages[generation.id]
 
             if span:
-                span.output(str(processed_output))
                 scribe().debug("[MaximSDK] SPAN: Completing span")
                 span.end()
 
