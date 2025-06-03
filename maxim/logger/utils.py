@@ -1,10 +1,72 @@
 import collections.abc
 import inspect
+import io
 import re
+import struct
 import types
+import wave
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+
+from ..scribe import scribe
+
+
+def is_silence(pcm_bytes, threshold=500, min_silence_ratio=0.95):
+    """
+    Detects if the given PCM16 byte buffer is mostly silence.
+
+    Args:
+        pcm_bytes (bytes): PCM16LE audio data.
+        threshold (int): Max absolute value to consider as silence.
+        min_silence_ratio (float): Minimum ratio of silent samples to consider the buffer as silence.
+
+    Returns:
+        bool: True if buffer is mostly silence, False otherwise.
+    """
+    num_samples = len(pcm_bytes) // 2
+    if num_samples == 0:
+        return True  # Empty buffer is considered silence
+
+    silent_count = 0
+
+    for i in range(num_samples):
+        # '<h' is little-endian 16-bit signed integer
+        sample = struct.unpack_from("<h", pcm_bytes, i * 2)[0]
+        if abs(sample) < threshold:
+            silent_count += 1
+
+    silence_ratio = silent_count / num_samples
+    return silence_ratio >= min_silence_ratio
+
+
+def pcm16_to_wav_bytes(
+    pcm_bytes: bytes, num_channels: int = 1, sample_rate: int = 24000
+) -> bytes:
+    """
+    Convert PCM-16 audio data to WAV format bytes.
+
+    Args:
+        pcm_bytes (bytes): Raw PCM-16 audio data
+        num_channels (int): Number of audio channels (default: 2)
+        sample_rate (int): Sample rate in Hz (default: 44100)
+
+    Returns:
+        bytes: WAV format audio data
+    """
+    try:
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav_file:
+            wav_file.setnchannels(num_channels)
+            wav_file.setsampwidth(2)  # 16-bit PCM = 2 bytes
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(pcm_bytes)
+        return buffer.getvalue()
+    except Exception as e:
+        scribe().error(
+            f"[MaximSDK] Error converting PCM-16 audio data to WAV format: {e}"
+        )
+        return pcm_bytes
 
 
 def make_object_serializable(obj: Any) -> Any:

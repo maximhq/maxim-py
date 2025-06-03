@@ -6,13 +6,17 @@ from .attachment import (
 from .error import Error, ErrorConfig
 from .feedback import Feedback, FeedbackDict, get_feedback_dict
 from .generation import (
+    AudioContent,
     Generation,
     GenerationConfig,
     GenerationConfigDict,
     GenerationError,
     GenerationRequestMessage,
     GenerationResult,
+    GenerationResultChoice,
     GenerationUsage,
+    ImageContent,
+    TextContent,
     generation_request_from_gemini_content,
 )
 from .retrieval import (
@@ -51,6 +55,9 @@ __all__ = [
     "ErrorConfig",
     "Feedback",
     "FeedbackDict",
+    "TextContent",
+    "ImageContent",
+    "AudioContent",
     "GenerationConfigDict",
     "get_feedback_dict",
     "generation_request_from_gemini_content",
@@ -59,6 +66,7 @@ __all__ = [
     "GenerationConfig",
     "GenerationResult",
     "GenerationError",
+    "GenerationResultChoice",
     "GenerationRequestMessage",
     "Retrieval",
     "RetrievalConfig",

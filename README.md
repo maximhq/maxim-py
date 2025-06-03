@@ -16,18 +16,23 @@ pip install maxim-py
 
 ### Initialize Maxim logger
 
-```python
-from maxim import Maxim, Config
+```console
+MAXIM_API_KEY=
+MAXIM_LOG_REPO_ID=
+```
 
-maxim = Maxim(Config(api_key=apiKey))
+```python
+# SDK picks up env variables
+
+from maxim import Maxim
+maxim = Maxim()
 ```
 
 ### Start sending traces
 
 ```python
-from maxim.logger import LoggerConfig
 # Initializing logger
-logger = maxim.logger(LoggerConfig(id="log-repository-id"))
+logger = maxim.logger()
 # Initializing a new trace
 trace = logger.trace(TraceConfig(id="trace-id",name="trace-name",tags={"key":"value"}))
 # Creating the generation
@@ -97,13 +102,26 @@ trace.end()
 
 > Please reach out to us if you need support for any other package + provider + classes.
 
-### Litellm (Beta)
+### Litellm
 
 | completion | acompletion | fallback | Prompt Management |
 | ---------- | ----------- | -------- | ----------------- |
 | ✅         | ✅          | ⛔️      | ⛔️               |
 
+
+### LiveKit (Alpha)
+
+| Provider | Audio | ToolCalls | Video | 
+| ---------- | ---------- | ----------- | -------- 
+| OpenAI (RealtimeAPI)  | ✅         | ⛔️          | ⛔️      
+| Gemini (RealtimeAPI)  | ✅         | ⛔️          | ⛔️      
+
+
 ## Version changelog
+
+### 3.7.2
+
+- feat: LiveKit one line integration (alpha)
 
 ### 3.7.0
 

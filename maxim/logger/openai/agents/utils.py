@@ -1,8 +1,16 @@
 import json
 from typing import Optional
+
 from openai.types.responses import Response, ResponseInputItemParam
 
-from ....logger import GenerationRequestMessage,GenerationResult,GenerationUsage,GenerationResultChoice
+from ....logger import (
+    GenerationRequestMessage,
+    GenerationResult,
+    GenerationResultChoice,
+    GenerationUsage,
+)
+from ....scribe import scribe
+
 
 def parse_response_output(response:Response)-> Optional[GenerationResult]:
     try:
@@ -65,7 +73,7 @@ def parse_response_output(response:Response)-> Optional[GenerationResult]:
             "model": response.model
         }
     except Exception as e:
-        print(f"Error occurred: {e}")
+        scribe().error("[MaximSDK] Error while parsing response output {str(e)}")        
         return None
 
 def parse_response_input(

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Tuple, Union
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolCall
-from langchain_core.outputs import LLMResult
+from langchain_core.outputs import ChatResult, LLMResult
 from langchain_core.outputs.chat_generation import ChatGeneration, ChatGenerationChunk
 from langchain_core.outputs.generation import Generation
 
@@ -399,6 +399,40 @@ def parse_token_usage_for_result(result: LLMResult):
         "completion_tokens": output_tokens,
         "total_tokens": total_tokens,
     }
+
+def parse_langchain_chat_result(result: ChatResult) -> Dict[str, Any]:
+    """Parses langchain Chat result into a format that is accepted by Maxim logger
+    Args:
+        result: ChatResult: Chat result to be parsed
+    Returns:
+        Dict[str, Any]: Parsed Chat result
+    Raises:
+        Exception: If error parsing Chat result
+    """
+    try:
+        generations = result.generations
+        choices = []
+        if generations is not None:
+            for _, generation in enumerate(generations):
+                for _, gen in enumerate(generation):
+                    parsed_generations = parse_langchain_generation(gen)
+                    if isinstance(parsed_generations, list):
+                        choices.extend(parsed_generations)
+                    else:
+                        choices.append(parsed_generations)
+        usage = parse_token_usage_for_result(result)
+        # Adding index to each choice
+        for i, choice in enumerate(choices):
+            choices[i] = {**choice, "index": i}
+        return {
+            "id": str(uuid4()),
+            "created": int(time.time()),
+            "choices": choices,
+            "usage": usage,
+        }
+    except Exception as e:
+        logger.error(f"Error parsing LLM result: {str(e)}")
+        raise Exception(f"Error parsing LLM result: {str(e)}") from e
 
 
 def parse_langchain_llm_result(result: LLMResult) -> Dict[str, Any]:

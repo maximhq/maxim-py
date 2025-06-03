@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional, TypedDict, Union
+from typing import Any, Dict, Iterator, List, Literal, Optional, TypedDict, Union
 from uuid import uuid4
 
 from typing_extensions import deprecated
@@ -108,9 +108,24 @@ class GenerationToolCall(TypedDict):
     function: GenerationToolCallFunction
 
 
+class TextContent(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class ImageContent(TypedDict):
+    type: Literal["image"]
+    image_url: str
+
+
+class AudioContent(TypedDict):
+    type: Literal["audio"]
+    transcript: str
+
+
 class GenerationResultMessage(TypedDict):
     role: str
-    content: Optional[str]
+    content: Optional[Union[List[Union[TextContent, ImageContent, AudioContent]], str]]
     tool_calls: Optional[List[GenerationToolCall]]
 
 
@@ -121,10 +136,19 @@ class GenerationResultChoice(TypedDict):
     finish_reason: Optional[str]
 
 
-class GenerationUsage(TypedDict):
+class TokenDetails(TypedDict):
+    text_tokens: int
+    audio_tokens: int
+    cached_tokens: int
+
+
+class GenerationUsage(TypedDict, total=False):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    input_token_details: Optional[TokenDetails]
+    output_token_details: Optional[TokenDetails]
+    cached_token_details: Optional[TokenDetails]
 
 
 class GenerationResult(TypedDict):
@@ -180,10 +204,11 @@ class Generation(BaseContainer):
             final_config.get("model_parameters", {})
         )
 
-    def _set_provider(self, writer: LogWriter, id: str, provider: str):
+    @staticmethod
+    def set_provider_(writer: LogWriter, id: str, provider: str):
         if provider not in valid_providers:
             raise ValueError(
-                f"Invalid provider: {self.provider}. Must be one of {', '.join(valid_providers)}."
+                f"Invalid provider: {provider}. Must be one of {', '.join(valid_providers)}."
             )
         BaseContainer._commit_(
             writer, Entity.GENERATION, id, "update", {"provider": provider}
@@ -360,11 +385,12 @@ class Generation(BaseContainer):
                     from langchain_core.outputs import (  # type: ignore
                         ChatGeneration,
                         ChatResult,
-                        LLMResult,
                     )
 
                     from ..langchain.utils import (
                         parse_base_message_to_maxim_generation,
+                        parse_langchain_chat_generation,
+                        parse_langchain_chat_result,
                         parse_langchain_llm_result,
                     )
 
@@ -373,11 +399,9 @@ class Generation(BaseContainer):
                     elif isinstance(result, LLMResult):
                         return parse_langchain_llm_result(result)
                     elif isinstance(result, ChatResult):
-                        print("is chat result")
-                        raise ValueError("Tool message is not yet supported.")
+                        return parse_langchain_chat_result(result)
                     elif isinstance(result, ChatGeneration):
-                        print("is chat generation")
-                        raise ValueError("Tool message is not yet supported.")
+                        return parse_langchain_chat_generation(result)
                 except ImportError:
                     pass
                 # trying for litellm
