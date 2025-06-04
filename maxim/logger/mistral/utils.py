@@ -1,7 +1,7 @@
 import time
 from typing import Any, Dict, Iterable, List, Optional
 
-from mistralai.models import ChatCompletionResponse, CompletionEvent, CompletionChunk
+from mistralai.models import ChatCompletionResponse, CompletionChunk, CompletionEvent
 
 from ..logger import GenerationRequestMessage
 
@@ -27,7 +27,7 @@ class MistralUtils:
                 content = msg.get("content", "")
             else:
                 role = getattr(msg, "role", "user")
-                content = getattr(msg, "content", "")
+                content = MistralUtils._message_content(msg)
 
             parsed_messages.append(
                 GenerationRequestMessage(role=str(role), content=str(content))
