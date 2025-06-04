@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 from uuid import uuid4
 
 from mistralai.sdk import Mistral
@@ -11,14 +11,38 @@ from .utils import MistralUtils
 
 
 class MaximMistralChat:
-    """Wrapper for Mistral Chat client with integrated logging and tracing."""
+    def _setup_logging(
+        self,
+        model: Optional[str],
+        messages: Any,
+        trace_id: Optional[str],
+        generation_name: Optional[str],
+        **kwargs: Any,
+    ) -> Tuple[bool, Optional[Trace], Optional[Generation]]:
 
-    def __init__(self, chat: Chat, logger: Logger) -> None:
-        self._chat = chat
-        self._logger = logger
-
+        return is_local_trace, trace, generation
+    def _finalize_logging(
+        self,
+        response: Any,
+        is_local_trace: bool,
+        trace: Optional[Trace],
+        generation: Optional[Generation],
+    ) -> None:
+                if getattr(response, "choices", None):
     def complete(self, *args, **kwargs):
         trace_id = kwargs.pop("trace_id", None)
+        generation_name = kwargs.pop("generation_name", None)
+        model = kwargs.get("model")
+        messages = kwargs.get("messages")
+
+        is_local_trace, trace, generation = self._setup_logging(
+            model, messages, trace_id, generation_name, **kwargs
+        )
+
+        response = self._chat.complete(*args, **kwargs)
+
+        self._finalize_logging(response, is_local_trace, trace, generation)
+
         generation_name = kwargs.pop("generation_name", None)
         is_local_trace = trace_id is None
         final_trace_id = trace_id or str(uuid4())
