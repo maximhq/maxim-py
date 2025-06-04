@@ -2,7 +2,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Dict, final
 
-from ..models.dataset import ManualData
+from ..models.dataset import LocalData
 from ..models.evaluator import (
     LocalEvaluatorResultParameter,
     LocalEvaluatorReturn,
@@ -32,13 +32,13 @@ class BaseEvaluator(ABC):
 
     @abstractmethod
     def evaluate(
-        self, result: LocalEvaluatorResultParameter, data: ManualData
+        self, result: LocalEvaluatorResultParameter, data: LocalData
     ) -> Dict[str, LocalEvaluatorReturn]:
         pass
 
     @final
     def guarded_evaluate(
-        self, result: LocalEvaluatorResultParameter, data: ManualData
+        self, result: LocalEvaluatorResultParameter, data: LocalData
     ) -> Dict[str, LocalEvaluatorReturn]:
         response = self.evaluate(result, data)
         invalid_evaluator_names: list[str] = []

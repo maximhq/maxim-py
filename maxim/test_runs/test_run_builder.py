@@ -27,13 +27,22 @@ from ..models import (
     YieldedOutput,
     YieldedOutputMeta,
 )
-from ..models.dataset import Data, ManualData
+from ..models.dataset import Data, LocalData
 from ..models.evaluator import (
     LocalEvaluationResultWithId,
     LocalEvaluatorResultParameter,
 )
-from ..models.test_run import PromptChainVersionConfig, PromptVersionConfig, WorkflowConfig, YieldedOutputTokenUsage
-from ..test_runs.run_utils import get_input_expected_output_and_context_from_row, process_awaitable, run_local_evaluations
+from ..models.test_run import (
+    PromptChainVersionConfig,
+    PromptVersionConfig,
+    WorkflowConfig,
+    YieldedOutputTokenUsage,
+)
+from ..test_runs.run_utils import (
+    get_input_expected_output_and_context_from_row,
+    process_awaitable,
+    run_local_evaluations,
+)
 from ..test_runs.sanitization_utils import sanitize_data, sanitize_evaluators
 from ..test_runs.utils import (
     EvaluatorNameToIdAndPassFailCriteria,
@@ -126,9 +135,9 @@ class TestRunBuilder(Generic[T]):
         expected_output: Optional[str],
         context_to_evaluate: Optional[Union[str, List[str]]],
         output_function: Optional[
-            Callable[[ManualData], Union[YieldedOutput, Awaitable[YieldedOutput]]]
+            Callable[[LocalData], Union[YieldedOutput, Awaitable[YieldedOutput]]]
         ],
-        get_row: Callable[[int], Optional[ManualData]],
+        get_row: Callable[[int], Optional[LocalData]],
         logger: TestRunLogger,
         evaluator_name_to_id_and_pass_fail_criteria_map: Dict[
             str, EvaluatorNameToIdAndPassFailCriteria
@@ -432,7 +441,7 @@ class TestRunBuilder(Generic[T]):
     def yields_output(
         self,
         output_function: Callable[
-            [ManualData], Union[YieldedOutput, Awaitable[YieldedOutput]]
+            [LocalData], Union[YieldedOutput, Awaitable[YieldedOutput]]
         ],
     ) -> "TestRunBuilder[T]":
         """
@@ -491,7 +500,7 @@ class TestRunBuilder(Generic[T]):
     def _run_test_with_local_data(
         self,
         test_run: TestRun,
-        get_row: Callable[[int], Optional[ManualData]],
+        get_row: Callable[[int], Optional[LocalData]],
         on_entry_failed: Callable[[int], None],
         on_dataset_finished: Callable[[], None],
         evaluator_name_to_id_and_pass_fail_criteria_map: Dict[
@@ -531,7 +540,7 @@ class TestRunBuilder(Generic[T]):
 
         def process_row(
             index: int,
-            row: ManualData,
+            row: LocalData,
             evaluator_name_to_id_and_pass_fail_criteria_map: Dict[
                 str, EvaluatorNameToIdAndPassFailCriteria
             ],
@@ -684,7 +693,7 @@ class TestRunBuilder(Generic[T]):
             ],
         ) -> None:
             try:
-                rowData: ManualData = row.to_dict()["data"]
+                rowData: LocalData = row.to_dict()["data"]
                 if rowData is None:
                     raise ValueError(f"Dataset entry {index} is missing")
                 input, expected_output, context_to_evaluate = get_input_expected_output_and_context_from_row(input_key, expectedOutputKey, contextToEvaluateKey, rowData)

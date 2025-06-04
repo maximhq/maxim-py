@@ -8,9 +8,9 @@ from maxim import Config, Maxim
 from maxim.evaluators import BaseEvaluator
 from maxim.models import (
     Data,
+    LocalData,
     LocalEvaluatorResultParameter,
     LocalEvaluatorReturn,
-    ManualData,
     PassFailCriteria,
     TestRunLogger,
     YieldedOutput,
@@ -145,7 +145,7 @@ class TestTestRuns(unittest.TestCase):
 
         class MyCustomEvaluator(BaseEvaluator):
             def evaluate(
-                self, result: LocalEvaluatorResultParameter, data: ManualData
+                self, result: LocalEvaluatorResultParameter, data: LocalData
             ) -> Dict[str, LocalEvaluatorReturn]:
                 return {
                     "abc": LocalEvaluatorReturn(score=1),

@@ -3,7 +3,7 @@ from typing import Awaitable, List, Optional
 
 from maxim.evaluators.base_evaluator import BaseEvaluator
 
-from ..models.dataset import ManualData
+from ..models.dataset import LocalData
 from ..models.evaluator import (
     LocalEvaluationResult,
     LocalEvaluatorResultParameter,
@@ -14,7 +14,7 @@ from ..models.evaluator import (
 async def process_awaitable(awaitable: Awaitable):
     return await awaitable
 
-def get_input_expected_output_and_context_from_row(input_key: Optional[str], expectedOutputKey: Optional[str], contextToEvaluateKey: Optional[str], row: ManualData):
+def get_input_expected_output_and_context_from_row(input_key: Optional[str], expectedOutputKey: Optional[str], contextToEvaluateKey: Optional[str], row: LocalData):
     input = None
     expected_output = None
     context_to_evaluate = None
@@ -49,7 +49,7 @@ def get_input_expected_output_and_context_from_row(input_key: Optional[str], exp
 
 async def run_local_evaluations(
     evaluators: List[BaseEvaluator],
-    data_entry: ManualData,
+    data_entry: LocalData,
     processed_data: LocalEvaluatorResultParameter,
 ) -> List[LocalEvaluationResult]:
     coroutines = [

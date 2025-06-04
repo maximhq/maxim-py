@@ -85,5 +85,5 @@ T = TypeVar("T", bound=DataStructure)
 
 DataValue = list[T]
 
-ManualData = Dict[str, Union[str, List[str], None]]
-Data = Union[str, List[ManualData], ManualData, Callable[[int], Optional[ManualData]]]
+LocalData = Dict[str, Union[str, List[str], None]]
+Data = Union[str, List[LocalData], LocalData, Callable[[int], Optional[LocalData]]]
