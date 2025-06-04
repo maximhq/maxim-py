@@ -1,12 +1,12 @@
 from typing import Any, List, Optional, Tuple
 from uuid import uuid4
 
-from mistralai.sdk import Mistral
 from mistralai.chat import Chat
 from mistralai.models import CompletionEvent
+from mistralai.sdk import Mistral
 
 from ...scribe import scribe
-from ..logger import Generation, GenerationConfig, Logger, Trace, TraceConfig
+from ..logger import Generation, Logger, Trace
 from .utils import MistralUtils
 
 
@@ -28,16 +28,17 @@ class MaximMistralChat:
         trace: Optional[Trace] = None
         generation: Optional[Generation] = None
         try:
-            trace = self._logger.trace(TraceConfig(id=final_trace_id))
-            gen_config = GenerationConfig(
-                id=str(uuid4()),
-                model=model,
-                provider="mistral",
-                name=generation_name,
-                model_parameters=MistralUtils.get_model_params(**kwargs),
-                messages=MistralUtils.parse_message_param(messages),
+            trace = self._logger.trace({"id": final_trace_id})
+            generation = trace.generation(
+                {
+                    "id": str(uuid4()),
+                    "model": model,
+                    "provider": "mistral",
+                    "name": generation_name,
+                    "model_parameters": MistralUtils.get_model_params(**kwargs),
+                    "messages": MistralUtils.parse_message_param(messages),
+                }
             )
-            generation = trace.generation(gen_config)
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][MaximMistralChat] Error in generating content: {e}"
@@ -70,9 +71,12 @@ class MaximMistralChat:
         generation_name = kwargs.pop("generation_name", None)
         model = kwargs.get("model")
         messages = kwargs.get("messages")
+        
+        # Create a copy of kwargs without model and messages to avoid conflicts
+        logging_kwargs = {k: v for k, v in kwargs.items() if k not in ['model', 'messages']}
 
         is_local_trace, trace, generation = self._setup_logging(
-            model, messages, trace_id, generation_name, **kwargs
+            model, messages, trace_id, generation_name, **logging_kwargs
         )
 
         response = self._chat.complete(*args, **kwargs)
@@ -88,19 +92,24 @@ class MaximMistralChat:
         final_trace_id = trace_id or str(uuid4())
         model = kwargs.get("model")
         messages = kwargs.get("messages")
+        
+        # Create a copy of kwargs without model and messages to avoid conflicts
+        logging_kwargs = {k: v for k, v in kwargs.items() if k not in ['model', 'messages']}
+        
         trace: Optional[Trace] = None
         generation: Optional[Generation] = None
         try:
-            trace = self._logger.trace(TraceConfig(id=final_trace_id))
-            gen_config = GenerationConfig(
-                id=str(uuid4()),
-                model=model,
-                provider="mistral",
-                name=generation_name,
-                model_parameters=MistralUtils.get_model_params(**kwargs),
-                messages=MistralUtils.parse_message_param(messages),
+            trace = self._logger.trace({"id": final_trace_id})
+            generation = trace.generation(
+                {
+                    "id": str(uuid4()),
+                    "model": model,
+                    "provider": "mistral",
+                    "name": generation_name,
+                    "model_parameters": MistralUtils.get_model_params(**logging_kwargs),
+                    "messages": MistralUtils.parse_message_param(messages),
+                }
             )
-            generation = trace.generation(gen_config)
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][MaximMistralChat] Error in generating content: {e}"
@@ -136,19 +145,24 @@ class MaximMistralChat:
         final_trace_id = trace_id or str(uuid4())
         model = kwargs.get("model")
         messages = kwargs.get("messages")
+        
+        # Create a copy of kwargs without model and messages to avoid conflicts
+        logging_kwargs = {k: v for k, v in kwargs.items() if k not in ['model', 'messages']}
+        
         trace: Optional[Trace] = None
         generation: Optional[Generation] = None
         try:
-            trace = self._logger.trace(TraceConfig(id=final_trace_id))
-            gen_config = GenerationConfig(
-                id=str(uuid4()),
-                model=model,
-                provider="mistral",
-                name=generation_name,
-                model_parameters=MistralUtils.get_model_params(**kwargs),
-                messages=MistralUtils.parse_message_param(messages),
+            trace = self._logger.trace({"id": final_trace_id})
+            generation = trace.generation(
+                {
+                    "id": str(uuid4()),
+                    "model": model,
+                    "provider": "mistral",
+                    "name": generation_name,
+                    "model_parameters": MistralUtils.get_model_params(**logging_kwargs),
+                    "messages": MistralUtils.parse_message_param(messages),
+                }
             )
-            generation = trace.generation(gen_config)
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][MaximMistralChat] Error in generating content: {e}"
@@ -178,19 +192,24 @@ class MaximMistralChat:
         final_trace_id = trace_id or str(uuid4())
         model = kwargs.get("model")
         messages = kwargs.get("messages")
+        
+        # Create a copy of kwargs without model and messages to avoid conflicts
+        logging_kwargs = {k: v for k, v in kwargs.items() if k not in ['model', 'messages']}
+        
         trace: Optional[Trace] = None
         generation: Optional[Generation] = None
         try:
-            trace = self._logger.trace(TraceConfig(id=final_trace_id))
-            gen_config = GenerationConfig(
-                id=str(uuid4()),
-                model=model,
-                provider="mistral",
-                name=generation_name,
-                model_parameters=MistralUtils.get_model_params(**kwargs),
-                messages=MistralUtils.parse_message_param(messages),
+            trace = self._logger.trace({"id": final_trace_id})
+            generation = trace.generation(
+                {
+                    "id": str(uuid4()),
+                    "model": model,
+                    "provider": "mistral",
+                    "name": generation_name,
+                    "model_parameters": MistralUtils.get_model_params(**logging_kwargs),
+                    "messages": MistralUtils.parse_message_param(messages),
+                }
             )
-            generation = trace.generation(gen_config)
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][MaximMistralChat] Error in generating content: {e}"
