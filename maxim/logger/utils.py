@@ -48,8 +48,8 @@ def pcm16_to_wav_bytes(
 
     Args:
         pcm_bytes (bytes): Raw PCM-16 audio data
-        num_channels (int): Number of audio channels (default: 2)
-        sample_rate (int): Sample rate in Hz (default: 44100)
+        num_channels (int): Number of audio channels (default: 1)
+        sample_rate (int): Sample rate in Hz (default: 24000)
 
     Returns:
         bytes: WAV format audio data
