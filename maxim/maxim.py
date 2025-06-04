@@ -119,7 +119,7 @@ class Maxim:
         with Maxim._lock:
             if hasattr(Maxim, "_instance"):
                 raise RuntimeError(
-                    "Maxim instance already exists. Only one instance is allowed per process."
+                    "Maxim is already initialized. You can initialize it only once."
                 )
             Maxim._instance = self
         self.has_cleaned_up = False
@@ -150,8 +150,6 @@ class Maxim:
         self.raise_exceptions = final_config.get("raise_exceptions", False)
         self.maxim_api = MaximAPI(self.base_url, self.api_key)
         self.__is_debug = final_config.get("debug", False)
-        if self.__is_debug:
-            scribe().set_level(logging.DEBUG)
         self.__loggers: Dict[str, Logger] = {}
         self.prompt_management = final_config.get("prompt_management", False)
         if self.prompt_management:

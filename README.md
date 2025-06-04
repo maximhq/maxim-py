@@ -14,76 +14,9 @@ This is Python SDK for enabling Maxim observability. [Maxim](https://www.getmaxi
 pip install maxim-py
 ```
 
-### Initialize Maxim logger
+### Documentation
 
-```console
-MAXIM_API_KEY=
-MAXIM_LOG_REPO_ID=
-```
-
-```python
-# SDK picks up env variables
-
-from maxim import Maxim
-maxim = Maxim()
-```
-
-### Start sending traces
-
-```python
-# Initializing logger
-logger = maxim.logger()
-# Initializing a new trace
-trace = logger.trace(TraceConfig(id="trace-id",name="trace-name",tags={"key":"value"}))
-# Creating the generation
-generation = trace.generation(GenerationConfig(id=str(uuid4()), model="text-davinci-002", provider="azure", model_parameters={"temperature": 0.7, "max_tokens": 100}))
-# Making LLM call
-completion = self.client.completions.create(
-   model="text-davinci-002",
-   prompt="Translate the following English text to French: 'Hello, how are you?'",
-   max_tokens=100,
-   temperature=0.7
-)
-# Updating generation
-generation.result(completion)
-# Ending trace
-trace.end()
-```
-
-## Integrations with other frameworks
-
-### Langchain
-
-We have built in Langchain tracer support
-
-```python
-logger = self.maxim.logger(LoggerConfig(id=repoId))
-trace_id = str(uuid4())
-trace = logger.trace(TraceConfig(
-   id=trace_id, name="pre-defined-trace"))
-
-model = OpenAI(callbacks=[MaximLangchainTracer(logger)],api_key=openAIKey)
-messages = [
-   (
-         "system",
-         "You are a helpful assistant that translates English to French. Translate the user sentence.",
-   ),
-   ("human", "I love programming."),
-]
-model.invoke(messages, config={
-   "metadata": {
-         "maxim": {
-            "trace_id": trace_id,
-            "generation_name": "get-answer",
-            "generation_tags": {
-               "test": "123"
-            }
-         }
-   }
-})
-trace.event(id=str(uuid4()), name="test event")
-trace.end()
-```
+You can find detailed documentation and available integrations [here](https://www.getmaxim.ai/docs/sdk/python/overview).
 
 #### Langchain module compatibility
 
@@ -117,12 +50,21 @@ trace.end()
 | Gemini (RealtimeAPI)  | ✅         | ⛔️          | ⛔️      
 
 
+# Setting up this repository
+
+1. Clone [this](https://github.com/maximhq/maxim-py) repository.
+2. Make sure you have installed [uv](https://docs.astral.sh/uv/) on your computer.
+3. Run `uv sync`.
+
 ## Version changelog
 
+### 3.7.3
+
+- chore: Updates default log level of scribe to debug
 
 ### 3.7.2
 
-- LiveKit support for Google and OpenAI
+- feat: LiveKit support for Google and OpenAI
 - chore: improvements in crewai logging integration
 - chore: deprecated span.output() method removed
 - feat: LiveKit one line integration (alpha)
