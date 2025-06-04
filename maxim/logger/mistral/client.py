@@ -213,3 +213,17 @@ class MaximMistralClient:
             super().__setattr__(name, value)
         else:
             setattr(self._client, name, value)
+
+    def __enter__(self) -> "MaximMistralClient":
+        self._client.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self._client.__exit__(exc_type, exc_val, exc_tb)
+
+    async def __aenter__(self) -> "MaximMistralClient":
+        await self._client.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self._client.__aexit__(exc_type, exc_val, exc_tb)
