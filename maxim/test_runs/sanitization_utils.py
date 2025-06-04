@@ -2,7 +2,6 @@ import json
 from typing import List, Union
 
 from ..evaluators import BaseEvaluator
-
 from ..models.dataset import Data, DataStructure
 
 
@@ -81,6 +80,16 @@ def sanitize_data(
                                         )
                                     },
                                 )
+                        elif against_data_structure[key] == "FILE_URL_VARIABLE":
+                            if not (isinstance(value, str)):
+                                raise ValueError(
+                                    f'File URL variable column "{key}" has a data entry which is not a string',
+                                    {
+                                        "cause": json.dumps(
+                                            {"dataEntry": {key: value}}, indent=2
+                                        )
+                                    },
+                                )
                         else:
                             raise ValueError(
                                 f'Unknown column type "{against_data_structure[key]}" for column "{key}"',
@@ -153,6 +162,16 @@ def sanitize_data(
                         ):
                             raise ValueError(
                                 f'Nullable variable column "{key}" has a data entry which is not null, a string or an array',
+                                {
+                                    "cause": json.dumps(
+                                        {"dataEntry": {key: value}}, indent=2
+                                    )
+                                },
+                            )
+                    elif against_data_structure[key] == "FILE_URL_VARIABLE":
+                        if not isinstance(value, str):
+                            raise ValueError(
+                                f'File URL variable column "{key}" has a data entry which is not a string',
                                 {
                                     "cause": json.dumps(
                                         {"dataEntry": {key: value}}, indent=2

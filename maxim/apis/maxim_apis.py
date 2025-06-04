@@ -27,6 +27,7 @@ from ..models import (
     TestRunStatus,
     TestRunWithDatasetEntry,
     Tool,
+    Variable,
     VersionAndRulesWithPromptChainId,
     VersionAndRulesWithPromptId,
 )
@@ -793,7 +794,7 @@ class MaximAPI:
                 run_config = {k: v for k, v in run_config.items() if v is not None}
             res = self.__make_network_call(
                 method="POST",
-                endpoint="/api/sdk/v1/test-run/push",
+                endpoint="/api/sdk/v2/test-run/push",
                 body=json.dumps(
                     {
                         "testRun": test_run.to_dict(),
@@ -971,18 +972,21 @@ class MaximAPI:
         self,
         prompt_version_id: str,
         input: str,
-        data_entry: Dict[str, Union[str, List[str], None]],
+        variables: Dict[str, Variable],
         context_to_evaluate: Optional[str] = None,
     ) -> ExecutePromptForDataResponse:
         try:
             res = self.__make_network_call(
                 method="POST",
-                endpoint="/api/sdk/v1/test-run/execute/prompt",
+                endpoint="/api/sdk/v2/test-run/execute/prompt",
                 body=json.dumps(
                     {
                         "promptVersionId": prompt_version_id,
                         "input": input,
-                        "dataEntry": data_entry,
+                        "dataEntry": {
+                            key: variable.to_json()
+                            for key, variable in variables.items()
+                        },
                         "contextToEvaluate": context_to_evaluate,
                     }
                 ),
@@ -1007,18 +1011,21 @@ class MaximAPI:
         self,
         prompt_chain_version_id: str,
         input: str,
-        data_entry: Dict[str, Union[str, List[str], None]],
+        variables: Dict[str, Variable],
         context_to_evaluate: Optional[str] = None,
     ) -> ExecutePromptForDataResponse:
         try:
             res = self.__make_network_call(
                 method="POST",
-                endpoint="/api/sdk/v1/test-run/execute/prompt-chain",
+                endpoint="/api/sdk/v2/test-run/execute/prompt-chain",
                 body=json.dumps(
                     {
                         "promptChainVersionId": prompt_chain_version_id,
                         "input": input,
-                        "dataEntry": data_entry,
+                        "dataEntry": {
+                            key: variable.to_json()
+                            for key, variable in variables.items()
+                        },
                         "contextToEvaluate": context_to_evaluate,
                     }
                 ),
