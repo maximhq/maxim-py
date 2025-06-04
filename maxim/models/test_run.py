@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, Union
 
 from ..evaluators import BaseEvaluator
-from ..models.dataset import Data, ManualData, T
+from ..models.dataset import Data, LocalData, T
 from .evaluator import (
     EvaluatorType,
     LocalEvaluationResultWithId,
@@ -834,7 +834,7 @@ class TestRunConfig(Generic[T]):
     logger: TestRunLogger = ConsoleLogger()
     human_evaluation_config: Optional[HumanEvaluationConfig] = None
     output_function: Optional[
-        Callable[[ManualData], Union[YieldedOutput, Awaitable[YieldedOutput]]]
+        Callable[[LocalData], Union[YieldedOutput, Awaitable[YieldedOutput]]]
     ] = None
     concurrency: Optional[int] = None
 

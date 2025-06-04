@@ -58,6 +58,10 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.8.0
+
+- breaking change: We have renamed a few entities used in test runs.
+
 ### 3.7.3
 
 - chore: Updates default log level of scribe to debug
