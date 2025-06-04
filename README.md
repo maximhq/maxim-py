@@ -58,11 +58,13 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.8.1
+- feat: Adds files support for test_runs
+- feat: Adds mistral tracing support
+
 ### 3.8.0
 
 - breaking change: We have renamed a few entities used in test runs.
-- feat: Adds files support for test_runs
-- feat: Adds mistral tracing support
 
 ### 3.7.3
 
