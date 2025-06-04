@@ -367,7 +367,9 @@ class LogWriter:
                     self.maxim_api.push_logs(self.config.repository_id, logs)
                     os.remove(os.path.join(self.logs_dir, file))
                 except Exception as e:
-                    scribe().warn(f"[MaximSDK] Failed to access filesystem. Error: {e}")
+                    scribe().warning(
+                        f"[MaximSDK] Failed to access filesystem. Error: {e}"
+                    )
                     if self.raise_exceptions:
                         raise Exception(e)
         except Exception as e:
