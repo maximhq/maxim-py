@@ -40,6 +40,7 @@ from ..models.test_run import (
 )
 from ..test_runs.run_utils import (
     get_input_expected_output_and_context_from_row,
+    get_variables_from_row,
     process_awaitable,
     run_local_evaluations,
 )
@@ -184,8 +185,16 @@ class TestRunBuilder(Generic[T]):
                 ),
             )
         elif self._config.prompt_version is not None:
+            variables = (
+                get_variables_from_row(row, self._config.data_structure)
+                if self._config.data_structure
+                else {}
+            )
             prompt_output = self._maxim_apis.execute_prompt_for_data(
-                self._config.prompt_version.id, input if input is not None else "", row, self._config.prompt_version.context_to_evaluate
+                self._config.prompt_version.id,
+                input if input is not None else "",
+                variables,
+                self._config.prompt_version.context_to_evaluate,
             )
             output = YieldedOutput(
                 data=prompt_output.output if prompt_output.output is not None else "",
@@ -198,11 +207,23 @@ class TestRunBuilder(Generic[T]):
                 ),
             )
         elif self._config.prompt_chain_version is not None:
+            variables = (
+                get_variables_from_row(row, self._config.data_structure)
+                if self._config.data_structure
+                else {}
+            )
             prompt_chain_output = self._maxim_apis.execute_prompt_chain_for_data(
-                self._config.prompt_chain_version.id, input if input is not None else "", row, self._config.prompt_chain_version.context_to_evaluate
+                self._config.prompt_chain_version.id,
+                input if input is not None else "",
+                variables,
+                self._config.prompt_chain_version.context_to_evaluate,
             )
             output = YieldedOutput(
-                data=prompt_chain_output.output if prompt_chain_output.output is not None else "",
+                data=(
+                    prompt_chain_output.output
+                    if prompt_chain_output.output is not None
+                    else ""
+                ),
                 retrieved_context_to_evaluate=prompt_chain_output.context_to_evaluate,
                 meta=YieldedOutputMeta(
                     entity_type="PROMPT_CHAIN",
@@ -271,7 +292,11 @@ class TestRunBuilder(Generic[T]):
                 input=input,
                 expected_output=expected_output,
                 context_to_evaluate=context_to_evaluate,
-                data_entry=row,
+                variables=(
+                    get_variables_from_row(row, self._config.data_structure)
+                    if self._config.data_structure
+                    else {}
+                ),
                 local_evaluation_results=local_evaluation_results_with_ids,
             ),
             meta=yielded_output.meta if yielded_output is not None else None,
@@ -377,10 +402,15 @@ class TestRunBuilder(Generic[T]):
             raise ValueError(
                 "yeilds_output is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
             )
-        self._config.workflow = WorkflowConfig(id=workflow_id, context_to_evaluate=context_to_evaluate)
+        self._config.workflow = WorkflowConfig(
+            id=workflow_id,
+            context_to_evaluate=context_to_evaluate,
+        )
         return self
 
-    def with_prompt_version_id(self, prompt_version_id: str, context_to_evaluate: Optional[str] = None) -> "TestRunBuilder[T]":
+    def with_prompt_version_id(
+        self, prompt_version_id: str, context_to_evaluate: Optional[str] = None
+    ) -> "TestRunBuilder[T]":
         """
         Set the prompt version ID for the test run. Optionally, you can also set the context to evaluate for the prompt. (Note: setting the context to evaluate will end up overriding the CONTEXT_TO_EVALUATE dataset column value)
 
@@ -406,10 +436,15 @@ class TestRunBuilder(Generic[T]):
             raise ValueError(
                 "yields_output is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
             )
-        self._config.prompt_version = PromptVersionConfig(id=prompt_version_id, context_to_evaluate=context_to_evaluate)
+        self._config.prompt_version = PromptVersionConfig(
+            id=prompt_version_id,
+            context_to_evaluate=context_to_evaluate,
+        )
         return self
 
-    def with_prompt_chain_version_id(self, prompt_chain_version_id: str, context_to_evaluate: Optional[str] = None) -> "TestRunBuilder[T]":
+    def with_prompt_chain_version_id(
+        self, prompt_chain_version_id: str, context_to_evaluate: Optional[str] = None
+    ) -> "TestRunBuilder[T]":
         """
         Set the prompt chain version ID for the test run. Optionally, you can also set the context to evaluate for the prompt chain. (Note: setting the context to evaluate will end up overriding the CONTEXT_TO_EVALUATE dataset column value)
 
@@ -435,7 +470,10 @@ class TestRunBuilder(Generic[T]):
             raise ValueError(
                 "yields_output is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
             )
-        self._config.prompt_chain_version = PromptChainVersionConfig(id=prompt_chain_version_id, context_to_evaluate=context_to_evaluate)
+        self._config.prompt_chain_version = PromptChainVersionConfig(
+            id=prompt_chain_version_id,
+            context_to_evaluate=context_to_evaluate,
+        )
         return self
 
     def yields_output(
@@ -548,9 +586,15 @@ class TestRunBuilder(Generic[T]):
             try:
                 if row is None:
                     raise ValueError(f"Dataset entry {index} is missing")
-                input, expected_output, context_to_evaluate = get_input_expected_output_and_context_from_row(input_key, expectedOutputKey, contextToEvaluateKey, row)
-
-                if any(isinstance(e, BaseEvaluator) for e in self._config.evaluators) or self._config.output_function is not None:
+                input, expected_output, context_to_evaluate = (
+                    get_input_expected_output_and_context_from_row(
+                        input_key, expectedOutputKey, contextToEvaluateKey, row
+                    )
+                )
+                if (
+                    any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
+                    or self._config.output_function is not None
+                ):
                     result = self.__process_entry(
                         index=index,
                         input=input,
@@ -586,7 +630,16 @@ class TestRunBuilder(Generic[T]):
                     # pushing directly
                     self._maxim_apis.push_test_run_entry(
                         test_run=test_run,
-                        entry=TestRunEntry(data_entry=row,input=input,expected_output=expected_output,context_to_evaluate=self._config.workflow.context_to_evaluate if self._config.workflow is not None else self._config.prompt_version.context_to_evaluate if self._config.prompt_version is not None else contextToEvaluateKey),
+                        entry=TestRunEntry(
+                            variables=(
+                                get_variables_from_row(row, self._config.data_structure)
+                                if self._config.data_structure
+                                else {}
+                            ),
+                            input=input,
+                            expected_output=expected_output,
+                            context_to_evaluate=context_to_evaluate,
+                        ),
                     )
             except Exception as e:
                 self._config.logger.error(
@@ -693,12 +746,19 @@ class TestRunBuilder(Generic[T]):
             ],
         ) -> None:
             try:
-                rowData: LocalData = row.to_dict()["data"]
-                if rowData is None:
+                row_data: LocalData = row.to_dict()["data"]
+                if row_data is None:
                     raise ValueError(f"Dataset entry {index} is missing")
-                input, expected_output, context_to_evaluate = get_input_expected_output_and_context_from_row(input_key, expectedOutputKey, contextToEvaluateKey, rowData)
+                input, expected_output, context_to_evaluate = (
+                    get_input_expected_output_and_context_from_row(
+                        input_key, expectedOutputKey, contextToEvaluateKey, row_data
+                    )
+                )
 
-                if any(isinstance(e, BaseEvaluator) for e in self._config.evaluators) or self._config.output_function is not None:
+                if (
+                    any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
+                    or self._config.output_function is not None
+                ):
                     # processing the entry
                     result = self.__process_entry(
                         index=index,
@@ -743,7 +803,16 @@ class TestRunBuilder(Generic[T]):
                             dataset_id=dataset_id,
                             dataset_entry_id=row.id,
                         ),
-                        entry=TestRunEntry(data_entry=rowData,input=input,expected_output=expected_output,context_to_evaluate=context_to_evaluate),
+                        entry=TestRunEntry(
+                            variables=(
+                                get_variables_from_row(row_data, data_structure)
+                                if data_structure
+                                else {}
+                            ),
+                            input=input,
+                            expected_output=expected_output,
+                            context_to_evaluate=context_to_evaluate,
+                        ),
                     )
             except Exception as e:
                 self._config.logger.error(
@@ -884,15 +953,30 @@ class TestRunBuilder(Generic[T]):
             try:
                 self._config.logger.info(f"Creating test run: {name}")
                 requires_local_run = False
-                if any(isinstance(e, BaseEvaluator) for e in self._config.evaluators) or self._config.output_function is not None:
+                if (
+                    any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
+                    or self._config.output_function is not None
+                ):
                     requires_local_run = True
                 test_run = self._maxim_apis.create_test_run(
                     name=name,
                     workspace_id=workspace_id,
                     run_type=RunType.SINGLE,
-                    workflow_id=self._config.workflow.id if self._config.workflow is not None else None,
-                    prompt_version_id=self._config.prompt_version.id if self._config.prompt_version is not None else None,
-                    prompt_chain_version_id=self._config.prompt_chain_version.id if self._config.prompt_chain_version is not None else None,
+                    workflow_id=(
+                        self._config.workflow.id
+                        if self._config.workflow is not None
+                        else None
+                    ),
+                    prompt_version_id=(
+                        self._config.prompt_version.id
+                        if self._config.prompt_version is not None
+                        else None
+                    ),
+                    prompt_chain_version_id=(
+                        self._config.prompt_chain_version.id
+                        if self._config.prompt_chain_version is not None
+                        else None
+                    ),
                     evaluator_config=evaluator_configs,
                     human_evaluation_config=human_evaluation_config or None,
                     requires_local_run=requires_local_run,
@@ -910,7 +994,9 @@ class TestRunBuilder(Generic[T]):
                         elif isinstance(data, list):
                             self._run_test_with_local_data(
                                 test_run,
-                                lambda index: data[index] if index < len(data) else None,
+                                lambda index: (
+                                    data[index] if index < len(data) else None
+                                ),
                                 failed_entry_indices.append,
                                 mark_all_entries_processed,
                                 evaluator_name_to_id_and_pass_fail_criteria_map=evaluator_name_to_id_and_pass_fail_criteria_map,

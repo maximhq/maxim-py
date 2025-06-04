@@ -234,7 +234,7 @@ class Generation(BaseContainer):
     @staticmethod
     def add_message_(writer: LogWriter, id: str, message: GenerationRequestMessage):
         if "content" not in message or "role" not in message:
-            scribe.error(
+            scribe().error(
                 "[MaximSDK] Invalid message. Must have 'content' and 'role' keys. We are skipping adding this message."
             )
             return

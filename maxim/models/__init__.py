@@ -1,5 +1,5 @@
 from .attachment import SignedURLResponse
-from .dataset import DatasetEntry, DatasetRow, VariableType
+from .dataset import DatasetEntry, DatasetRow, DataStructure, Variable, VariableType
 from .evaluator import (
     Evaluator,
     EvaluatorType,
@@ -84,6 +84,7 @@ __all__ = [
     "PromptVersion",
     "QueryBuilder",
     "Node",
+    "Variable",
     "QueryRule",
     "PromptNode",
     "QueryRuleType",
@@ -102,6 +103,7 @@ __all__ = [
     "PromptChainVersionConfig",
     "PromptChainVersionsAndRules",
     "PromptChainWithId",
+    "DataStructure",
     "ApiNode",
     "ApiParams",
     "CodeBlockNode",

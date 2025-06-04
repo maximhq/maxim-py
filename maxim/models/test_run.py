@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, Union
 
 from ..evaluators import BaseEvaluator
-from ..models.dataset import Data, LocalData, T
+from ..models.dataset import Data, LocalData, T, Variable
 from .evaluator import (
     EvaluatorType,
     LocalEvaluationResultWithId,
@@ -131,13 +131,15 @@ class YieldedOutputMeta:
                 if usage
                 else None
             ),
-            cost=YieldedOutputCost(
-                input_cost=cost.get("inputCost", 0),
-                output_cost=cost.get("outputCost", 0),
-                total_cost=cost.get("totalCost", 0),
-            )
-            if cost
-            else None,
+            cost=(
+                YieldedOutputCost(
+                    input_cost=cost.get("input", 0),
+                    output_cost=cost.get("output", 0),
+                    total_cost=cost.get("total", 0),
+                )
+                if cost
+                else None
+            ),
         )
 
     @classmethod
@@ -145,21 +147,25 @@ class YieldedOutputMeta:
         usage = data.get("usage")
         cost = data.get("cost")
         return cls(
-            usage=YieldedOutputTokenUsage(
-                completion_tokens=usage.get("completionTokens", 0),
-                prompt_tokens=usage.get("promptTokens", 0),
-                total_tokens=usage.get("totalTokens", 0),
-                latency=usage.get("latency", 0),
-            )
-            if usage
-            else None,
-            cost=YieldedOutputCost(
-                input_cost=cost.get("inputCost", 0),
-                output_cost=cost.get("outputCost", 0),
-                total_cost=cost.get("totalCost", 0),
-            )
-            if cost
-            else None,
+            usage=(
+                YieldedOutputTokenUsage(
+                    completion_tokens=usage.get("completionTokens", 0),
+                    prompt_tokens=usage.get("promptTokens", 0),
+                    total_tokens=usage.get("totalTokens", 0),
+                    latency=usage.get("latency", 0),
+                )
+                if usage
+                else None
+            ),
+            cost=(
+                YieldedOutputCost(
+                    input_cost=cost.get("input", 0),
+                    output_cost=cost.get("output", 0),
+                    total_cost=cost.get("total", 0),
+                )
+                if cost
+                else None
+            ),
         )
 
 
@@ -326,7 +332,7 @@ class TestRun:
 
 @dataclass
 class TestRunEntry:
-    data_entry: Dict[str, Union[str, List[str], None]]
+    variables: Dict[str, Variable]
     output: Optional[str] = None
     input: Optional[str] = None
     expected_output: Optional[str] = None
@@ -352,8 +358,10 @@ class TestRunEntry:
                 if self.local_evaluation_results
                 else None
             )
-        if self.data_entry is not None:
-            result["dataEntry"] = self.data_entry
+        if self.variables is not None:
+            result["dataEntry"] = {
+                key: variable.to_json() for key, variable in self.variables.items()
+            }
 
         # Keeping only non None entries in result
         return {key: value for key, value in result.items() if value is not None}
@@ -366,13 +374,22 @@ class TestRunEntry:
                 "input": self.input,
                 "expectedOutput": self.expected_output,
                 "contextToEvaluate": self.context_to_evaluate,
-                "localEvaluationResults": [
-                    local_evaluation_result.to_dict()
-                    for local_evaluation_result in self.local_evaluation_results
-                ]
-                if self.local_evaluation_results
-                else None,
-                "dataEntry": self.data_entry,
+                "localEvaluationResults": (
+                    [
+                        local_evaluation_result.to_dict()
+                        for local_evaluation_result in self.local_evaluation_results
+                    ]
+                    if self.local_evaluation_results
+                    else None
+                ),
+                "dataEntry": (
+                    {
+                        key: variable.to_json()
+                        for key, variable in self.variables.items()
+                    }
+                    if self.variables
+                    else None
+                ),
             }.items()
             if value is not None
         }
@@ -385,18 +402,26 @@ class TestRunEntry:
     @classmethod
     def dict_to_class(cls, data: Dict[str, Any]) -> "TestRunEntry":
         local_evaluation_results = data.get("localEvaluationResults")
+        data_entry = data.get("dataEntry", {})
+        variables = {}
+        for key, value in data_entry.items():
+            if value is not None:
+                variables[key] = Variable.from_json(value)
+
         return cls(
             output=data.get("output", None),
             input=data.get("input", None),
             expected_output=data.get("expectedOutput", None),
             context_to_evaluate=data.get("contextToEvaluate", None),
-            data_entry=data.get("dataEntry", None),
-            local_evaluation_results=[
-                LocalEvaluationResultWithId.dict_to_class(local_evaluation_result)
-                for local_evaluation_result in local_evaluation_results
-            ]
-            if local_evaluation_results
-            else None,
+            variables=variables,
+            local_evaluation_results=(
+                [
+                    LocalEvaluationResultWithId.dict_to_class(local_evaluation_result)
+                    for local_evaluation_result in local_evaluation_results
+                ]
+                if local_evaluation_results
+                else None
+            ),
         )
 
 
@@ -731,6 +756,7 @@ class ConsoleLogger(TestRunLogger):
     def error(self, message: str, e: Optional[Exception] = None) -> None:
         print(message, e)
 
+
 @dataclass
 class WorkflowConfig:
     id: str
@@ -754,6 +780,7 @@ class WorkflowConfig:
             context_to_evaluate=data.get("contextToEvaluate"),
         )
 
+
 @dataclass
 class PromptVersionConfig:
     id: str
@@ -776,6 +803,7 @@ class PromptVersionConfig:
             id=data["id"],
             context_to_evaluate=data.get("contextToEvaluate"),
         )
+
 
 @dataclass
 class PromptChainVersionConfig:
@@ -902,6 +930,7 @@ class ExecutePromptForDataResponse:
                 else None
             ),
         )
+
 
 @dataclass
 class ExecutePromptChainForDataResponse:

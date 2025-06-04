@@ -31,6 +31,10 @@ class Variable:
     def to_json(self):
         return {"type": self.type, "payload": self.payload}
 
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> "Variable":
+        return cls(type=data["type"], payload=data["payload"])
+
 
 class DatasetEntry:
     def __init__(
@@ -67,6 +71,7 @@ InputColumn = Literal["INPUT"]
 ExpectedOutputColumn = Literal["EXPECTED_OUTPUT"]
 ContextToEvaluateColumn = Literal["CONTEXT_TO_EVALUATE"]
 VariableColumn = Literal["VARIABLE"]
+FileURLVariableColumn = Literal["FILE_URL_VARIABLE"]
 NullableVariableColumn = Literal["NULLABLE_VARIABLE"]
 OutputColumn = Literal["OUTPUT"]
 
@@ -77,6 +82,7 @@ DataStructure = Dict[
         ExpectedOutputColumn,
         ContextToEvaluateColumn,
         VariableColumn,
+        FileURLVariableColumn,
         NullableVariableColumn,
     ],
 ]
