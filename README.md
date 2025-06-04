@@ -16,7 +16,12 @@ pip install maxim-py
 
 ### Documentation
 
+
 You can find detailed documentation and available integrations [here](https://www.getmaxim.ai/docs/sdk/python/overview).
+
+### Cookbook
+
+See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing an Agno agent.
 
 #### Langchain module compatibility
 
