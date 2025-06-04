@@ -11,7 +11,9 @@ from .utils import MistralUtils
 
 
 class MaximMistralChat:
-    def __init__(self, chat: Chat, logger: Logger):
+    """Wrapper for Mistral Chat client with integrated logging and tracing."""
+
+    def __init__(self, chat: Chat, logger: Logger) -> None:
         self._chat = chat
         self._logger = logger
 
