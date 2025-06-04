@@ -2,10 +2,10 @@ import json
 from typing import Any, Dict, Optional
 
 from ..models.dataset import (
-    ContextToEvaluateColumn,
+    CONTEXT_TO_EVALUATE_COLUMN,
     DataStructure,
-    ExpectedOutputColumn,
-    InputColumn,
+    EXPECTED_OUTPUT_COLUMN,
+    INPUT_COLUMN,
 )
 
 
@@ -20,7 +20,7 @@ def sanitize_data_structure(data_structure: Optional[DataStructure]) -> None:
     encountered_context_to_evaluate = False
     if data_structure:
         for value in data_structure.values():
-            if value == InputColumn:
+            if value == INPUT_COLUMN:
                 if encountered_input:
                     raise Exception(
                         "Data structure contains more than one input",
@@ -28,7 +28,7 @@ def sanitize_data_structure(data_structure: Optional[DataStructure]) -> None:
                     )
                 else:
                     encountered_input = True
-            elif value == ExpectedOutputColumn:
+            elif value == EXPECTED_OUTPUT_COLUMN:
                 if encountered_expected_output:
                     raise Exception(
                         "Data structure contains more than one expectedOutput",
@@ -36,7 +36,7 @@ def sanitize_data_structure(data_structure: Optional[DataStructure]) -> None:
                     )
                 else:
                     encountered_expected_output = True
-            elif value == ContextToEvaluateColumn:
+            elif value == CONTEXT_TO_EVALUATE_COLUMN:
                 if encountered_context_to_evaluate:
                     raise Exception(
                         "Data structure contains more than one contextToEvaluate",
