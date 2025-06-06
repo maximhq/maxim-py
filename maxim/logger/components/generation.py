@@ -11,16 +11,22 @@ from ..writer import LogWriter
 from .attachment import FileAttachment, FileDataAttachment, UrlAttachment
 from .base import BaseContainer
 from .types import Entity, GenerationError, GenerationErrorTypedDict, object_to_dict
+from .utils import parse_attachments_from_messages
 
 
-class GenerationRequestMessageContent(TypedDict):
-    type: str
+class GenerationRequestTextMessageContent(TypedDict):
+    type: Literal["text"]
     text: str
+
+
+class GenerationRequestImageMessageContent(TypedDict):
+    type: Literal["image"]
+    image_url: str
 
 
 class GenerationRequestMessage(TypedDict):
     role: str
-    content: Union[str, List[GenerationRequestMessageContent]]
+    content: Union[str, List[Union[GenerationRequestTextMessageContent, GenerationRequestImageMessageContent]]]
 
 
 def generation_request_from_gemini_content(content: Any) -> "GenerationRequestMessage":
@@ -198,8 +204,12 @@ class Generation(BaseContainer):
             if self.provider not in valid_providers:
                 self.provider = "unknown"
         else:
-            self.provider = "unknown"
+            self.provider = "unknown"        
         self.messages.extend([m for m in (final_config.get("messages") or [])])
+        self.messages, attachments = parse_attachments_from_messages(self.messages)
+        if len(attachments) > 0:
+            for attachment in attachments:
+                self.add_attachment(attachment)
         self.model_parameters = parse_model_parameters(
             final_config.get("model_parameters", {})
         )
@@ -474,7 +484,7 @@ class Generation(BaseContainer):
             result = Generation.convert_result(result)
             # Validating the result
             parse_result(result)
-            # Logging the result
+            # Taking out attachments from the result
             self._commit("result", {"result": result})
             self.end()
         except ValueError as e:

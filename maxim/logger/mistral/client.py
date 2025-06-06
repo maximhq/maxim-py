@@ -39,6 +39,21 @@ class MaximMistralChat:
                     "messages": MistralUtils.parse_message_param(messages),
                 }
             )
+            input = None
+            for message in messages:
+                content = message.get("content", None)
+                if content is None:
+                    continue
+                if isinstance(content, str):
+                    input = content
+                    break
+                if isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            input = item.get("text", "")
+                            break
+            if input is not None:
+                trace.set_input(input)
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][MaximMistralChat] Error in generating content: {e}"
@@ -110,10 +125,26 @@ class MaximMistralChat:
                     "messages": MistralUtils.parse_message_param(messages),
                 }
             )
+            input = None
+            for message in messages:
+                content = message.get("content", None)
+                if content is None:
+                    continue
+                if isinstance(content, str):
+                    input = content
+                    break
+                if isinstance(content, list):  
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            input = item.get("text", "")
+                            break
+            if input is not None:
+                trace.set_input(input)
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][MaximMistralChat] Error in generating content: {e}"
             )
+        
 
         stream = self._chat.stream(*args, **kwargs)
         chunks: List[dict] = []
