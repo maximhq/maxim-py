@@ -8,4 +8,5 @@ class SignedURLResponse(TypedDict):
     Attributes:
         url (str): The signed URL for uploading a file.
     """
+
     url: str

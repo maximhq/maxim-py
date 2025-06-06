@@ -1,22 +1,34 @@
-from .components.attachment import FileAttachment, FileDataAttachment, UrlAttachment
-from .components.error import Error, ErrorConfig
-from .components.feedback import Feedback
-from .components.generation import (
+from .components import (
+    Error,
+    ErrorConfig,
+    Feedback,
+    FileAttachment,
+    FileDataAttachment,
     Generation,
     GenerationConfig,
     GenerationConfigDict,
     GenerationError,
+    GenerationRequestImageMessageContent,
     GenerationRequestMessage,
+    GenerationRequestTextMessageContent,
     GenerationResult,
     GenerationResultChoice,
     GenerationUsage,
+    Retrieval,
+    RetrievalConfig,
+    Session,
+    SessionConfig,
+    Span,
+    SpanConfig,
+    SpanConfigDict,
+    ToolCall,
+    ToolCallConfig,
+    ToolCallError,
+    Trace,
+    TraceConfig,
+    UrlAttachment,
     generation_request_from_gemini_content,
 )
-from .components.retrieval import Retrieval, RetrievalConfig
-from .components.session import Session, SessionConfig
-from .components.span import Span, SpanConfig, SpanConfigDict
-from .components.tool_call import ToolCall, ToolCallConfig, ToolCallError
-from .components.trace import Trace, TraceConfig
 from .logger import Logger, LoggerConfig, LoggerConfigDict, get_logger_config_dict
 
 __all__ = [
@@ -33,6 +45,8 @@ __all__ = [
     "GenerationResult",
     "TraceConfig",
     "GenerationUsage",
+    "GenerationRequestTextMessageContent",
+    "GenerationRequestImageMessageContent",
     "Trace",
     "RetrievalConfig",
     "generation_request_from_gemini_content",

@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 
 @dataclass
@@ -85,3 +85,5 @@ class UrlAttachment:
             "metadata": self.metadata,
             "timestamp": self.timestamp,
         }
+
+Attachment = Union[FileAttachment, FileDataAttachment, UrlAttachment]

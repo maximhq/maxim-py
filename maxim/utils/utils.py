@@ -1,8 +1,9 @@
-import time
 import os
-import socket
 import random
+import socket
 import threading
+import time
+
 
 def create_cuid_generator():
     counter = 0
@@ -39,3 +40,5 @@ def create_cuid_generator():
         return f"c{timestamp}{counter_str}{random_component}{fingerprint}"
 
     return generate_cuid
+
+
