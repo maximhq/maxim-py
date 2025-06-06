@@ -12,7 +12,14 @@ from ..openai import MaximOpenAIAsyncClient, MaximOpenAIClient
 from ..logger import Logger
 
 
-def instrument_portkey(client: Any, logger: Logger) -> Any:
+"""Portkey AI client instrumentation for Maxim logging."""
+from typing import Any
+from typing import Union
+
+# Type alias for better clarity
+PortkeyClient = Union[Portkey, "AsyncPortkey"]
+
+def instrument_portkey(client: PortkeyClient, logger: Logger) -> PortkeyClient:
     """Attach Maxim OpenAI wrappers to a Portkey client.
 
     This helper patches the ``openai_client`` attribute of a ``Portkey`` or
@@ -20,8 +27,7 @@ def instrument_portkey(client: Any, logger: Logger) -> Any:
     via Maxim.
 
     Args:
-        client: Instance of ``portkey_ai.api_resources.client.Portkey`` or
-            ``AsyncPortkey``.
+        client: Instance of Portkey or AsyncPortkey client.
         logger: Maxim ``Logger`` instance.
 
     Returns:
@@ -33,6 +39,8 @@ def instrument_portkey(client: Any, logger: Logger) -> Any:
     elif isinstance(client, AsyncPortkey):
         client.openai_client = MaximOpenAIAsyncClient(client.openai_client, logger)
     else:
-        raise TypeError("client must be an instance of Portkey or AsyncPortkey")
+        raise TypeError(
+            "client must be an instance of Portkey or AsyncPortkey"
+        )
 
     return client
