@@ -6,7 +6,6 @@ from litellm.integrations.custom_logger import CustomLogger
 from maxim.logger.components.generation import GenerationRequestMessage
 
 from ...scribe import scribe
-from ..components.utils import parse_attachments_from_messages
 from ..logger import GenerationConfig, GenerationError, Logger
 from ..models import Container, SpanContainer, TraceContainer
 
@@ -139,7 +138,7 @@ class MaximLiteLLMTracer(CustomLogger):
                 )
             )
             if input is not None:
-                container.set_input(input)            
+                container.set_input(input)
         except Exception as e:
             scribe().error(
                 f"[MaximSDK] Error while handling pre_api_call for litellm: {str(e)}"
@@ -274,7 +273,7 @@ class MaximLiteLLMTracer(CustomLogger):
                     name=generation_name,
                     tags=tags,
                 )
-            )            
+            )
         except Exception as e:
             scribe().error(
                 f"[MaximSDK] Error while handling async_log_pre_api_call for litellm: {str(e)}"
