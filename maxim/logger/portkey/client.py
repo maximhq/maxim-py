@@ -4,7 +4,8 @@ try:
     from portkey_ai.api_resources.client import Portkey, AsyncPortkey
 except ImportError as e:
     raise ImportError(
-        "The portkey-ai package is required. Please install it using pip: `pip install portkey-ai` or `uv add portkey-ai`"
+        "The portkey-ai package is required. Please install it using pip: "
+        "`pip install portkey-ai` or `uv add portkey-ai`",
     ) from e
 
 from ..openai import MaximOpenAIAsyncClient, MaximOpenAIClient
