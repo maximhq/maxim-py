@@ -6,7 +6,7 @@ from openai.resources.chat import AsyncCompletions
 from typing_extensions import override
 
 from ...scribe import scribe
-from ..logger import Generation, GenerationConfig, Logger, Trace, TraceConfig
+from ..logger import Generation, Logger, Trace
 from .utils import OpenAIUtils
 
 
@@ -33,15 +33,15 @@ class MaximAsyncOpenAIChatCompletions(AsyncCompletions):
         trace: Optional[Trace] = None
         messages = kwargs.get("messages", None)
         try:
-            trace = self._logger.trace(TraceConfig(id=final_trace_id))
-            gen_config = GenerationConfig(
-                id=str(uuid4()),
-                model=model,
-                provider="openai",
-                name=generation_name,
-                model_parameters=OpenAIUtils.get_model_params(**kwargs),
-                messages=OpenAIUtils.parse_message_param(messages),
-            )
+            trace = self._logger.trace({"id": final_trace_id})
+            gen_config = {
+                "id": str(uuid4()),
+                "model": model,
+                "provider": "openai",
+                "name": generation_name,
+                "model_parameters": OpenAIUtils.get_model_params(**kwargs),
+                "messages": OpenAIUtils.parse_message_param(messages),
+            }
             generation = trace.generation(gen_config)
         except Exception as e:
             scribe().warning(

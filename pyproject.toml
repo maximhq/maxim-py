@@ -28,12 +28,14 @@ classifiers = [
 
 [dependency-groups]
 dev = [
+  "pip>=25.1.1",
   "crewai>=0.5.0",
   "filetype>=1.2.0",
   "livekit>=1.0.8",
   "livekit-agents[openai]>=1.0.22",
   "livekit-agents[google]~=1.0",
   "livekit-api>=1.0.2",
+  "portkey-ai>=1.13.0",
   "requests>=2.32.3",
   "build>=1.2.2.post1",
   "typing-extensions>=4.13.2",
