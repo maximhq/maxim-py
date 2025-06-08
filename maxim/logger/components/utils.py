@@ -39,7 +39,6 @@ def parse_attachments_from_messages(
             if isinstance(item, dict) and (
                 item.get("type") == "image" or item.get("type") == "image_url"
             ):
-                print(f"image item: {item}")
                 # Here we will check if its actual URL
                 # or base64 encoded data uri
                 image_url = item.get("image_url", "")
