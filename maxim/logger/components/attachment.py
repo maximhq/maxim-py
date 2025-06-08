@@ -86,4 +86,5 @@ class UrlAttachment:
             "timestamp": self.timestamp,
         }
 
+
 Attachment = Union[FileAttachment, FileDataAttachment, UrlAttachment]

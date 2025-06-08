@@ -15,16 +15,25 @@ from .utils import parse_attachments_from_messages
 
 
 class GenerationRequestTextMessageContent(TypedDict):
+    """
+    This class is used to represent a text message in a generation request.
+    """
     type: Literal["text"]
     text: str
 
 
 class GenerationRequestImageMessageContent(TypedDict):
+    """
+    This class is used to represent an image message in a generation request.
+    """
     type: Literal["image"]
     image_url: str
 
 
 class GenerationRequestMessage(TypedDict):
+    """
+    This class is used to represent a message in a generation request.
+    """
     role: str
     content: Union[
         str,
@@ -264,7 +273,7 @@ class Generation(BaseContainer):
             writer, Entity.GENERATION, id, "update", {"messages": messages}
         )
 
-    def add_message(self, message: GenerationRequestMessage):
+    def add_message(self, message: GenerationRequestMessage) -> None:
         messages, attachments = parse_attachments_from_messages([message])
         if len(attachments) > 0:
             for attachment in attachments:

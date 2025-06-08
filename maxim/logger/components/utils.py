@@ -1,7 +1,7 @@
 import base64
 import re
-from typing import TYPE_CHECKING, Any, List, Tuple
-
+from typing import TYPE_CHECKING, Any, Tuple
+from ...scribe import scribe
 from .attachment import (
     Attachment,
     FileDataAttachment,
@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 
 
 def parse_attachments_from_messages(
-    messages: List["GenerationRequestMessage"],
-) -> Tuple[Any, List["Attachment"]]:
+    messages: list["GenerationRequestMessage"],
+) -> Tuple[Any, list["Attachment"]]:
     """
     Parses the attachment from the result.
     Args:
@@ -57,7 +57,13 @@ def parse_attachments_from_messages(
                         if match:
                             ext = match.group("ext")
                             data = match.group("data")
-                            file_data = base64.b64decode(data)
+                            try:
+                                file_data = base64.b64decode(data)
+                            except Exception as e:
+                                scribe().error(
+                                    f"[MaximSDK] Error while parsing attachment: {str(e)}"
+                                )
+                                continue
                             attachment = FileDataAttachment(
                                 data=file_data,
                                 mime_type=f"image/{ext}",
@@ -71,5 +77,5 @@ def parse_attachments_from_messages(
                         attachments.append(attachment)
 
                     # Remove the image item from content
-                    content.pop(i)    
+                    content.pop(i)
     return messages, attachments

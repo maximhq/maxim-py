@@ -30,8 +30,8 @@ def create_cuid_generator():
         # Fingerprint
         try:
             hostname = socket.gethostname()
-        except:
-            hostname = 'unknown'
+        except Exception:
+            hostname = "unknown"
 
         pid = os.getpid()
         hostname_hash = sum(ord(c) for c in hostname) % 100000
@@ -40,5 +40,3 @@ def create_cuid_generator():
         return f"c{timestamp}{counter_str}{random_component}{fingerprint}"
 
     return generate_cuid
-
-

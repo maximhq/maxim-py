@@ -20,7 +20,7 @@ except ImportError:
             "The 'portkey-ai' package is required for Portkey integration. "
             "Install it with `pip install portkey-ai` or `uv add portkey-ai`."
         )
-    )
+    ) from exec
 
 
 class MaximPortkeyClient:

@@ -58,6 +58,22 @@ class MaximLiteLLMTracer(CustomLogger):
         return TraceContainer(
             trace_id=str(uuid4()), logger=self.logger, trace_name="LiteLLM"
         )
+    
+    def _extract_input_from_messages(self, messages: Any) -> Optional[str]:
+        """Extract text input from messages for logging purposes."""
+        for message in messages:
+            if message.get("role", "user") != "user":
+                continue
+            content = message.get("content", None)
+            if content is None:
+                continue
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        return item.get("text", "")
+        return None
 
     def log_pre_api_call(self, model, messages, kwargs):
         """
@@ -96,29 +112,14 @@ class MaximLiteLLMTracer(CustomLogger):
                 kwargs["optional_params"] if "optional_params" in kwargs else {}
             )
             request_messages: list[GenerationRequestMessage] = []
-            input_text = None
+            input_text = self._extract_input_from_messages(messages)
             for message in messages:
                 request_messages.append(
                     GenerationRequestMessage(
                         role=message.get("role", "user"),
                         content=message.get("content", ""),
                     )
-                )
-                content = message.get("content", None)
-                if content is None:
-                    continue
-                if isinstance(content, str):
-                    input_text = content
-                    break
-                if isinstance(content, list):
-                    for item in content:
-                        # Checking the type of the content
-                        type = item.get("type", None)
-                        if type is None:
-                            continue
-                        if type == "text":
-                            input_text = item.get("text", "")
-                            break                                
+                )                
             _ = container.add_generation(
                 GenerationConfig(
                     id=call_id,
@@ -227,29 +228,14 @@ class MaximLiteLLMTracer(CustomLogger):
             self.containers[call_id] = container
             # starting trace
             request_messages: list[GenerationRequestMessage] = []
-            input_text = None
+            input_text = self._extract_input_from_messages(messages)
             for message in messages:
                 request_messages.append(
                     GenerationRequestMessage(
                         role=message.get("role", "user"),
                         content=message.get("content", ""),
                     )
-                )
-                content = message.get("content", None)
-                if content is None:
-                    continue
-                if isinstance(content, str):
-                    input_text = content
-                    break
-                if isinstance(content, list):
-                    for item in content:
-                        # Checking the type of the content
-                        type = item.get("type", None)
-                        if type is None:
-                            continue
-                        if type == "text":
-                            input_text = item.get("text", "")
-                            break
+                )                
             if input_text is not None:
                 container.set_input(input_text)
             provider = kwargs["litellm_params"]["custom_llm_provider"]
