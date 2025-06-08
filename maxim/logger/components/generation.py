@@ -26,7 +26,15 @@ class GenerationRequestImageMessageContent(TypedDict):
 
 class GenerationRequestMessage(TypedDict):
     role: str
-    content: Union[str, List[Union[GenerationRequestTextMessageContent, GenerationRequestImageMessageContent]]]
+    content: Union[
+        str,
+        List[
+            Union[
+                GenerationRequestTextMessageContent,
+                GenerationRequestImageMessageContent,
+            ]
+        ],
+    ]
 
 
 def generation_request_from_gemini_content(content: Any) -> "GenerationRequestMessage":
@@ -204,7 +212,7 @@ class Generation(BaseContainer):
             if self.provider not in valid_providers:
                 self.provider = "unknown"
         else:
-            self.provider = "unknown"        
+            self.provider = "unknown"
         self.messages.extend([m for m in (final_config.get("messages") or [])])
         self.messages, attachments = parse_attachments_from_messages(self.messages)
         if len(attachments) > 0:
@@ -248,13 +256,20 @@ class Generation(BaseContainer):
                 "[MaximSDK] Invalid message. Must have 'content' and 'role' keys. We are skipping adding this message."
             )
             return
+        messages, attachments = parse_attachments_from_messages([message])
+        if len(attachments) > 0:
+            for attachment in attachments:
+                Generation.add_attachment_(writer, id, attachment)
         BaseContainer._commit_(
-            writer, Entity.GENERATION, id, "update", {"messages": [message]}
+            writer, Entity.GENERATION, id, "update", {"messages": messages}
         )
 
     def add_message(self, message: GenerationRequestMessage):
-        self.messages.append(message)
-        self._commit("update", {"messages": [message]})
+        messages, attachments = parse_attachments_from_messages([message])
+        if len(attachments) > 0:
+            for attachment in attachments:
+                self.add_attachment(attachment)
+        self._commit("update", {"messages": messages})
 
     @staticmethod
     def set_model_parameters_(
