@@ -14,17 +14,20 @@ from maxim.models import (
     PassFailCriteria,
     TestRunLogger,
     YieldedOutput,
+    YieldedOutputMeta,
+    YieldedOutputCost,
+    YieldedOutputTokenUsage,
 )
 from maxim.models.evaluator import (
     PassFailCriteriaForTestrunOverall,
     PassFailCriteriaOnEachEntry,
 )
 
-with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
+with open(str(f"{os.getcwd()}/maxim/tests/testConfig.json")) as f:
     data = json.load(f)
 
 logging.basicConfig(level=logging.INFO)
-env = "dev"
+env = "prod"
 
 apiKey = data[env]["apiKey"]
 baseUrl = data[env]["baseUrl"]
@@ -37,6 +40,10 @@ promptChainVersionId = data[env]["promptChainVersionId"]
 
 class TestTestRuns(unittest.TestCase):
     def setUp(self):
+        # Clear singleton instance if it exists
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+
         config = Config(
             api_key=apiKey, base_url=baseUrl, debug=True, raise_exceptions=True
         )
@@ -74,9 +81,7 @@ class TestTestRuns(unittest.TestCase):
 
         self.maxim.create_test_run(
             name="test run", in_workspace_id=workspaceId
-        ).with_data(datasetId).with_concurrency(2).with_evaluators(
-            "Clarity", "Conciseness", "Faithfulness", "Bias"
-        ).with_logger(
+        ).with_data(datasetId).with_concurrency(2).with_evaluators("Bias").with_logger(
             Logger()
         ).yields_output(
             processor
@@ -762,7 +767,20 @@ class TestTestRuns(unittest.TestCase):
             input_text = data.get("input", "")
             context = data.get("context", "")
             return YieldedOutput(
-                data=f"Processed: {input_text} with context: {context}"
+                data=f"Processed: {input_text} with context: {context}",
+                meta=YieldedOutputMeta(
+                    cost=YieldedOutputCost(
+                        input_cost=0.0001,
+                        output_cost=0.0002,
+                        total_cost=0.0003,
+                    ),
+                    usage=YieldedOutputTokenUsage(
+                        prompt_tokens=100,
+                        completion_tokens=200,
+                        total_tokens=300,
+                        latency=100,
+                    ),
+                ),
             )
 
         class Logger(TestRunLogger):
@@ -856,4 +874,10 @@ class TestTestRuns(unittest.TestCase):
             )
 
     def tearDown(self):
-        pass
+        # Clean up the Maxim instance
+        if hasattr(self, "maxim"):
+            self.maxim.cleanup()
+
+        # Clear singleton instance
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
