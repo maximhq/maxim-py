@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Union
 
 
 @dataclass
@@ -10,15 +10,15 @@ class FileAttachment:
     name: Optional[str] = None
     size: Optional[int] = None
     mime_type: Optional[str] = None
-    tags: Optional[Dict[str, str]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    tags: Optional[dict[str, str]] = None
+    metadata: Optional[dict[str, Any]] = None
     timestamp: Optional[int] = None
 
     def __post_init__(self):
         if self.id is None:
             self.id = str(uuid.uuid4())
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "type": "file",
@@ -38,15 +38,15 @@ class FileDataAttachment:
     name: Optional[str] = None
     size: Optional[int] = None
     mime_type: Optional[str] = None
-    tags: Optional[Dict[str, str]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    tags: Optional[dict[str, str]] = None
+    metadata: Optional[dict[str, Any]] = None
     timestamp: Optional[int] = None
 
     def __post_init__(self):
         if self.id is None:
             self.id = str(uuid.uuid4())
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "type": "file_data",
@@ -66,15 +66,15 @@ class UrlAttachment:
     name: Optional[str] = None
     size: Optional[int] = None
     mime_type: Optional[str] = None
-    tags: Optional[Dict[str, str]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    tags: Optional[dict[str, str]] = None
+    metadata: Optional[dict[str, Any]] = None
     timestamp: Optional[int] = None
 
     def __post_init__(self):
         if self.id is None:
             self.id = str(uuid.uuid4())
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "type": "url",
