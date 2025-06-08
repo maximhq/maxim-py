@@ -61,6 +61,8 @@ You can find detailed documentation and available integrations [here](https://ww
 ### 3.8.2
 - feat: Adds one line integration for Portkey AI
 - fix: Fixes tool call parsing for OpenAI one line integration.
+- feat: Adds auto attachment parsing for vision models
+- fix: Exposes YieldedOutputTokens and YieldedOutputCost classes
 
 ### 3.8.1
 - feat: Adds files support for test_runs
