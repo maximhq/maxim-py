@@ -24,6 +24,15 @@ class MaximLiteLLMTracer(CustomLogger):
     def __get_container_from_metadata(
         self, metadata: Optional[Dict[str, Any]]
     ) -> Container:
+        """
+        Get the container from the metadata.
+
+        Args:
+            metadata: The metadata to get the container from.
+
+        Returns:
+            The container.
+        """
         if metadata is not None and metadata["trace_id"] is not None:
             trace_id = metadata["trace_id"] if "trace_id" in metadata else None
             span_name = metadata["span_name"] if "span_name" in metadata else None
@@ -58,6 +67,33 @@ class MaximLiteLLMTracer(CustomLogger):
         return TraceContainer(
             trace_id=str(uuid4()), logger=self.logger, trace_name="LiteLLM"
         )
+
+    def _extract_input_from_messages(self, messages: Any) -> Optional[str]:
+        """
+        Extract text input from messages for logging purposes.
+        Note: Only processes messages with role 'user' for input extraction.
+
+        Args:
+            messages: The messages to extract input from.
+
+        Returns:
+            The input text.
+        """
+        if messages is None:
+            return None
+        for message in messages:
+            if message.get("role", "user") != "user":
+                continue
+            content = message.get("content", None)
+            if content is None:
+                continue
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        return item.get("text", "")
+        return None
 
     def log_pre_api_call(self, model, messages, kwargs):
         """
@@ -96,6 +132,7 @@ class MaximLiteLLMTracer(CustomLogger):
                 kwargs["optional_params"] if "optional_params" in kwargs else {}
             )
             request_messages: list[GenerationRequestMessage] = []
+            input_text = self._extract_input_from_messages(messages)
             for message in messages:
                 request_messages.append(
                     GenerationRequestMessage(
@@ -114,6 +151,8 @@ class MaximLiteLLMTracer(CustomLogger):
                     model_parameters=params,
                 )
             )
+            if input_text is not None:
+                container.set_input(input_text)
         except Exception as e:
             scribe().error(
                 f"[MaximSDK] Error while handling pre_api_call for litellm: {str(e)}"
@@ -209,13 +248,16 @@ class MaximLiteLLMTracer(CustomLogger):
             self.containers[call_id] = container
             # starting trace
             request_messages: list[GenerationRequestMessage] = []
+            input_text = self._extract_input_from_messages(messages)
             for message in messages:
                 request_messages.append(
                     GenerationRequestMessage(
                         role=message.get("role", "user"),
                         content=message.get("content", ""),
-                    )
+                    ),
                 )
+            if input_text is not None:
+                container.set_input(input_text)
             provider = kwargs["litellm_params"]["custom_llm_provider"]
             params: Dict[str, Any] = (
                 kwargs["optional_params"] if "optional_params" in kwargs else {}

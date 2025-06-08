@@ -39,6 +39,22 @@ class MaximMistralChat:
                     "messages": MistralUtils.parse_message_param(messages),
                 }
             )
+            input_message = None
+            if messages:
+                for message in messages:
+                    content = message.get("content", None)
+                    if content is None:
+                        continue
+                    if isinstance(content, str):
+                        input_message = content
+                        break
+                    if isinstance(content, list):
+                        for item in content:
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                input_message = item.get("text", "")
+                                break
+            if input_message is not None:
+                trace.set_input(input_message)
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][MaximMistralChat] Error in generating content: {e}"
@@ -71,9 +87,11 @@ class MaximMistralChat:
         generation_name = kwargs.pop("generation_name", None)
         model = kwargs.get("model")
         messages = kwargs.get("messages")
-        
+
         # Create a copy of kwargs without model and messages to avoid conflicts
-        logging_kwargs = {k: v for k, v in kwargs.items() if k not in ['model', 'messages']}
+        logging_kwargs = {
+            k: v for k, v in kwargs.items() if k not in ["model", "messages"]
+        }
 
         is_local_trace, trace, generation = self._setup_logging(
             model, messages, trace_id, generation_name, **logging_kwargs
@@ -92,10 +110,12 @@ class MaximMistralChat:
         final_trace_id = trace_id or str(uuid4())
         model = kwargs.get("model")
         messages = kwargs.get("messages")
-        
+
         # Create a copy of kwargs without model and messages to avoid conflicts
-        logging_kwargs = {k: v for k, v in kwargs.items() if k not in ['model', 'messages']}
-        
+        logging_kwargs = {
+            k: v for k, v in kwargs.items() if k not in ["model", "messages"]
+        }
+
         trace: Optional[Trace] = None
         generation: Optional[Generation] = None
         try:
@@ -110,6 +130,22 @@ class MaximMistralChat:
                     "messages": MistralUtils.parse_message_param(messages),
                 }
             )
+            input_message = None
+            if messages:
+                for message in messages:
+                    content = message.get("content", None)
+                    if content is None:
+                        continue
+                    if isinstance(content, str):
+                        input_message = content
+                        break
+                    if isinstance(content, list):
+                        for item in content:
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                input_message = item.get("text", "")
+                                break
+            if input_message is not None:
+                trace.set_input(input_message)
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][MaximMistralChat] Error in generating content: {e}"
@@ -145,10 +181,12 @@ class MaximMistralChat:
         final_trace_id = trace_id or str(uuid4())
         model = kwargs.get("model")
         messages = kwargs.get("messages")
-        
+
         # Create a copy of kwargs without model and messages to avoid conflicts
-        logging_kwargs = {k: v for k, v in kwargs.items() if k not in ['model', 'messages']}
-        
+        logging_kwargs = {
+            k: v for k, v in kwargs.items() if k not in ["model", "messages"]
+        }
+
         trace: Optional[Trace] = None
         generation: Optional[Generation] = None
         try:
@@ -192,10 +230,12 @@ class MaximMistralChat:
         final_trace_id = trace_id or str(uuid4())
         model = kwargs.get("model")
         messages = kwargs.get("messages")
-        
+
         # Create a copy of kwargs without model and messages to avoid conflicts
-        logging_kwargs = {k: v for k, v in kwargs.items() if k not in ['model', 'messages']}
-        
+        logging_kwargs = {
+            k: v for k, v in kwargs.items() if k not in ["model", "messages"]
+        }
+
         trace: Optional[Trace] = None
         generation: Optional[Generation] = None
         try:

@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Optional, Union
 
 
 @dataclass
@@ -10,15 +10,21 @@ class FileAttachment:
     name: Optional[str] = None
     size: Optional[int] = None
     mime_type: Optional[str] = None
-    tags: Optional[Dict[str, str]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    tags: Optional[dict[str, str]] = None
+    metadata: Optional[dict[str, Any]] = None
     timestamp: Optional[int] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.id is None:
             self.id = str(uuid.uuid4())
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Convert the file attachment to a dictionary.
+
+        Returns:
+            A dictionary containing the file attachment.
+        """
         return {
             "id": self.id,
             "type": "file",
@@ -38,15 +44,24 @@ class FileDataAttachment:
     name: Optional[str] = None
     size: Optional[int] = None
     mime_type: Optional[str] = None
-    tags: Optional[Dict[str, str]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    tags: Optional[dict[str, str]] = None
+    metadata: Optional[dict[str, Any]] = None
     timestamp: Optional[int] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """
+        Initialize the file data attachment.
+        """
         if self.id is None:
             self.id = str(uuid.uuid4())
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Convert the file data attachment to a dictionary.
+
+        Returns:
+            A dictionary containing the file data attachment.
+        """
         return {
             "id": self.id,
             "type": "file_data",
@@ -66,15 +81,24 @@ class UrlAttachment:
     name: Optional[str] = None
     size: Optional[int] = None
     mime_type: Optional[str] = None
-    tags: Optional[Dict[str, str]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    tags: Optional[dict[str, str]] = None
+    metadata: Optional[dict[str, Any]] = None
     timestamp: Optional[int] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """
+        Initialize the url attachment.
+        """
         if self.id is None:
             self.id = str(uuid.uuid4())
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Convert the url attachment to a dictionary.
+
+        Returns:
+            A dictionary containing the url attachment.
+        """
         return {
             "id": self.id,
             "type": "url",
@@ -85,3 +109,6 @@ class UrlAttachment:
             "metadata": self.metadata,
             "timestamp": self.timestamp,
         }
+
+
+Attachment = Union[FileAttachment, FileDataAttachment, UrlAttachment]

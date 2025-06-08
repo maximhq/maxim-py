@@ -14,13 +14,13 @@ from ..openai.utils import OpenAIUtils
 
 try:
     from portkey_ai import AsyncPortkey, Portkey  # type: ignore
-except ImportError:
+except ImportError as e:
     raise ImportError(
         (
             "The 'portkey-ai' package is required for Portkey integration. "
             "Install it with `pip install portkey-ai` or `uv add portkey-ai`."
         )
-    )
+    ) from e
 
 
 class MaximPortkeyClient:

@@ -1,8 +1,9 @@
-import time
 import os
-import socket
 import random
+import socket
 import threading
+import time
+
 
 def create_cuid_generator():
     counter = 0
@@ -29,8 +30,8 @@ def create_cuid_generator():
         # Fingerprint
         try:
             hostname = socket.gethostname()
-        except:
-            hostname = 'unknown'
+        except Exception:
+            hostname = "unknown"
 
         pid = os.getpid()
         hostname_hash = sum(ord(c) for c in hostname) % 100000
