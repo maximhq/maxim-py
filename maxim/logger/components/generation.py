@@ -26,7 +26,15 @@ class GenerationRequestImageMessageContent(TypedDict):
 
 class GenerationRequestMessage(TypedDict):
     role: str
-    content: Union[str, List[Union[GenerationRequestTextMessageContent, GenerationRequestImageMessageContent]]]
+    content: Union[
+        str,
+        List[
+            Union[
+                GenerationRequestTextMessageContent,
+                GenerationRequestImageMessageContent,
+            ]
+        ],
+    ]
 
 
 def generation_request_from_gemini_content(content: Any) -> "GenerationRequestMessage":
@@ -204,7 +212,7 @@ class Generation(BaseContainer):
             if self.provider not in valid_providers:
                 self.provider = "unknown"
         else:
-            self.provider = "unknown"        
+            self.provider = "unknown"
         self.messages.extend([m for m in (final_config.get("messages") or [])])
         self.messages, attachments = parse_attachments_from_messages(self.messages)
         if len(attachments) > 0:

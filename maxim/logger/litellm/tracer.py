@@ -96,7 +96,7 @@ class MaximLiteLLMTracer(CustomLogger):
                 kwargs["optional_params"] if "optional_params" in kwargs else {}
             )
             request_messages: list[GenerationRequestMessage] = []
-            input = None
+            input_text = None
             for message in messages:
                 request_messages.append(
                     GenerationRequestMessage(
@@ -108,7 +108,7 @@ class MaximLiteLLMTracer(CustomLogger):
                 if content is None:
                     continue
                 if isinstance(content, str):
-                    input = content
+                    input_text = content
                     break
                 if isinstance(content, list):
                     for item in content:
@@ -117,7 +117,7 @@ class MaximLiteLLMTracer(CustomLogger):
                         if type is None:
                             continue
                         if type == "text":
-                            input = item.get("text", "")
+                            input_text = item.get("text", "")
                             break
                 # Here we will need to parse each content to check if its string or complex object
                 request_messages.append(
@@ -137,8 +137,8 @@ class MaximLiteLLMTracer(CustomLogger):
                     model_parameters=params,
                 )
             )
-            if input is not None:
-                container.set_input(input)
+            if input_text is not None:
+                container.set_input(input_text)
         except Exception as e:
             scribe().error(
                 f"[MaximSDK] Error while handling pre_api_call for litellm: {str(e)}"
@@ -234,7 +234,7 @@ class MaximLiteLLMTracer(CustomLogger):
             self.containers[call_id] = container
             # starting trace
             request_messages: list[GenerationRequestMessage] = []
-            input = None
+            input_text = None
             for message in messages:
                 request_messages.append(
                     GenerationRequestMessage(
@@ -246,7 +246,7 @@ class MaximLiteLLMTracer(CustomLogger):
                 if content is None:
                     continue
                 if isinstance(content, str):
-                    input = content
+                    input_text = content
                     break
                 if isinstance(content, list):
                     for item in content:
@@ -255,10 +255,10 @@ class MaximLiteLLMTracer(CustomLogger):
                         if type is None:
                             continue
                         if type == "text":
-                            input = item.get("text", "")
+                            input_text = item.get("text", "")
                             break
-            if input is not None:
-                container.set_input(input)
+            if input_text is not None:
+                container.set_input(input_text)
             provider = kwargs["litellm_params"]["custom_llm_provider"]
             params: Dict[str, Any] = (
                 kwargs["optional_params"] if "optional_params" in kwargs else {}

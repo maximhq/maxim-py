@@ -25,19 +25,21 @@ def parse_attachments_from_messages(
     Returns:
         tuple: A tuple containing the modified messages and the list of attachments.
     """
-    
+
     attachments = []
     for message in messages:
         content = message.get("content", [])
         if content is None:
             continue
-        
+
         # Iterate in reverse order to safely remove items while iterating
         for i in range(len(content) - 1, -1, -1):
             item = content[i]
             if isinstance(item, str):
                 continue
-            if isinstance(item, dict) and (item.get("type") == "image" or item.get("type") == "image_url"):
+            if isinstance(item, dict) and (
+                item.get("type") == "image" or item.get("type") == "image_url"
+            ):
                 # Here we will check if its actual URL
                 # or base64 encoded data uri
                 image_url = item.get("image_url", "")
@@ -45,7 +47,7 @@ def parse_attachments_from_messages(
                 if image_url is not None and isinstance(image_url, dict):
                     url = image_url.get("url", "")
                 elif image_url is not None and isinstance(image_url, str):
-                    url = image_url                
+                    url = image_url
                 if url is not None and url != "":
                     # Check if its base64 encoded data uri
                     if url.startswith("data:image"):
@@ -71,8 +73,8 @@ def parse_attachments_from_messages(
                             url=url, tags={"attach-to": "output"}
                         )
                         attachments.append(attachment)
-                    
+
                     # Remove the image item from content
                     content.pop(i)
-    
+
     return messages, attachments
