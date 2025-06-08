@@ -3,9 +3,7 @@ This module is a wrapper around the Portkey client that allows for easy integrat
 
 It instruments the Portkey client to log to Maxim.
 
-It also provides a wrapper around the Portkey chat completions client that allows for easy integration with Maxim.
-
-It also provides a wrapper around the Portkey chat completions client that allows for easy integration with Maxim.
+It also provides a wrapper around the Portkey chat-completions client that allows for easy integration with Maxim.
 """
 from typing import Optional, Union
 from uuid import uuid4
