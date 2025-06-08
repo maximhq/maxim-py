@@ -58,6 +58,10 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.8.2
+- feat: Adds one line integration for Portkey AI
+- fix: Fixes tool call parsing for OpenAI one line integration.
+
 ### 3.8.1
 - feat: Adds files support for test_runs
 - feat: Adds mistral tracing support

@@ -246,6 +246,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cached-property"
+version = "2.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/4b/3d870836119dbe9a5e3c9a61af8cc1a8b69d75aea564572e385882d5aefb/cached_property-2.0.1.tar.gz", hash = "sha256:484d617105e3ee0e4f1f58725e72a8ef9e93deee462222dbd51cd91230897641", size = 10574 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/11/0e/7d8225aab3bc1a0f5811f8e1b557aa034ac04bdf641925b30d3caf586b28/cached_property-2.0.1-py3-none-any.whl", hash = "sha256:f617d70ab1100b7bcf6e42228f9ddcb78c676ffa167278d9f730d1c2fba69ccb", size = 7428 },
+]
+
+[[package]]
 name = "cachetools"
 version = "5.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1234,11 +1243,11 @@ wheels = [
 
 [[package]]
 name = "maxim-py"
-version = "3.7.2"
+version = "3.8.1"
 source = { editable = "." }
 dependencies = [
-    { name = "build" },
     { name = "filetype" },
+    { name = "pip" },
     { name = "requests" },
     { name = "typing-extensions" },
     { name = "urllib3" },
@@ -1246,11 +1255,13 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "build" },
     { name = "crewai" },
     { name = "filetype" },
     { name = "livekit" },
     { name = "livekit-agents", extra = ["google", "openai"] },
     { name = "livekit-api" },
+    { name = "portkey-ai" },
     { name = "requests" },
     { name = "setuptools" },
     { name = "typing-extensions" },
@@ -1260,8 +1271,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "build", specifier = ">=1.2.2.post1" },
     { name = "filetype" },
+    { name = "pip", specifier = ">=25.1.1" },
     { name = "requests" },
     { name = "typing-extensions" },
     { name = "urllib3" },
@@ -1269,12 +1280,14 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "build", specifier = ">=1.2.2.post1" },
     { name = "crewai", specifier = ">=0.5.0" },
     { name = "filetype", specifier = ">=1.2.0" },
     { name = "livekit", specifier = ">=1.0.8" },
     { name = "livekit-agents", extras = ["google"], specifier = "~=1.0" },
     { name = "livekit-agents", extras = ["openai"], specifier = ">=1.0.22" },
     { name = "livekit-api", specifier = ">=1.0.2" },
+    { name = "portkey-ai", specifier = ">=1.13.0" },
     { name = "requests", specifier = ">=2.32.3" },
     { name = "setuptools", specifier = ">=80.9.0" },
     { name = "typing-extensions", specifier = ">=4.13.2" },
@@ -1576,6 +1589,36 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f6/20/5c0a0aa83b213b7a07ec01e71a3d6ea2cf4ad1d2c686cc0168173b6089e7/pillow-11.2.1-pp311-pypy311_pp73-manylinux_2_28_aarch64.whl", hash = "sha256:036e53f4170e270ddb8797d4c590e6dd14d28e15c7da375c18978045f7e6c37b", size = 3527165 },
     { url = "https://files.pythonhosted.org/packages/58/0e/2abab98a72202d91146abc839e10c14f7cf36166f12838ea0c4db3ca6ecb/pillow-11.2.1-pp311-pypy311_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:14f73f7c291279bd65fda51ee87affd7c1e097709f7fdd0188957a16c264601f", size = 3571586 },
     { url = "https://files.pythonhosted.org/packages/21/2c/5e05f58658cf49b6667762cca03d6e7d85cededde2caf2ab37b81f80e574/pillow-11.2.1-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:208653868d5c9ecc2b327f9b9ef34e0e42a4cdd172c2988fd81d62d2bc9bc044", size = 2674751 },
+]
+
+[[package]]
+name = "pip"
+version = "25.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/59/de/241caa0ca606f2ec5fe0c1f4261b0465df78d786a38da693864a116c37f4/pip-25.1.1.tar.gz", hash = "sha256:3de45d411d308d5054c2168185d8da7f9a2cd753dbac8acbfa88a8909ecd9077", size = 1940155 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl", hash = "sha256:2913a38a2abf4ea6b64ab507bd9e967f3b53dc1ede74b01b0931e1ce548751af", size = 1825227 },
+]
+
+[[package]]
+name = "portkey-ai"
+version = "1.13.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "cached-property" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "tqdm" },
+    { name = "types-requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e5/0e/8517701141c9647184e330c136085e7cfa8c5a379e7f6086ae5af6a8ae1d/portkey_ai-1.13.0.tar.gz", hash = "sha256:7d5b880e7f536f27656a4de742e8a2120278d54145b15ddf85e0c35b78ffa20d", size = 415791 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/69/1a/eef4c3d7e00c2910e2a24dbbc87dbe38f275ab38f62b3002832640ec01dc/portkey_ai-1.13.0-py3-none-any.whl", hash = "sha256:256097a374eb8102b4800a9602236e379e8c5715cc7f5355be5f15a887800353", size = 818911 },
 ]
 
 [[package]]
@@ -2256,6 +2299,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/76/21/757620113af23233496c04b8a66e0201e78695495b1db8e676672608588b/types-protobuf-4.25.0.20240417.tar.gz", hash = "sha256:c34eff17b9b3a0adb6830622f0f302484e4c089f533a46e3f147568313544352", size = 53340 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ef/78/6f0351f80a682c4005775c7e1fd2b17235b88d87c85ef59214bd1f60ff60/types_protobuf-4.25.0.20240417-py3-none-any.whl", hash = "sha256:e9b613227c2127e3d4881d75d93c93b4d6fd97b5f6a099a0b654a05351c8685d", size = 67896 },
+]
+
+[[package]]
+name = "types-requests"
+version = "2.32.0.20250602"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/48/b0/5321e6eeba5d59e4347fcf9bf06a5052f085c3aa0f4876230566d6a4dc97/types_requests-2.32.0.20250602.tar.gz", hash = "sha256:ee603aeefec42051195ae62ca7667cd909a2f8128fdf8aad9e8a5219ecfab3bf", size = 23042 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/18/9b782980e575c6581d5c0c1c99f4c6f89a1d7173dad072ee96b2756c02e6/types_requests-2.32.0.20250602-py3-none-any.whl", hash = "sha256:f4f335f87779b47ce10b8b8597b409130299f6971ead27fead4fe7ba6ea3e726", size = 20638 },
 ]
 
 [[package]]
