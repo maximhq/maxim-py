@@ -66,6 +66,8 @@ from .test_run import (
     TestRunWithDatasetEntry,
     YieldedOutput,
     YieldedOutputMeta,
+    YieldedOutputCost,
+    YieldedOutputTokenUsage,
 )
 
 __all__ = [
@@ -134,6 +136,8 @@ __all__ = [
     "TestRunStatus",
     "TestRunWithDatasetEntry",
     "YieldedOutputMeta",
+    "YieldedOutputCost",
+    "YieldedOutputTokenUsage",
     "TestRunLogger",
     "ConsoleLogger",
     "RunResult",

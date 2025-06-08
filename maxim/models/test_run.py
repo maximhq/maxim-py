@@ -17,28 +17,28 @@ class YieldedOutputTokenUsage:
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
-    latency: Optional[float]
+    latency: Optional[float] = None
 
     def __json__(self):
         ret_dict: Dict[str, Union[int, float]] = {}
         if self.prompt_tokens is not None:
-            ret_dict["promptTokens"] = self.prompt_tokens
+            ret_dict["prompt_tokens"] = self.prompt_tokens
         if self.completion_tokens is not None:
-            ret_dict["completionTokens"] = self.completion_tokens
+            ret_dict["completion_tokens"] = self.completion_tokens
         if self.total_tokens is not None:
-            ret_dict["totalTokens"] = self.total_tokens
+            ret_dict["total_tokens"] = self.total_tokens
         if self.latency is not None:
             ret_dict["latency"] = self.latency
         return ret_dict
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Union[int, float]]:
         ret_dict: Dict[str, Union[int, float]] = {}
         if self.prompt_tokens is not None:
-            ret_dict["promptTokens"] = self.prompt_tokens
+            ret_dict["prompt_tokens"] = self.prompt_tokens
         if self.completion_tokens is not None:
-            ret_dict["completionTokens"] = self.completion_tokens
+            ret_dict["completion_tokens"] = self.completion_tokens
         if self.total_tokens is not None:
-            ret_dict["totalTokens"] = self.total_tokens
+            ret_dict["total_tokens"] = self.total_tokens
         if self.latency is not None:
             ret_dict["latency"] = self.latency
         return ret_dict
@@ -51,9 +51,9 @@ class YieldedOutputTokenUsage:
     @classmethod
     def dict_to_class(cls, data: Dict[str, Any]):
         return cls(
-            prompt_tokens=data.get("promptTokens", 0),
-            completion_tokens=data.get("completionTokens", 0),
-            total_tokens=data.get("totalTokens", 0),
+            prompt_tokens=data.get("prompt_tokens", 0),
+            completion_tokens=data.get("completion_tokens", 0),
+            total_tokens=data.get("total_tokens", 0),
             latency=data.get("latency"),
         )
 
@@ -121,25 +121,8 @@ class YieldedOutputMeta:
         usage = data["usage"]
         cost = data["cost"]
         return cls(
-            usage=(
-                YieldedOutputTokenUsage(
-                    completion_tokens=usage.get("completionTokens", 0),
-                    prompt_tokens=usage.get("promptTokens", 0),
-                    total_tokens=usage.get("totalTokens", 0),
-                    latency=usage.get("latency", 0),
-                )
-                if usage
-                else None
-            ),
-            cost=(
-                YieldedOutputCost(
-                    input_cost=cost.get("input", 0),
-                    output_cost=cost.get("output", 0),
-                    total_cost=cost.get("total", 0),
-                )
-                if cost
-                else None
-            ),
+            usage=(YieldedOutputTokenUsage.dict_to_class(usage) if usage else None),
+            cost=(YieldedOutputCost.dict_to_class(cost) if cost else None),
         )
 
     @classmethod
@@ -147,25 +130,8 @@ class YieldedOutputMeta:
         usage = data.get("usage")
         cost = data.get("cost")
         return cls(
-            usage=(
-                YieldedOutputTokenUsage(
-                    completion_tokens=usage.get("completionTokens", 0),
-                    prompt_tokens=usage.get("promptTokens", 0),
-                    total_tokens=usage.get("totalTokens", 0),
-                    latency=usage.get("latency", 0),
-                )
-                if usage
-                else None
-            ),
-            cost=(
-                YieldedOutputCost(
-                    input_cost=cost.get("input", 0),
-                    output_cost=cost.get("output", 0),
-                    total_cost=cost.get("total", 0),
-                )
-                if cost
-                else None
-            ),
+            usage=(YieldedOutputTokenUsage.dict_to_class(usage) if usage else None),
+            cost=(YieldedOutputCost.dict_to_class(cost) if cost else None),
         )
 
 
