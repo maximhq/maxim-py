@@ -78,6 +78,8 @@ class MaximLiteLLMTracer(CustomLogger):
         Returns:
             The input text.
         """
+        if messages is None:
+            return None
         for message in messages:
             if message.get("role", "user") != "user":
                 continue
