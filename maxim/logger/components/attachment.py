@@ -14,11 +14,17 @@ class FileAttachment:
     metadata: Optional[dict[str, Any]] = None
     timestamp: Optional[int] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.id is None:
             self.id = str(uuid.uuid4())
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Convert the file attachment to a dictionary.
+
+        Returns:
+            A dictionary containing the file attachment.
+        """
         return {
             "id": self.id,
             "type": "file",
@@ -42,11 +48,20 @@ class FileDataAttachment:
     metadata: Optional[dict[str, Any]] = None
     timestamp: Optional[int] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """
+        Initialize the file data attachment.
+        """
         if self.id is None:
             self.id = str(uuid.uuid4())
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Convert the file data attachment to a dictionary.
+
+        Returns:
+            A dictionary containing the file data attachment.
+        """
         return {
             "id": self.id,
             "type": "file_data",
@@ -70,11 +85,20 @@ class UrlAttachment:
     metadata: Optional[dict[str, Any]] = None
     timestamp: Optional[int] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """
+        Initialize the url attachment.
+        """
         if self.id is None:
             self.id = str(uuid.uuid4())
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Convert the url attachment to a dictionary.
+
+        Returns:
+            A dictionary containing the url attachment.
+        """
         return {
             "id": self.id,
             "type": "url",

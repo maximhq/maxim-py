@@ -1,6 +1,11 @@
+"""
+This module contains utility functions for parsing attachments from messages.
+"""
+
 import base64
 import re
-from typing import TYPE_CHECKING, Any, Tuple
+from typing import TYPE_CHECKING, Tuple
+
 from ...scribe import scribe
 from .attachment import (
     Attachment,
@@ -16,7 +21,7 @@ if TYPE_CHECKING:
 
 def parse_attachments_from_messages(
     messages: list["GenerationRequestMessage"],
-) -> Tuple[Any, list["Attachment"]]:
+) -> Tuple[list["GenerationRequestMessage"], list["Attachment"]]:
     """
     Parses the attachment from the result.
     Args:
@@ -52,7 +57,8 @@ def parse_attachments_from_messages(
                     if url.startswith("data:image"):
                         # Extract base64 data from data URI
                         match = re.match(
-                            r"data:image/(?P<ext>\w+);base64,(?P<data>.+)", url
+                            r"data:image/(?P<ext>\w+);base64,(?P<data>.+)",
+                            url,
                         )
                         if match:
                             ext = match.group("ext")

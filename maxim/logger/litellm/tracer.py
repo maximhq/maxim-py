@@ -24,6 +24,15 @@ class MaximLiteLLMTracer(CustomLogger):
     def __get_container_from_metadata(
         self, metadata: Optional[Dict[str, Any]]
     ) -> Container:
+        """
+        Get the container from the metadata.
+
+        Args:
+            metadata: The metadata to get the container from.
+
+        Returns:
+            The container.
+        """
         if metadata is not None and metadata["trace_id"] is not None:
             trace_id = metadata["trace_id"] if "trace_id" in metadata else None
             span_name = metadata["span_name"] if "span_name" in metadata else None
@@ -58,9 +67,17 @@ class MaximLiteLLMTracer(CustomLogger):
         return TraceContainer(
             trace_id=str(uuid4()), logger=self.logger, trace_name="LiteLLM"
         )
-    
+
     def _extract_input_from_messages(self, messages: Any) -> Optional[str]:
-        """Extract text input from messages for logging purposes."""
+        """
+        Extract text input from messages for logging purposes.
+
+        Args:
+            messages: The messages to extract input from.
+
+        Returns:
+            The input text.
+        """
         for message in messages:
             if message.get("role", "user") != "user":
                 continue
@@ -119,7 +136,7 @@ class MaximLiteLLMTracer(CustomLogger):
                         role=message.get("role", "user"),
                         content=message.get("content", ""),
                     )
-                )                
+                )
             _ = container.add_generation(
                 GenerationConfig(
                     id=call_id,
@@ -235,7 +252,7 @@ class MaximLiteLLMTracer(CustomLogger):
                         role=message.get("role", "user"),
                         content=message.get("content", ""),
                     )
-                )                
+                )
             if input_text is not None:
                 container.set_input(input_text)
             provider = kwargs["litellm_params"]["custom_llm_provider"]
