@@ -71,6 +71,7 @@ class MaximLiteLLMTracer(CustomLogger):
     def _extract_input_from_messages(self, messages: Any) -> Optional[str]:
         """
         Extract text input from messages for logging purposes.
+        Note: Only processes messages with role 'user' for input extraction.
 
         Args:
             messages: The messages to extract input from.
@@ -253,7 +254,7 @@ class MaximLiteLLMTracer(CustomLogger):
                     GenerationRequestMessage(
                         role=message.get("role", "user"),
                         content=message.get("content", ""),
-                    )
+                    ),
                 )
             if input_text is not None:
                 container.set_input(input_text)
