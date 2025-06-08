@@ -18,10 +18,10 @@ from .portkey import MaximPortkeyClient
 
 
 # Type alias for better clarity
-PortkeyClient = Union[Portkey, "AsyncPortkey"]
+PortkeyClient = Union[Portkey, AsyncPortkey]
 
 
-def instrument_portkey(client: PortkeyClient, logger: Logger) -> PortkeyClient:
+def instrument_portkey(client: PortkeyClient, logger: Logger) -> MaximPortkeyClient:
     """Attach Maxim OpenAI wrappers to a Portkey client.
 
     This helper patches the ``openai_client`` attribute of a ``Portkey`` or
