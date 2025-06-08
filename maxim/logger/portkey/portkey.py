@@ -1,20 +1,28 @@
 from typing import Optional, Union
 from uuid import uuid4
 
-from portkey_ai import AsyncPortkey, Portkey
-
 from ...scribe import scribe
 from ..logger import Generation, Logger, Trace
 from ..openai.utils import OpenAIUtils
 
+try:
+    from portkey_ai import AsyncPortkey, Portkey  # type: ignore
+except ImportError:
+    raise ImportError(
+        (
+            "The 'portkey-ai' package is required for Portkey integration. "
+            "Install it with `pip install portkey-ai` or `uv add portkey-ai`."
+        )
+    )
+
 
 class MaximPortkeyClient:
     """Maxim instrumenter for Portkey client that directly handles chat.completion method."""
-    
-    def __init__(self, client: Union[Portkey, AsyncPortkey], logger: Logger):        
+
+    def __init__(self, client: Union[Portkey, AsyncPortkey], logger: Logger):
         self._client = client
         self._logger = logger
-        
+
         # Handle both sync and async clients
         if isinstance(client, AsyncPortkey):
             self._chat = MaximAsyncPortkeyChat(client, logger)
@@ -29,9 +37,10 @@ class MaximPortkeyClient:
         """Delegate all other attributes to the underlying Portkey client."""
         return getattr(self._client, name)
 
+
 class MaximPortkeyChat:
     """Maxim instrumenter for Portkey chat functionality."""
-    
+
     def __init__(self, client: Portkey, logger: Logger):
         self._client = client
         self._logger = logger
@@ -48,7 +57,7 @@ class MaximPortkeyChat:
 
 class MaximAsyncPortkeyChat:
     """Maxim instrumenter for async Portkey chat functionality."""
-    
+
     def __init__(self, client: AsyncPortkey, logger: Logger):
         self._client = client
         self._logger = logger
@@ -65,7 +74,7 @@ class MaximAsyncPortkeyChat:
 
 class MaximPortkeyChatCompletions:
     """Maxim instrumenter for Portkey chat completions."""
-    
+
     def __init__(self, client: Portkey, logger: Logger):
         self._client = client
         self._logger = logger
@@ -75,7 +84,7 @@ class MaximPortkeyChatCompletions:
         extra_headers = kwargs.get("extra_headers", None)
         trace_id = None
         generation_name = None
-        
+
         if extra_headers is not None:
             trace_id = extra_headers.get("x-maxim-trace-id", None)
             generation_name = extra_headers.get("x-maxim-generation-name", None)
@@ -85,7 +94,7 @@ class MaximPortkeyChatCompletions:
         generation: Optional[Generation] = None
         trace: Optional[Trace] = None
         messages = kwargs.get("messages", None)
-        
+
         try:
             trace = self._logger.trace({"id": final_trace_id})
             gen_config = {
@@ -125,7 +134,7 @@ class MaximPortkeyChatCompletions:
 
 class MaximAsyncPortkeyChatCompletions:
     """Maxim instrumenter for async Portkey chat completions."""
-    
+
     def __init__(self, client: AsyncPortkey, logger: Logger):
         self._client = client
         self._logger = logger
@@ -135,18 +144,18 @@ class MaximAsyncPortkeyChatCompletions:
         extra_headers = kwargs.get("extra_headers", None)
         trace_id = None
         generation_name = None
-        
+
         if extra_headers is not None:
             trace_id = extra_headers.get("x-maxim-trace-id", None)
             generation_name = extra_headers.get("x-maxim-generation-name", None)
-            
+
         is_local_trace = trace_id is None
         model = kwargs.get("model", None)
         final_trace_id = trace_id or str(uuid4())
         generation: Optional[Generation] = None
         trace: Optional[Trace] = None
         messages = kwargs.get("messages", None)
-        
+
         try:
             trace = self._logger.trace({"id": final_trace_id})
             gen_config = {
