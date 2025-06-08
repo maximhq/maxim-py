@@ -10,6 +10,6 @@ from .portkey import (
 )
 
 __all__ = [
-    "instrument_portkey",
     "MaximPortkeyClient",
+    "instrument_portkey",
 ]
