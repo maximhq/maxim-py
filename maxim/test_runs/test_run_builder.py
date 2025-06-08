@@ -252,7 +252,7 @@ class TestRunBuilder(Generic[T]):
                 logger.info(
                     "Overriding context_to_evaluate from output over dataset entry"
                 )
-                context_to_evaluate = yielded_output.retrieved_context_to_evaluate
+            context_to_evaluate = yielded_output.retrieved_context_to_evaluate
 
         local_evaluators: List[BaseEvaluator] = []
         for evaluator in self._config.evaluators:
