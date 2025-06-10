@@ -49,10 +49,18 @@ class GeminiUtils:
                     pass
                 else:
                     request_messages.append(
-                        GenerationRequestMessage(
-                            role=role, content=GeminiUtils.parse_part_text(m) or ""
-                        )
+                        {
+                            "role": role,
+                            "content": GeminiUtils.parse_part_text(m) or "",
+                        }
                     )
+        elif isinstance(message, str):
+            request_messages.append(
+                {
+                    "role": role,
+                    "content": message,
+                }
+            )
         return request_messages
 
     @staticmethod
@@ -148,36 +156,39 @@ class GeminiUtils:
         content: Optional[Union[ContentUnion, ContentDict]],
         override_role: Optional[str] = None,
     ) -> GenerationRequestMessage:
-        message = GenerationRequestMessage(role=override_role or "user", content="")
+        message: GenerationRequestMessage = {
+            "role": override_role or "user",
+            "content": "",
+        }
         if isinstance(content, dict):
             if (
                 role := content.get("role", None)
             ) is not None and override_role is None:
-                message.role = role
+                message["role"] = role
             parts = content.get("parts", None)
             if parts is not None:
                 for part in parts:
                     if (text := part.get("text", None)) is not None:
-                        message.content += text
+                        message["content"] += text
         elif isinstance(content, Content):
             if content.role is not None and override_role is None:
                 if content.role == "model":
-                    message.role = "system"
+                    message["role"] = "system"
                 else:
-                    message.role = content.role
+                    message["role"] = content.role
             if content.parts is not None:
                 for part in content.parts:
                     if part is not None and part.text is not None:
-                        message.content += part.text
+                        message["content"] += part.text
         elif isinstance(content, List):
             for part in content:
                 text = GeminiUtils.parse_part_text(part)
                 if text is not None:
-                    message.content += text
+                    message["content"] += text
         else:
             text = GeminiUtils.parse_part_text(content)
             if text is not None:
-                message.content += text
+                message["content"] += text
 
         return message
 

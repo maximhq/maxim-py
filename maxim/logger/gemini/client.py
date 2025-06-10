@@ -72,18 +72,18 @@ class MaximGeminiChatSession(Chat):
                             GeminiUtils.parse_content(instruction, "system")
                         )
             messages.extend(GeminiUtils.parse_chat_message("user", message))
-            gen_config = GenerationConfig(
-                id=str(uuid4()),
-                model=self._model,
-                provider="google",
-                name=generation_name,
-                model_parameters=GeminiUtils.get_model_params(config),
-                messages=messages,
-            )
-            generation = self._logger.trace_generation(self._trace_id, gen_config)
+            gen_config = {
+                "id": str(uuid4()),
+                "model": self._model,
+                "provider": "google",
+                "name": generation_name,
+                "model_parameters": GeminiUtils.get_model_params(config),
+                "messages": messages,
+            }
+            generation = self._logger.trace_add_generation(self._trace_id, gen_config)
             # Attaching history as metadata
-            if self._curated_history is not None:
-                generation.add_metadata({"history": self._curated_history})
+            if self._comprehensive_history is not None:
+                generation.add_metadata({"history": self._comprehensive_history})
         except Exception as e:
             logging.warning(f"[MaximSDK][Gemini] Error in generating content: {str(e)}")
         # Actual call will never fail
@@ -92,6 +92,8 @@ class MaximGeminiChatSession(Chat):
         try:
             if generation is not None:
                 generation.result(response)
+            if response is not None:
+                self._logger.trace_set_output(self._trace_id, response.text or "")
             if self._is_local_trace:
                 self._logger.trace_end(self._trace_id)
         except Exception as e:
@@ -156,14 +158,13 @@ class MaximGeminiChatSession(Chat):
         return response
 
     def __getattr__(self, name: str) -> Any:
-        result = getattr(self._chats, name)
-        return result
+        return getattr(self._chat, name)        
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_chat":
+        if name in ("_chat", "_logger", "_trace_id", "_is_local_trace"):
             super().__setattr__(name, value)
         else:
-            setattr(self._chats, name, value)
+            setattr(self._chat, name, value)
 
     def end_trace(self):
         if self._trace_id is not None and self._is_local_trace:
@@ -186,9 +187,28 @@ class MaximGeminiChats(Chats):
         config: GenerateContentConfigOrDict = None,  # type: ignore
         history: Optional[list[Content]] = None,
         trace_id: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> Chat:
         self._is_local_trace = trace_id is None
         self._trace_id = trace_id or str(uuid4())
+        if session_id is not None:
+            self._logger.session({"id": session_id, "name": "Chat session"})
+            self._logger.session_add_trace(
+                session_id,
+                {
+                    "id": self._trace_id,
+                    "name": "Chat turn",
+                    "session_id": session_id,
+                },
+            )
+        else:
+            self._logger.trace(
+                {
+                    "id": self._trace_id,
+                    "name": "Chat session",
+                    "session_id": session_id,
+                }
+            )
         # we start generation here and send it back to chat session
         # every round trip of chat session will be logged in a separate trace
         chat_session = self._chats.create(model=model, config=config, history=history)
@@ -205,7 +225,7 @@ class MaximGeminiChats(Chats):
         return result
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_chats":
+        if name in ("_chats", "_logger", "_trace_id", "_is_local_trace"):
             super().__setattr__(name, value)
         else:
             setattr(self._chats, name, value)
@@ -253,14 +273,14 @@ class MaximGeminiModels(Models):
             if contents is not None:
                 messages.extend(GeminiUtils.parse_messages(contents))
 
-            gen_config = GenerationConfig(
-                id=str(uuid4()),
-                model=model,
-                name=generation_name,
-                provider="google",
-                model_parameters=GeminiUtils.get_model_params(config),
-                messages=messages,
-            )
+            gen_config = {
+                "id": str(uuid4()),
+                "model": model,
+                "name": generation_name,
+                "provider": "google",
+                "model_parameters": GeminiUtils.get_model_params(config),
+                "messages": messages,
+            }
             generation = trace.generation(gen_config)
         except Exception as e:
             logging.warning(f"[MaximSDK][Gemini] Error in generating content: {str(e)}")
@@ -274,8 +294,13 @@ class MaximGeminiModels(Models):
                 generation.result(chunks)
             if is_local_trace:
                 if trace is not None:
-                    if chunks is not None:
-                        trace.set_output(" ".join([c.text or "" for c in chunks]))
+                    try:
+                        if isinstance(chunks, GenerateContentResponse):
+                            trace.set_output(chunks.text or "")
+                    except Exception as e:
+                        logging.warning(
+                            f"[MaximSDK][Gemini] Error in logging generation: {str(e)}"
+                        )
                     trace.end()
         except Exception as e:
             logging.warning(f"[MaximSDK][Gemini] Error in logging generation: {str(e)}")
@@ -352,7 +377,7 @@ class MaximGeminiModels(Models):
         return getattr(self._models, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_models":
+        if name in ("_models", "_logger"):
             super().__setattr__(name, value)
         else:
             setattr(self._models, name, value)
@@ -385,11 +410,10 @@ class MaximGeminiClient(Client):
             return self._w_chats
         elif name == "_aio":
             return self._w_aio
-        result = getattr(self._client, name)
-        return result
+        return getattr(self._client, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_client":
+        if name in ("_client", "_logger", "_w_models", "_w_chats", "_w_aio"):
             super().__setattr__(name, value)
         else:
             setattr(self._client, name, value)

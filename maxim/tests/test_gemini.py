@@ -1,39 +1,22 @@
-import json
-import logging
 import os
 import unittest
 from uuid import uuid4
 
+import dotenv
 from google import genai
 from google.genai.types import Content, Part
 
-from maxim import Config, Maxim
-from maxim.logger import (
-    GenerationConfig,
-    GenerationRequestMessage,
-    generation_request_from_gemini_content,
-    LoggerConfig,
-    TraceConfig,
-)
+from maxim import Maxim
 from maxim.logger.gemini import MaximGeminiClient
 
-with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
+dotenv.load_dotenv()
 
-logging.basicConfig(level=logging.DEBUG)
-env = "beta"
-
-geminiApiKey = data["geminiApiKey"]
-apiKey = data[env]["apiKey"]
-baseUrl = data[env]["baseUrl"]
-repoId = data[env]["repoId"]
+geminiApiKey = os.getenv("GEMINI_API_KEY")
 
 
 class TestAsyncGemini(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.logger = Maxim(Config(api_key=apiKey, base_url=baseUrl)).logger(
-            LoggerConfig(id=repoId)
-        )
+        self.logger = Maxim().logger()
 
     async def test_async_generate_content(self):
         client = MaximGeminiClient(
@@ -55,28 +38,17 @@ class TestAsyncGemini(unittest.IsolatedAsyncioTestCase):
 
 class TestGemini(unittest.TestCase):
     def setUp(self):
-        self.logger = Maxim(Config(api_key=apiKey, base_url=baseUrl)).logger(
-            LoggerConfig(id=repoId)
-        )
+        self.logger = Maxim().logger()
 
     def test_generate_content(self):
-        client = genai.Client(api_key=geminiApiKey)
-        trace = self.logger.trace(TraceConfig(id=str(uuid4())))
-        config = GenerationConfig(
-            id=str(uuid4()),
-            model="gemini-2.0-flash",
-            provider="google",
-            model_parameters={},
-            messages=[
-                GenerationRequestMessage(role="user", content="Explain how AI works")
-            ],
+        client = MaximGeminiClient(
+            genai.Client(api_key=geminiApiKey), logger=self.logger
         )
-        generation = trace.generation(config)
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents="Explain how AI works",
         )
-        generation.result(response)
+        print(response)
 
     def test_generate_content_streamed_using_wrapper(self):
         client = MaximGeminiClient(
@@ -134,23 +106,10 @@ class TestGemini(unittest.TestCase):
         print(response)
 
     def test_chat_create(self):
-        client = genai.Client(api_key=geminiApiKey)
-        trace = self.logger.trace(TraceConfig(id=str(uuid4())))
-        config = GenerationConfig(
-            id=str(uuid4()),
-            model="gemini-2.0-flash",
-            provider="google",
-            model_parameters={},
-            messages=[
-                generation_request_from_gemini_content(
-                    Content(
-                        role="user",
-                        parts=[Part(text="there is an emplyee called Akshay Deo")],
-                    )
-                )
-            ],
+        client = MaximGeminiClient(
+            genai.Client(api_key=geminiApiKey), logger=self.logger
         )
-        generation = trace.generation(config)
+
         chat = client.chats.create(
             model="gemini-2.0-flash",
             config={"system_instruction": "You are a helpful assistant"},
@@ -162,9 +121,6 @@ class TestGemini(unittest.TestCase):
             ],
         )
         response = chat.send_message("test")
-
-        generation.result(response)
-
         print(response)
 
     def test_generate_chat_create_using_wrapper(self):
@@ -185,6 +141,8 @@ class TestGemini(unittest.TestCase):
         print(response)
 
     def test_generate_chat_create_with_tool_call_using_wrapper(self):
+        session_id = str(uuid4())
+
         def get_current_weather(location: str) -> str:
             """Get the current whether in a given location.
 
@@ -207,9 +165,10 @@ class TestGemini(unittest.TestCase):
             history=[
                 Content(
                     role="user",
-                    parts=[Part(text="Howst weather of SF looks today?")],
+                    parts=[Part(text="Hows weather of SF looks today?")],
                 )
             ],
+            session_id=session_id,
         )
         response = chat.send_message("test")
         print(response)
