@@ -58,6 +58,10 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.8.4
+
+- fix: Fixes gemini + langchain integration to capture None finish_reason and usage_metadata
+
 ### 3.8.3
 
 - fix: Fixes chunk and chat auto-tracing for gemini client

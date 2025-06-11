@@ -8,7 +8,7 @@ from uuid import uuid4
 from langchain_core.messages import AIMessage, BaseMessage, ToolCall
 from langchain_core.outputs import ChatResult, LLMResult
 from langchain_core.outputs.chat_generation import ChatGeneration, ChatGenerationChunk
-from langchain_core.outputs.generation import Generation
+from langchain_core.outputs.generation import Generation, GenerationChunk
 
 from ...scribe import scribe
 from ..components.types import GenerationError
@@ -30,17 +30,24 @@ def parse_langchain_provider(serialized: Dict[str, Any]):
     provider = serialized.get("name", "").lower()
     if provider.startswith("chat"):
         return provider.replace("chat", "")
-    elif "azure" in provider:
-        return "azure"
-    elif "anthropic" in provider:
-        return "anthropic"
-    elif "huggingface" in provider:
-        return "huggingface"
-    elif "bedrock" in provider:
-        return "bedrock"
-    elif "aws" in provider:
-        return "bedrock"
-    return provider
+    mapping = {
+        "azure": "azure",
+        "anthropic": "anthropic",
+        "huggingface": "huggingface",
+        "bedrock": "bedrock",
+        "aws": "bedrock",
+        "openai": "openai",
+        "groq": "groq",
+        "ollama": "ollama",
+        "gemini": "google",
+        "vertexai": "google",
+        "deepseek": "deepseek",
+        "qwen": "qwen",
+    }
+    for key, target in mapping.items():
+        if key in provider:
+            return target
+    return "unknown"
 
 
 def parse_langchain_llm_error(
@@ -274,6 +281,21 @@ def parse_langchain_chat_generation(generation: ChatGeneration):
     return choices
 
 
+def parse_langchain_generation_chunk(generation: GenerationChunk):
+    return [
+        {
+            "index": 0,
+            "text": generation.text,
+            "logprobs": generation.generation_info.get("logprobs")
+            if generation.generation_info
+            else None,
+            "finish_reason": generation.generation_info.get("finish_reason")
+            if generation.generation_info
+            else "stop",
+        }
+    ]
+
+
 def parse_langchain_text_generation(generation: Generation):
     choices = []
     messages = parse_langchain_messages([generation.text], "system")
@@ -308,6 +330,9 @@ def parse_langchain_generation(generation: Generation):
     elif isinstance(generation, ChatGeneration):
         scribe().debug("[MaximSDK][Langchain] Parsing ChatGeneration")
         return parse_langchain_chat_generation(generation)
+    elif isinstance(generation, GenerationChunk):
+        scribe().debug("[MaximSDK][Langchain] Parsing GenerationChunk")
+        return parse_langchain_generation_chunk(generation)
     elif isinstance(generation, Generation):
         scribe().debug("[MaximSDK][Langchain] Parsing Generation")
         return parse_langchain_text_generation(generation)
@@ -345,8 +370,20 @@ def parse_token_usage_for_result(result: LLMResult):
     generations = result.generations
     if generations is not None:
         for _, generation in enumerate(generations):
+            if generation is None:
+                continue
             for _, gen in enumerate(generation):
-                usage_data = gen.__dict__.get("message").__dict__.get("usage_metadata")
+                if gen is None or isinstance(gen, str):
+                    continue
+                usage_data = None
+                if "message" in gen.__dict__:
+                    usage_data = gen.__dict__.get("message").__dict__.get(
+                        "usage_metadata"
+                    )
+                elif "generation_info" in gen.__dict__:
+                    usage_data = gen.__dict__.get("generation_info").get(
+                        "usage_metadata"
+                    )
                 if usage_data is not None:
                     if usage_data.get("input_tokens") is not None:
                         prompt_tokens += usage_data.get("input_tokens", 0)
@@ -361,6 +398,13 @@ def parse_token_usage_for_result(result: LLMResult):
                         total_tokens += usage_data.get(
                             "prompt_tokens", 0
                         ) + usage_data.get("completion_tokens", 0)
+                        continue
+                    elif usage_data.get("prompt_token_count") is not None:
+                        prompt_tokens += usage_data.get("prompt_token_count", 0)
+                        output_tokens += usage_data.get("candidates_token_count", 0)
+                        total_tokens += usage_data.get(
+                            "prompt_token_count", 0
+                        ) + usage_data.get("completion_token_count", 0)
                         continue
                 resp_metadata = gen.__dict__.get("message").__dict__.get(
                     "response_metadata"
@@ -399,6 +443,7 @@ def parse_token_usage_for_result(result: LLMResult):
         "completion_tokens": output_tokens,
         "total_tokens": total_tokens,
     }
+
 
 def parse_langchain_chat_result(result: ChatResult) -> Dict[str, Any]:
     """Parses langchain Chat result into a format that is accepted by Maxim logger
@@ -499,6 +544,7 @@ def parse_langchain_messages(
             for message_list in input or []:
                 for message in message_list:
                     if isinstance(message, str):
+                        messages.append({"role": default_role, "content": message})
                         continue
                     message_type = type(message).__name__
                     if message_type.endswith("SystemMessage"):

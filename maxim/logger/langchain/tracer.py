@@ -352,7 +352,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         try:
             scribe().debug("[MaximSDK][Langchain] on_llm_end called")
             run_id = kwargs.get("run_id", None)
-            parent_run_id = kwargs.get("parent_run_id", None)
+            parent_run_id = kwargs.get("parent_run_id", None)       
             result = parse_langchain_llm_result(response)
             container = self.__get_container(run_id, parent_run_id)
             if container is None:
