@@ -61,7 +61,7 @@ def parse_chat_completion_choice(messages_data):
 
 def parse_choice(choice_data):
     validate_type(choice_data.get("index"), int, "index")
-    validate_type(choice_data.get("finish_reason"), str, "finish_reason")
+    validate_optional_type(choice_data.get("finish_reason"), str, "finish_reason")
 
     # Checking if text completion or chat completion
     if choice_data.get("text") is not None:
