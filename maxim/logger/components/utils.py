@@ -33,9 +33,8 @@ def parse_attachments_from_messages(
     attachments = []
     for message in messages:
         content = message.get("content", [])
-        if content is None:
+        if content is None or isinstance(content, str):
             continue
-
         # Iterate in reverse order to safely remove items while iterating
         for i in range(len(content) - 1, -1, -1):
             item = content[i]

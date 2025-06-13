@@ -31,12 +31,17 @@ def intercept_session_start(self: AgentSession, *args, **kwargs):
     )
     # getting the room_id
     room = kwargs.get("room", None)
+    room_name = kwargs.get("room_name", None)
     if isinstance(room, str):
         room_id = room
+        room_name = room
     elif isinstance(room, Room):
         room_id = room.sid
+        room_name = room.name
     else:
         room_id = id(room)
+        if isinstance(room, dict):
+            room_name = room.get("name", room_id)
     agent: Agent = kwargs.get("agent", None)
     scribe().debug(f"[Internal]session key:{id(self)}")
     scribe().debug(f"[Internal]Room: {room_id}")
@@ -44,22 +49,37 @@ def intercept_session_start(self: AgentSession, *args, **kwargs):
     # creating trace as well
     session_id = str(uuid.uuid4())
     session = maxim_logger.session({"id": session_id, "name": "livekit-session"})
+    # adding tags to the session
+    if room_id is not None:
+        session.add_tag("room_id", room_id)
+    if room_name is not None:
+        session.add_tag("room_name", room_name)
+    if session_id is not None:
+        session.add_tag("session_id", session_id)
+    if agent is not None:
+        session.add_tag("agent_id", str(id(agent)))
     # If callback is set, emit the session started event
     if get_livekit_callback() is not None:
         get_livekit_callback()(
             "maxim.session.started", {"session_id": session_id, "session": session}
-        )    
+        )
     trace_id = str(uuid.uuid4())
+    tags:dict[str,str] = {}
+    if room_id is not None:
+        tags["room_id"] = room_id
+    if room_name is not None:
+        tags["room_name"] = room_name
+    if session_id is not None:
+        tags["session_id"] = session_id
+    if agent is not None:
+        tags["agent_id"] = str(id(agent))
     trace = session.trace(
         {
             "id": trace_id,
             "input": "",
             "name": "Greeting turn",
             "session_id": session_id,
-            "tags": {
-                "room_id": room_id,
-                "agent_id": str(id(agent)),
-            },
+            "tags": tags,
         }
     )
     if get_livekit_callback() is not None:
@@ -109,7 +129,7 @@ def intercept_update_agent_state(self, *args, **kwargs):
         return
     scribe().debug(
         f"[Internal][{self.__class__.__name__}] Agent state updated; new_state={new_state}"
-    )    
+    )
     trace = get_session_store().get_current_trace_for_agent_session(id(self))
     if trace is not None:
         trace.event(str(uuid.uuid4()), "agent_state_updated", {"new_state": new_state})
@@ -160,7 +180,9 @@ def pre_hook(self, hook_name, args, kwargs):
         elif hook_name == "emit":
             if args[0] == "metrics_collected":
                 pass
-            scribe().debug(f"[Internal][{self.__class__.__name__}] emit called; args={args}, kwargs={kwargs}")
+            scribe().debug(
+                f"[Internal][{self.__class__.__name__}] emit called; args={args}, kwargs={kwargs}"
+            )
         elif hook_name == "end":
             pass
         else:
@@ -198,7 +220,7 @@ def instrument_agent_session(orig, name):
                 result = await orig(self, *args, **kwargs)
                 return result
             finally:
-                post_hook(self, result, name, args, kwargs)            
+                post_hook(self, result, name, args, kwargs)
 
         wrapper = async_wrapper
     else:
@@ -210,7 +232,7 @@ def instrument_agent_session(orig, name):
                 result = orig(self, *args, **kwargs)
                 return result
             finally:
-                post_hook(self, result, name, args, kwargs)            
+                post_hook(self, result, name, args, kwargs)
 
         wrapper = sync_wrapper
     return functools.wraps(orig)(wrapper)

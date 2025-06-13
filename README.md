@@ -58,6 +58,10 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.8.5
+
+- chore: Adds session_id and room_id 
+
 ### 3.8.4
 
 - fix: Fixes gemini + langchain integration to capture None finish_reason and usage_metadata
