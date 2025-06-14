@@ -16,7 +16,7 @@ class Scribe:
 
     def __init__(self, name):
         self.name = name
-        self.disable_internal_logs = True
+        self.disable_internal_logs = False
         self.logger = logging.getLogger(name)        
         
 

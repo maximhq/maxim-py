@@ -167,6 +167,9 @@ def intercept_user_state_changed(self, *args, **kwargs):
         trace.event(str(uuid.uuid4()), "user_state_changed", {"new_state": new_state})
 
 
+
+
+
 def pre_hook(self, hook_name, args, kwargs):
     try:
         if hook_name == "start":
@@ -177,6 +180,7 @@ def pre_hook(self, hook_name, args, kwargs):
             intercept_generate_reply(self, *args, **kwargs)
         elif hook_name == "_update_user_state":
             intercept_user_state_changed(self, *args, **kwargs)
+
         elif hook_name == "emit":
             if args[0] == "metrics_collected":
                 pass
@@ -190,7 +194,7 @@ def pre_hook(self, hook_name, args, kwargs):
                 f"[Internal][{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
             )
     except Exception as e:
-        scribe().error(
+        scribe().debug(
             f"[{self.__class__.__name__}] {hook_name} failed; error={str(e)}\n{traceback.format_exc()}"
         )
 
@@ -205,7 +209,7 @@ def post_hook(self, result, hook_name, args, kwargs):
                 f"[Internal][{self.__class__.__name__}] {hook_name} completed; result={result}"
             )
     except Exception as e:
-        scribe().error(
+        scribe().debug(
             f"[{self.__class__.__name__}] {hook_name} failed; error={str(e)}\n{traceback.format_exc()}"
         )
 

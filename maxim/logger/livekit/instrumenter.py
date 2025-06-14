@@ -8,6 +8,7 @@ from .agent_activity import instrument_agent_activity
 from .agent_session import instrument_agent_session
 from .gemini.instrumenter import instrument_gemini
 from .job_context import instrument_job_context
+from .module_functions import instrument_module_functions
 from .realtime_session import instrument_realtime_session
 from .store import MaximLiveKitCallback, set_livekit_callback, set_maxim_logger
 from .worker import instrument_worker
@@ -75,3 +76,4 @@ def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
 
     # Instrument gemini models if present
     instrument_gemini()
+    instrument_module_functions()

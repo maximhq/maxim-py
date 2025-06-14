@@ -1,3 +1,4 @@
+import enum
 import json
 from typing import Any, Dict, List, Optional
 
@@ -93,6 +94,20 @@ def parse_generation_error(error_data):
     return error_data
 
 
+def default_json_serializer(o: Any) -> Any:
+    if isinstance(o, enum.Enum):
+        return o.value
+    if hasattr(o, "to_dict"):
+        return o.to_dict()
+
+    try:
+        return vars(o)
+    except TypeError:
+        pass
+
+    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
+
+
 def parse_result(data: Any) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("Text completion is not supported.")
@@ -163,9 +178,9 @@ def parse_model_parameters(parameters: Optional[Dict[str, Any]]) -> Dict[str, An
             continue
         if not isinstance(value, str):
             try:
-                new_parameters[key] = json.dumps(value)
+                new_parameters[key] = json.dumps(value, default=default_json_serializer)
             except Exception as e:
-                scribe().error(
+                scribe().warning(
                     f'[MaximSDK] Failed to stringify model_parameters key - "{key}": {e}. Skipping it'
                 )
         else:
