@@ -128,7 +128,10 @@ class BaseContainer:
             self._id = config["id"]
         self._name = config.get("name", None)
         self.span_id = config.get("span_id", None)
-        self.start_timestamp = datetime.now(timezone.utc)
+        if config.get("start_timestamp", None) is not None:
+            self.start_timestamp = config["start_timestamp"]
+        else:
+            self.start_timestamp = datetime.now(timezone.utc)
         self.end_timestamp = None
         self.tags = parse_tags(config.get("tags", {}))
         self.writer = writer

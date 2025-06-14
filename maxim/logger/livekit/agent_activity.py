@@ -20,7 +20,7 @@ def post_start(self: AgentActivity, *args, **kwargs):
         id(self._session)
     )
     if session_info is None:
-        scribe().error("[MaximSDK] session info is none at realtime session start")
+        scribe().debug("[MaximSDK] session info is none at realtime session start")
         return
     scribe().debug(
         f"[Internal][{self.__class__.__name__}] session info: {session_info}"
@@ -33,7 +33,7 @@ def post_start(self: AgentActivity, *args, **kwargs):
 def handle_interrupt(self: AgentActivity, *args, **kwargs):
     trace = get_session_store().get_current_trace_for_agent_session(id(self._session))
     if trace is None:
-        scribe().error("[MaximSDK] trace is none at realtime session interrupt")
+        scribe().debug("[MaximSDK] trace is none at realtime session interrupt")
         return
     trace.event(id=str(uuid4()), name="interrupted")
     # here we will need to end the turn
@@ -45,7 +45,7 @@ def handle_input_speech_started(self: AgentActivity, *args, **kwargs):
         id(self._session)
     )
     if session_info is None:
-        scribe().error("[MaximSDK] session info is none at realtime session emit")
+        scribe().debug("[MaximSDK] session info is none at realtime session emit")
         return
     start_new_turn(session_info)
 
@@ -58,14 +58,14 @@ def handle_create_speech_task(self: AgentActivity, args, kwargs):
         id(self._session)
     )
     if session_info is None:
-        scribe().error("[MaximSDK] session info is none at realtime session emit")
+        scribe().debug("[MaximSDK] session info is none at realtime session emit")
         return
     if session_info["provider"] != "google-realtime":
         return
     # This is currently hack as Gemini does not support server side interruptions
     current_turn = session_info["current_turn"]
     if current_turn is None:
-        scribe().error("[MaximSDK] current turn is none at realtime session emit")
+        scribe().debug("[MaximSDK] current turn is none at realtime session emit")
         return
     input_buffer = None
     # Check if there is data and if its there copy it
@@ -81,7 +81,6 @@ def handle_create_speech_task(self: AgentActivity, args, kwargs):
                 input_buffer
             )
             get_session_store().set_session(session_info)
-
 
 def pre_hook(self, hook_name, args, kwargs):
     try:

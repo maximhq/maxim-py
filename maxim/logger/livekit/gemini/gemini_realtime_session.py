@@ -41,7 +41,11 @@ def handle_build_connect_config_result(
         return
     session_info["provider"] = "google-realtime"
     llm_config = result.generation_config.model_dump()
-    llm_config["speech_config"] = result.speech_config.model_dump()
+    for key, value in result.speech_config.model_dump().items():
+        if value is not None:
+            llm_config[key] = value
+    # removing speech_config from the llm_config
+    llm_config.pop("speech_config", None)
     llm_config["model"] = self._opts.model
     # checking if there are any tools, add adding them in the llm_config
     if result.tools is not None and len(result.tools) > 0:
@@ -71,7 +75,7 @@ def handle_build_connect_config_result(
     if result.system_instruction is not None:
         # We have to iterate through the system instructions
         for part in result.system_instruction.parts:
-            system_prompt += part.text
+            system_prompt += part.text    
     trace.generation(
         {
             "id": turn["turn_id"],
@@ -105,6 +109,8 @@ def handle_server_content(self: RealtimeSession, content: LiveServerContent):
     if content.model_turn is not None:
         if content.model_turn.parts is not None and len(content.model_turn.parts) > 0:
             for part in content.model_turn.parts:
+                if part.inline_data is None:
+                    continue
                 turn["turn_output_audio_buffer"] += part.inline_data.data
                 if (
                     len(session_info["conversation_buffer"])
@@ -311,23 +317,17 @@ def post_hook(self: RealtimeSession, result, hook_name, args, kwargs):
     try:
         if hook_name in ignored_hooks:
             return
-        elif hook_name == "_resample_audio":
-            pass
-        elif hook_name == "push_audio":
-            pass
-        elif hook_name == "_send_client_event":
-            pass
-        elif hook_name == "_send_task":
-            pass
-        elif hook_name == "_start_new_generation":
-            pass
-        elif hook_name == "_handle_server_content":
-            # this has audio data but post_hook is not required
-            pass
-        elif hook_name == "_handle_usage_metadata":
-            # this has usage data
-            pass
-        elif hook_name == "_build_connect_config":
+        if hook_name in (
+            "_resample_audio",
+            "push_audio",
+            "_send_client_event",
+            "_send_task",
+            "_start_new_generation",
+            "_handle_server_content",
+            "_handle_usage_metadata",
+        ):
+            return
+        if hook_name == "_build_connect_config":
             handle_build_connect_config_result(self, result)
         else:
             scribe().debug(

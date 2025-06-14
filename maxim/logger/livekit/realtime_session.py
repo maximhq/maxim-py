@@ -32,20 +32,20 @@ def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
         # Here we are buffering the session level audio buffer first
         session_info = get_session_store().get_session_by_rt_session_id(id(self))
         if session_info is None:
-            scribe().error("[MaximSDK] session info is none at realtime session emit")
+            scribe().debug("[MaximSDK] session info is none at realtime session emit")
             return
         if session_info["user_speaking"]:
             handle_openai_client_event_queued(session_info, args[1])
     elif event == "openai_server_event_received":
         session_info = get_session_store().get_session_by_rt_session_id(id(self))
         if session_info is None:
-            scribe().error("[MaximSDK] session info is none at realtime session emit")
+            scribe().debug("[MaximSDK] session info is none at realtime session emit")
             return
         handle_openai_server_event_received(session_info, args[1])
     elif event == "input_speech_stopped":
         session_info = get_session_store().get_session_by_rt_session_id(id(self))
         if session_info is None:
-            scribe().error("[MaximSDK] session info is none at realtime session emit")
+            scribe().debug("[MaximSDK] session info is none at realtime session emit")
             return
         session_info["user_speaking"] = False
         get_session_store().set_session(session_info)
@@ -64,7 +64,7 @@ def intercept_realtime_session_emit(self: RealtimeSession, *args, **kwargs):
             handle_google_input_transcription_completed(session_info, args[1])
     elif event == "error":
         scribe().debug(
-            f"[Internal]=====[{self.__class__.__name__}] error; args={args}, kwargs={kwargs}"
+            f"[Internal][{self.__class__.__name__}] error; args={args}, kwargs={kwargs}"
         )
         if args[1] is not None and isinstance(args[1], RealtimeModelError):
             main_error: RealtimeModelError = args[1]
