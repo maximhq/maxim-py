@@ -16,7 +16,7 @@ class Scribe:
 
     def __init__(self, name):
         self.name = name
-        self.disable_internal_logs = True
+        self.disable_internal_logs = False
         self.logger = logging.getLogger(name)        
         
 
@@ -60,7 +60,7 @@ class Scribe:
     
     def set_level(self, level):
         self.logger.setLevel(level)
-        
+
 
 def scribe():
     global _scribe_instance
@@ -70,8 +70,8 @@ def scribe():
             print("\033[32m[MaximSDK] Using info logging level.\033[0m")
             print(
                 "\033[32m[MaximSDK] For debug logs, set global logging level to debug logging.basicConfig(level=logging.DEBUG).\033[0m"
-            )     
-            _scribe_instance.set_level(logging.INFO)
+            )
+            _scribe_instance.set_level(logging.ERROR)
         else:
             print(
                 f"\033[32m[MaximSDK] Log level set to {logging.getLevelName(_scribe_instance.get_level())}.\nYou can change it by calling logging.getLogger('maxim').setLevel(newLevel)\033[0m"

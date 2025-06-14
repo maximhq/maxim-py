@@ -168,7 +168,11 @@ class GeminiUtils:
             parts = content.get("parts", None)
             if parts is not None:
                 for part in parts:
-                    if (text := part.get("text", None)) is not None:
+                    if isinstance(part, dict):
+                        text = part.get("text", None)
+                    else:
+                        text = getattr(part, "text", None)
+                    if text is not None and isinstance(message["content"], str):
                         message["content"] += text
         elif isinstance(content, Content):
             if content.role is not None and override_role is None:
@@ -178,16 +182,20 @@ class GeminiUtils:
                     message["role"] = content.role
             if content.parts is not None:
                 for part in content.parts:
-                    if part is not None and part.text is not None:
+                    if (
+                        part is not None
+                        and part.text is not None
+                        and isinstance(message["content"], str)
+                    ):
                         message["content"] += part.text
         elif isinstance(content, List):
             for part in content:
                 text = GeminiUtils.parse_part_text(part)
-                if text is not None:
+                if text is not None and isinstance(message["content"], str):
                     message["content"] += text
         else:
             text = GeminiUtils.parse_part_text(content)
-            if text is not None:
+            if text is not None and isinstance(message["content"], str):
                 message["content"] += text
 
         return message

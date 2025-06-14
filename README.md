@@ -58,6 +58,13 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.9.0
+
+- fix: Some minor fixes in Maxim log repo checks, Anthropic client and Gemini client
+- feat: Improved memory management and better interrupt detection for LiveKit + Gemini.
+- feat: LiveKit + Tool call support is live.
+- feat: LiveKit support is now in beta (up from Alpha).
+
 ### 3.8.5
 
 - chore: Adds session_id and room_id 

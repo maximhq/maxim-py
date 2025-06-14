@@ -24,8 +24,11 @@ class DatasetRow:
 
 
 class Variable:
-    def __init__(self, type: str, payload: Dict[str, Union[str, int, bool]]):
-        self.type = type
+
+    def __init__(
+        self, type_: str, payload: Dict[str, Union[str, int, bool, float, List[str]]]
+    ):
+        self.type = type_
         self.payload = payload
 
     def to_json(self):
@@ -33,7 +36,7 @@ class Variable:
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "Variable":
-        return cls(type=data["type"], payload=data["payload"])
+        return cls(type_=data["type"], payload=data["payload"])
 
 
 class DatasetEntry:

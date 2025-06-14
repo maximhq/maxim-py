@@ -128,7 +128,18 @@ class BaseContainer:
             self._id = config["id"]
         self._name = config.get("name", None)
         self.span_id = config.get("span_id", None)
-        self.start_timestamp = datetime.now(timezone.utc)
+        if config.get("start_timestamp", None) is not None:
+            ts = config["start_timestamp"]
+            if ts is not None:
+                if not isinstance(ts, datetime):
+                    scribe().warning(
+                        f"[MaximSDK] Invalid start timestamp: {ts} for {self.entity.value}. Reverting to current time."
+                    )
+                    self.start_timestamp = datetime.now(timezone.utc)
+                else:
+                    self.start_timestamp = ts
+        else:
+            self.start_timestamp = datetime.now(timezone.utc)
         self.end_timestamp = None
         self.tags = parse_tags(config.get("tags", {}))
         self.writer = writer

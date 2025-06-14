@@ -19,7 +19,6 @@ from langchain.prompts.chat import (
 from langchain.schema.output_parser import StrOutputParser
 from langchain.schema.runnable import RunnableLambda, RunnableSequence
 from langchain_anthropic import AnthropicLLM, ChatAnthropic
-from langchain_aws import ChatBedrock
 from langchain_community.llms.openai import AzureOpenAI, OpenAI
 from langchain_core.tools import tool
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
@@ -31,20 +30,17 @@ from maxim.logger.langchain.tracer import MaximLangchainTracer
 from maxim.logger.logger import LoggerConfig
 from maxim.maxim import Config, Maxim
 
-with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
-
 env = "dev"
 
-awsAccessKeyId = data["bedrockAccessKey"]
-awsAccessKeySecret = data["bedrockSecretKey"]
-azureOpenAIBaseUrl = data["azureOpenAIBaseUrl"]
-azureOpenAIKey = data["azureOpenAIKey"]
-openAIKey = data["openAIKey"]
-apiKey = data[env]["apiKey"]
-baseUrl = data[env]["baseUrl"]
-repoId = data[env]["repoId"]
-anthropicApiKey = data["anthropicApiKey"]
+awsAccessKeyId = os.getenv("BEDROCK_ACCESS_KEY_ID")
+awsAccessKeySecret = os.getenv("BEDROCK_SECRET_ACCESS_KEY")
+azureOpenAIBaseUrl = os.getenv("AZURE_OPENAI_BASE_URL")
+azureOpenAIKey = os.getenv("AZURE_OPENAI_KEY")
+openAIKey = os.getenv("OPENAI_API_KEY")
+apiKey = os.getenv("MAXIM_API_KEY")
+baseUrl = os.getenv("MAXIM_BASE_URL")
+repoId = os.getenv("MAXIM_LOG_REPO_ID")
+anthropicApiKey = os.getenv("ANTHROPIC_API_KEY")
 
 # # Callback handler for langchain
 logging.basicConfig(level=logging.INFO)
@@ -64,8 +60,7 @@ def subtraction_tool(a, b):
 
 class TestLoggingUsingLangchain(unittest.TestCase):
     def setUp(self):
-        config = Config(apiKey=apiKey, baseUrl=baseUrl, debug=True)
-        self.maxim = Maxim(config)
+        self.maxim = Maxim()
 
     def test_generation_chat_prompt(self):
         logger = self.maxim.logger(LoggerConfig(id=repoId))
@@ -164,279 +159,279 @@ class TestLoggingUsingLangchain(unittest.TestCase):
             pass
         logger.flush()
 
-    def test_generation_chat_prompt_bedrock_sonnet_35_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            aws_access_key_id=awsAccessKeyId,
-            aws_secret_access_key=awsAccessKeySecret,
-            model_kwargs={"temperature": 0.1},
-            provider="anthropic",
-            model="anthropic.claude-3-5-sonnet-20240620-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a helpful assistant that translates English to French. Translate the user sentence.",
-            ),
-            ("human", "How are you doing."),
-        ]
-        result = model.invoke(messages)
-        print(f"Model response: {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_sonnet_35_chat_model(self):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         aws_access_key_id=awsAccessKeyId,
+    #         aws_secret_access_key=awsAccessKeySecret,
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="anthropic",
+    #         model="anthropic.claude-3-5-sonnet-20240620-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a helpful assistant that translates English to French. Translate the user sentence.",
+    #         ),
+    #         ("human", "How are you doing."),
+    #     ]
+    #     result = model.invoke(messages)
+    #     print(f"Model response: {result}")
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_sonnet_35_chat_mode_streaming(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            aws_access_key_id=awsAccessKeyId,
-            aws_secret_access_key=awsAccessKeySecret,
-            model_kwargs={"temperature": 0.1},
-            provider="anthropic",
-            model="anthropic.claude-3-5-sonnet-20240620-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-            streaming=True,
-        )
-        messages = [
-            (
-                "system",
-                "You are a helpful assistant that translates English to French. Translate the user sentence.",
-            ),
-            ("human", "How are you doing."),
-        ]
-        for chunk in model.stream(messages):
-            print(chunk)
-            pass
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_sonnet_35_chat_mode_streaming(self):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         aws_access_key_id=awsAccessKeyId,
+    #         aws_secret_access_key=awsAccessKeySecret,
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="anthropic",
+    #         model="anthropic.claude-3-5-sonnet-20240620-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #         streaming=True,
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a helpful assistant that translates English to French. Translate the user sentence.",
+    #         ),
+    #         ("human", "How are you doing."),
+    #     ]
+    #     for chunk in model.stream(messages):
+    #         print(chunk)
+    #         pass
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_sonnet_3_model_with_tool_call(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            model_kwargs={"temperature": 0.1},
-            provider="anthropic",
-            model="anthropic.claude-3-sonnet-20240229-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a math expert",
-            ),
-            ("human", "add 3 and 3"),
-        ]
-        llm = model.bind_tools([addition_tool, subtraction_tool])
-        result = llm.invoke(messages)
-        print(f"Model response: {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_sonnet_3_model_with_tool_call(self):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="anthropic",
+    #         model="anthropic.claude-3-sonnet-20240229-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a math expert",
+    #         ),
+    #         ("human", "add 3 and 3"),
+    #     ]
+    #     llm = model.bind_tools([addition_tool, subtraction_tool])
+    #     result = llm.invoke(messages)
+    #     print(f"Model response: {result}")
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_sonnet_35_model_with_tool_call(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            model_kwargs={"temperature": 0.1},
-            provider="anthropic",
-            model="anthropic.claude-3-5-sonnet-20240620-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a math expert",
-            ),
-            ("human", "add 3 and 3"),
-        ]
-        llm = model.bind_tools([addition_tool, subtraction_tool])
-        result = llm.invoke(messages)
-        print(f"Model response: {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_sonnet_35_model_with_tool_call(self):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="anthropic",
+    #         model="anthropic.claude-3-5-sonnet-20240620-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a math expert",
+    #         ),
+    #         ("human", "add 3 and 3"),
+    #     ]
+    #     llm = model.bind_tools([addition_tool, subtraction_tool])
+    #     result = llm.invoke(messages)
+    #     print(f"Model response: {result}")
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_sonnet_3_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            aws_access_key_id=awsAccessKeyId,
-            aws_secret_access_key=awsAccessKeySecret,
-            model_kwargs={"temperature": 0.1},
-            provider="anthropic",
-            model="anthropic.claude-3-sonnet-20240229-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a helpful assistant that translates English to French. Translate the user sentence.",
-            ),
-            ("human", "How are you doing."),
-        ]
-        result = model.invoke(messages)
-        print(f"Model response: {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_sonnet_3_chat_model(self):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         aws_access_key_id=awsAccessKeyId,
+    #         aws_secret_access_key=awsAccessKeySecret,
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="anthropic",
+    #         model="anthropic.claude-3-sonnet-20240229-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a helpful assistant that translates English to French. Translate the user sentence.",
+    #         ),
+    #         ("human", "How are you doing."),
+    #     ]
+    #     result = model.invoke(messages)
+    #     print(f"Model response: {result}")
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_sonnet_3_chat_model_old_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            model_kwargs={"temperature": 0.1},
-            provider="anthropic",
-            model="anthropic.claude-3-sonnet-20240229-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a helpful assistant that translates English to French. Translate the user sentence.",
-            ),
-            ("human", "{question}"),
-        ]
-        llmChain = LLMChain(
-            llm=model, prompt=ChatPromptTemplate.from_messages(messages)
-        )
-        question = "How are you doing?"
-        result = llmChain.invoke(input={"question": question})
-        print(f"Model response: {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_sonnet_3_chat_model_old_chain(self):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="anthropic",
+    #         model="anthropic.claude-3-sonnet-20240229-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a helpful assistant that translates English to French. Translate the user sentence.",
+    #         ),
+    #         ("human", "{question}"),
+    #     ]
+    #     llmChain = LLMChain(
+    #         llm=model, prompt=ChatPromptTemplate.from_messages(messages)
+    #     )
+    #     question = "How are you doing?"
+    #     result = llmChain.invoke(input={"question": question})
+    #     print(f"Model response: {result}")
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_sonnet_3_chat_model_without_runnable_sequence(
-        self,
-    ):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            model_kwargs={"temperature": 0.1},
-            provider="anthropic",
-            model="anthropic.claude-3-sonnet-20240229-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a helpful assistant that translates English to French. Translate the user sentence.",
-            ),
-            ("human", "{question}"),
-        ]
-        prompt = ChatPromptTemplate.from_messages(messages=messages)
-        chain = prompt | model | StrOutputParser()
-        question = "How are you doing?"
-        result = chain.invoke(input={"question": question})
-        print(f"Model response: {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_sonnet_3_chat_model_without_runnable_sequence(
+    #     self,
+    # ):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="anthropic",
+    #         model="anthropic.claude-3-sonnet-20240229-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a helpful assistant that translates English to French. Translate the user sentence.",
+    #         ),
+    #         ("human", "{question}"),
+    #     ]
+    #     prompt = ChatPromptTemplate.from_messages(messages=messages)
+    #     chain = prompt | model | StrOutputParser()
+    #     question = "How are you doing?"
+    #     result = chain.invoke(input={"question": question})
+    #     print(f"Model response: {result}")
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_sonnet_3_chat_model_with_runnable_sequence(
-        self,
-    ):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            model_kwargs={"temperature": 0.1},
-            provider="anthropic",
-            model="anthropic.claude-3-sonnet-20240229-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a helpful assistant that translates English to French. Translate the user sentence.",
-            ),
-            ("human", "{question}"),
-        ]
-        prompt = ChatPromptTemplate.from_messages(messages=messages)
-        chain = RunnableSequence(prompt, model)
-        question = "How are you doing?"
-        result = chain.invoke(input={"question": question})
-        print(f"Model response: {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_sonnet_3_chat_model_with_runnable_sequence(
+    #     self,
+    # ):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="anthropic",
+    #         model="anthropic.claude-3-sonnet-20240229-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a helpful assistant that translates English to French. Translate the user sentence.",
+    #         ),
+    #         ("human", "{question}"),
+    #     ]
+    #     prompt = ChatPromptTemplate.from_messages(messages=messages)
+    #     chain = RunnableSequence(prompt, model)
+    #     question = "How are you doing?"
+    #     result = chain.invoke(input={"question": question})
+    #     print(f"Model response: {result}")
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_haiku_3_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            model_kwargs={"temperature": 0.1},
-            provider="anthropic",
-            model="anthropic.claude-3-haiku-20240307-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a helpful assistant that translates English to French. Translate the user sentence.",
-            ),
-            ("human", "How are you doing."),
-        ]
-        result = model.invoke(messages)
-        print(f"Model response: {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_haiku_3_chat_model(self):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="anthropic",
+    #         model="anthropic.claude-3-haiku-20240307-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a helpful assistant that translates English to French. Translate the user sentence.",
+    #         ),
+    #         ("human", "How are you doing."),
+    #     ]
+    #     result = model.invoke(messages)
+    #     print(f"Model response: {result}")
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_llama_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            aws_access_key_id=awsAccessKeyId,
-            aws_secret_access_key=awsAccessKeySecret,
-            model_kwargs={"temperature": 0.1},
-            provider="meta",
-            model="meta.llama3-8b-instruct-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a helpful assistant that translates English to French. Translate the user sentence.",
-            ),
-            ("human", "How are you doing."),
-        ]
-        result = model.invoke(messages)
-        print(f"Model response: {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_llama_chat_model(self):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         aws_access_key_id=awsAccessKeyId,
+    #         aws_secret_access_key=awsAccessKeySecret,
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="meta",
+    #         model="meta.llama3-8b-instruct-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a helpful assistant that translates English to French. Translate the user sentence.",
+    #         ),
+    #         ("human", "How are you doing."),
+    #     ]
+    #     result = model.invoke(messages)
+    #     print(f"Model response: {result}")
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_llama_chat_model_streaming(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            aws_access_key_id=awsAccessKeyId,
-            aws_secret_access_key=awsAccessKeySecret,
-            model_kwargs={"temperature": 0.1},
-            provider="meta",
-            model="meta.llama3-8b-instruct-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-            streaming=True,
-        )
-        messages = [
-            (
-                "system",
-                "You are essay writer",
-            ),
-            ("human", "write a long essay about sachin tendulkar"),
-        ]
-        for chunk in model.stream(messages):
-            # print(chunk)
-            pass
+    # def test_generation_chat_prompt_bedrock_llama_chat_model_streaming(self):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         aws_access_key_id=awsAccessKeyId,
+    #         aws_secret_access_key=awsAccessKeySecret,
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="meta",
+    #         model="meta.llama3-8b-instruct-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #         streaming=True,
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are essay writer",
+    #         ),
+    #         ("human", "write a long essay about sachin tendulkar"),
+    #     ]
+    #     for chunk in model.stream(messages):
+    #         # print(chunk)
+    #         pass
 
-        logger.flush()
+    #     logger.flush()
 
-    def test_generation_chat_prompt_bedrock_llama_chat_model_tool_call(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatBedrock(
-            region="us-east-1",
-            aws_access_key_id=awsAccessKeyId,
-            aws_secret_access_key=awsAccessKeySecret,
-            model_kwargs={"temperature": 0.1},
-            provider="meta",
-            model="meta.llama3-8b-instruct-v1:0",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a math expert",
-            ),
-            ("human", "add 99.9 and 11"),
-        ]
-        llm = model.bind_tools([addition_tool, subtraction_tool])
-        result = llm.invoke(messages)
-        print(f"Model response: {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_bedrock_llama_chat_model_tool_call(self):
+    #     logger = self.maxim.logger(LoggerConfig(id=repoId))
+    #     model = ChatBedrock(
+    #         region="us-east-1",
+    #         aws_access_key_id=awsAccessKeyId,
+    #         aws_secret_access_key=awsAccessKeySecret,
+    #         model_kwargs={"temperature": 0.1},
+    #         provider="meta",
+    #         model="meta.llama3-8b-instruct-v1:0",
+    #         callbacks=[MaximLangchainTracer(logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a math expert",
+    #         ),
+    #         ("human", "add 99.9 and 11"),
+    #     ]
+    #     llm = model.bind_tools([addition_tool, subtraction_tool])
+    #     result = llm.invoke(messages)
+    #     print(f"Model response: {result}")
+    #     logger.flush()
 
     def test_generation_chat_prompt_anthropic_llm(self):
         logger = self.maxim.logger(LoggerConfig(id=repoId))
