@@ -9,7 +9,7 @@ from typing import Union
 
 from crewai import LLM, Agent, Crew, Flow, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
-from crewai.tools.base_tool import BaseTool
+from crewai.tools.agent_tools import BaseTool
 
 from ...logger import (
     Generation,
@@ -134,9 +134,6 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
         debug (bool): If True, show INFO and DEBUG logs. If False, show only WARNING and ERROR logs.
     """
     global logger
-
-    # Set the logging level based on debug parameter
-    scribe().setLevel(get_log_level(debug))
 
     def make_maxim_wrapper(
         original_method,

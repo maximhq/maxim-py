@@ -713,17 +713,21 @@ class MaximLangchainTracer(BaseCallbackHandler):
             if container is None:
                 scribe().error("[MaximSDK] Couldn't find a container for tool call")
                 return
-            if isinstance(output, ToolMessage):
-                if output.status == "success":
-                    self.logger.tool_call_result(str(run_id), output.content)
-                elif output.status == "error":
-                    if isinstance(output.content, str):
+            if isinstance(output, dict):
+                if output.get("status", None) == "success":
+                    self.logger.tool_call_result(
+                        str(run_id), output.get("content", None)
+                    )
+                elif output.get("status", None) == "error":
+                    if isinstance(output.get("content", None), str):
                         self.logger.tool_call_error(
-                            str(run_id), ToolCallError(message=output.content)
+                            str(run_id),
+                            ToolCallError(message=output.get("content", None)),
                         )
                     else:
                         self.logger.tool_call_error(
-                            str(run_id), ToolCallError(message=str(output.content))
+                            str(run_id),
+                            ToolCallError(message=str(output.get("content", None))),
                         )
             if container.parent() is None:
                 container.end()

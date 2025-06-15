@@ -755,13 +755,13 @@ class Maxim:
 
         def check():
             try:
-                exists = self.maxim_api.does_log_repository_exist(logger.repo_id)
+                exists = self.maxim_api.does_log_repository_exist(logger.id)
                 if not exists:
-                    scribe().warning(f"[MaximSDK] Log repository not found: {logger.repo_id}. We will be dropping all logs.")
+                    scribe().warning(f"[MaximSDK] Log repository not found: {logger.id}. We will be dropping all logs.")
                     if self.raise_exceptions:
-                        raise ValueError(f"Log repository not found: {logger.repo_id}")
+                        raise ValueError(f"Log repository not found: {logger.id}")
                     return
-                scribe().debug(f"[MaximSDK] Log repository found: {logger.repo_id}")
+                scribe().debug(f"[MaximSDK] Log repository found: {logger.id}")
             except Exception as e:
                 scribe().error(f"[MaximSDK] Failed to check repository existence: {str(e)}")
                 if self.raise_exceptions:

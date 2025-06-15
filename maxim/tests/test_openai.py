@@ -15,59 +15,97 @@ from maxim.logger import (
     TraceConfig,
 )
 from maxim.logger.openai import MaximOpenAIClient
+from maxim.tests.mock_writer import inject_mock_writer
 
-
-# Load test config
-with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
 
 logging.basicConfig(level=logging.DEBUG)
 env = "dev"
 
-openaiApiKey = data["openAIKey"]
-apiKey = data[env]["apiKey"]
-baseUrl = data[env]["baseUrl"]
-repoId = data[env]["repoId"]
+openaiApiKey = os.getenv("OPENAI_API_KEY")
+apiKey = os.getenv("MAXIM_API_KEY")
+baseUrl = os.getenv("MAXIM_BASE_URL")
+repoId = os.getenv("MAXIM_LOG_REPO_ID")
 
 
 class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.logger = Maxim(Config(api_key=apiKey, base_url=baseUrl)).logger(
-            LoggerConfig(id=repoId)
-        )
+        # This is a hack to ensure that the Maxim instance is not cached
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        self.logger = Maxim().logger()
+        self.mock_writer = inject_mock_writer(self.logger)
 
     async def test_async_chat_completions(self):
         client = MaximOpenAIClient(
             OpenAI(api_key=openaiApiKey), logger=self.logger
         ).aio
-        response = await client.chat_completions(
+        response = await client.chat.completions.create(
             messages=[{"role": "user", "content": "Explain how AI works"}],
             model="gpt-4o",
             max_tokens=1000,
         )
         print(response)
 
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
     async def test_async_chat_completions_stream(self):
         client = MaximOpenAIClient(
             OpenAI(api_key=openaiApiKey), logger=self.logger 
         ).aio
-        response = client.chat_completions_stream(
+        response = await client.chat.completions.create(
             messages=[{"role": "user", "content": "Explain how AI works"}],
             model="gpt-4o",
             max_tokens=1000,
+            stream=True,
         )
         async for chunk in response:
-            print(chunk or "", end="")
+            print(chunk.choices[0].delta.content or "", end="")
+
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
 
     async def asyncTearDown(self) -> None:
-        self.logger.flush()
+        # Print final summary for debugging
+        self.mock_writer.print_logs_summary()
+
+        # Cleanup the mock writer
+        self.mock_writer.cleanup()
 
 
 class TestOpenAI(unittest.TestCase):
     def setUp(self):
-        self.logger = Maxim(Config(api_key=apiKey, base_url=baseUrl)).logger(
-            LoggerConfig(id=repoId)
-        )
+        # This is a hack to ensure that the Maxim instance is not cached
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        self.logger = Maxim().logger()
+        self.mock_writer = inject_mock_writer(self.logger)
 
     def test_chat_completions(self):
         client = OpenAI(api_key=openaiApiKey)
@@ -88,33 +126,86 @@ class TestOpenAI(unittest.TestCase):
             max_tokens=1000,
         )
         generation.result(response)
+        trace.end()
         print(response)
+
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
 
     def test_chat_completions_using_wrapper(self):
         client = MaximOpenAIClient(
             OpenAI(api_key=openaiApiKey), logger=self.logger
         )
-        response = client.chat_completions(
+        response = client.chat.completions.create(
             messages=[{"role": "user", "content": "Explain how AI works"}],
             model="gpt-4o",
             max_tokens=1000,
         )
         print(response)
 
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
     def test_chat_completions_stream_using_wrapper(self):
         client = MaximOpenAIClient(
             OpenAI(api_key=openaiApiKey), logger=self.logger
         )
-        response = client.chat_completions_stream(
+        response = client.chat.completions.create(
             messages=[{"role": "user", "content": "Explain how AI works"}],
             model="gpt-4o",
             max_tokens=1000,
+            stream=True,
         )
         for event in response:
             print(event)
             pass
 
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
 
     def tearDown(self) -> None:
-        self.logger.flush()
+        # Print final summary for debugging
+        self.mock_writer.print_logs_summary()
+
+        # Cleanup the mock writer
+        self.mock_writer.cleanup()
         return super().tearDown()

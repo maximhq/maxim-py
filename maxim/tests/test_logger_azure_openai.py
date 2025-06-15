@@ -8,35 +8,46 @@ from openai import AzureOpenAI
 
 from .. import Config, Maxim
 from ..logger import GenerationConfig, LoggerConfig, TraceConfig
+from ..tests.mock_writer import inject_mock_writer
 
-with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
-
+# Use environment variables instead of hardcoded config file
 logging.basicConfig(level=logging.INFO)
 env = "beta"
 
-openaiKey = data["openAIKey"]
-apiKey = data[env]["apiKey"]
-baseUrl = data[env]["baseUrl"]
-repoId = data[env]["repoId"]
+openaiKey = os.getenv("OPENAI_API_KEY")
+apiKey = os.getenv("MAXIM_API_KEY")
+baseUrl = os.getenv("MAXIM_BASE_URL")
+repoId = os.getenv("MAXIM_LOG_REPO_ID")
+azureApiKey = os.getenv("AZURE_OPENAI_API_KEY")
+azureEndpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
 
 logging.basicConfig(level=logging.INFO)
 
 class TestLoggingUsingAzureOpenAI(unittest.TestCase):
 
     def setUp(self) -> None:
-        config = Config(api_key=apiKey, base_url=baseUrl, debug=True)
+        # This is a hack to ensure that the Maxim instance is not cached
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        self.maxim = Maxim()
+        self.logger = self.maxim.logger()
+        self.mock_writer = inject_mock_writer(self.logger)
+
+        # Skip tests if Azure credentials are not available
+        if not azureApiKey or not azureEndpoint:
+            self.skipTest("Azure OpenAI credentials not available")
+
         self.client = AzureOpenAI(
             api_version="2023-07-01-preview",
-            api_key="8fdb3849a79d4bb99c907d42aa8e36e7",
-            azure_endpoint="https://finetunemaxim.openai.azure.com/",
+            api_key=azureApiKey,
+            azure_endpoint=azureEndpoint,
         )
-        self.maxim = Maxim(config)
 
     def test_logging_using_azure_openai_text_completion(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         trace_id = str(uuid4())
-        trace = logger.trace(TraceConfig(id=trace_id, name="text-completion-trace"))
+        trace = self.logger.trace(
+            TraceConfig(id=trace_id, name="text-completion-trace")
+        )
         generation = trace.generation(
             GenerationConfig(
                 id=str(uuid4()),
@@ -57,10 +68,25 @@ class TestLoggingUsingAzureOpenAI(unittest.TestCase):
         generation.result(completion)
         trace.end()
 
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
     def test_logging_using_azure_openai_text_completion_with_stop_sequence(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         trace_id = str(uuid4())
-        trace = logger.trace(
+        trace = self.logger.trace(
             TraceConfig(id=trace_id, name="text-completion-stop-sequence-trace")
         )
         generation = trace.generation(
@@ -88,10 +114,25 @@ class TestLoggingUsingAzureOpenAI(unittest.TestCase):
         generation.result(completion)
         trace.end()
 
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
     def test_logging_using_azure_openai_with_tool_call(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         trace_id = str(uuid4())
-        trace = logger.trace(TraceConfig(id=trace_id, name="tool-call-trace"))
+        trace = self.logger.trace(TraceConfig(id=trace_id, name="tool-call-trace"))
         generation = trace.generation(
             GenerationConfig(
                 id=str(uuid4()),
@@ -136,6 +177,27 @@ class TestLoggingUsingAzureOpenAI(unittest.TestCase):
         generation.result(completion)
         trace.end()
 
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
     def tearDown(self) -> None:
+        # Print final summary for debugging
+        self.mock_writer.print_logs_summary()
+
+        # Cleanup the mock writer
+        self.mock_writer.cleanup()
         self.maxim.cleanup()
         return super().tearDown()

@@ -72,13 +72,11 @@ def parse_attachments_from_messages(
                             attachment = FileDataAttachment(
                                 data=file_data,
                                 mime_type=f"image/{ext}",
-                                tags={"attach-to": "output"},
+                                tags={"attach-to": "input"},
                             )
                             attachments.append(attachment)
                     else:
-                        attachment = UrlAttachment(
-                            url=url, tags={"attach-to": "output"}
-                        )
+                        attachment = UrlAttachment(url=url, tags={"attach-to": "input"})
                         attachments.append(attachment)
 
                     # Remove the image item from content

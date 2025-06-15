@@ -106,9 +106,11 @@ class LocalEvaluatorReturn:
 @dataclass
 class PassFailCriteriaOnEachEntry:
     score_should_be: OperatorType
-    value: Union[bool, int]
+    value: Union[bool, int, float, None]
 
-    def __init__(self, score_should_be: OperatorType, value: Union[bool, int]):
+    def __init__(
+        self, score_should_be: OperatorType, value: Union[bool, int, float, None]
+    ):
         self.score_should_be = score_should_be
         self.value = value
 

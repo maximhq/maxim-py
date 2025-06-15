@@ -14,6 +14,7 @@ from .generation import (
     GenerationResultChoice,
     GenerationUsage,
     ImageContent,
+    TokenDetails,
     TextContent,
     generation_request_from_gemini_content,
 )
@@ -90,5 +91,6 @@ __all__ = [
     "ToolCallConfigDict",
     "ToolCallError",
     "ToolCallErrorDict",
+    "TokenDetails",
     "get_tool_call_config_dict",
 ]

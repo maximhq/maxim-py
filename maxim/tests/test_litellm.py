@@ -6,44 +6,39 @@ import unittest
 from uuid import uuid4
 
 import litellm
-import pytest
-from aiounittest import AsyncTestCase
 from litellm import acompletion, completion
 
 from maxim import Config, Maxim
 from maxim.logger import LoggerConfig, TraceConfig
 from maxim.logger.litellm.tracer import MaximLiteLLMTracer
-
-with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
+from maxim.tests.mock_writer import inject_mock_writer
 
 logging.basicConfig(level=logging.INFO)
-env = "beta"
 
-awsAccessKeyId = data["bedrockAccessKey"]
-awsAccessKeySecret = data["bedrockSecretKey"]
-azureOpenAIBaseUrl = data["azureOpenAIBaseUrl"]
-azureOpenAIKey = data["azureOpenAIKey"]
-openAIKey = data["openAIKey"]
-apiKey = data[env]["apiKey"]
-baseUrl = data[env]["baseUrl"]
-repoId = data[env]["repoId"]
-anthropicApiKey = data["anthropicApiKey"]
+awsAccessKeyId = os.getenv("BEDROCK_ACCESS_KEY_ID")
+awsAccessKeySecret = os.getenv("BEDROCK_SECRET_ACCESS_KEY")
+azureOpenAIBaseUrl = os.getenv("AZURE_OPENAI_BASE_URL")
+azureOpenAIKey = os.getenv("AZURE_OPENAI_KEY")
+openAIKey = os.getenv("OPENAI_API_KEY")
+apiKey = os.getenv("MAXIM_API_KEY")
+baseUrl = os.getenv("MAXIM_BASE_URL")
+repoId = os.getenv("MAXIM_LOG_REPO_ID")
+anthropicApiKey = os.getenv("ANTHROPIC_API_KEY")
 
-
-maxim = Maxim(
-    Config(api_key=apiKey, base_url=baseUrl, debug=True, raise_exceptions=True)
-)
-logger = maxim.logger(LoggerConfig(id=repoId))
-callback = MaximLiteLLMTracer(logger)
-litellm.callbacks = [callback]
 
 class TestLiteLLM(unittest.TestCase):
     def __init__(self, methodName: str = "runTest") -> None:
         super().__init__(methodName)
 
     def setUp(self):
-        pass
+        # This is a hack to ensure that the Maxim instance is not cached
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        self.maxim = Maxim()
+        self.logger = self.maxim.logger()
+        self.mock_writer = inject_mock_writer(self.logger)
+        callback = MaximLiteLLMTracer(self.logger)
+        litellm.callbacks = [callback]
 
     def test_openai(self) -> None:
         response = completion(
@@ -76,8 +71,23 @@ class TestLiteLLM(unittest.TestCase):
             ],
         )
         print(response)
-        
-    
+
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
     def test_embedding_call(self) -> None:
         response = litellm.embedding(
             model="text-embedding-ada-002",
@@ -86,10 +96,18 @@ class TestLiteLLM(unittest.TestCase):
         )
         print(response)
 
-    
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Note: embedding calls may have different logging patterns
+        # We'll verify that at least some logs were generated
+        all_logs = self.mock_writer.get_all_logs()
+        self.assertGreater(len(all_logs), 0, "Expected at least one log to be captured")
+
     def test_openai_with_external_trace(self) -> None:
         trace_id = str(uuid4())
-        trace = logger.trace(TraceConfig(id=trace_id, name="external_trace"))
+        trace = self.logger.trace(TraceConfig(id=trace_id, name="external_trace"))
 
         response = completion(
             model="openai/gpt-4o",
@@ -124,8 +142,24 @@ class TestLiteLLM(unittest.TestCase):
         trace.end()
         print(response)
 
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # With external trace, we expect at least 2 trace creates (external + litellm)
+        self.mock_writer.assert_entity_action_count("trace", "create", 2)
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 2 trace end logs (external + litellm)
+        self.mock_writer.assert_entity_action_count("trace", "end", 2)
+
     def test_anthropic(self) -> None:
-        callback = MaximLiteLLMTracer(logger)
+        callback = MaximLiteLLMTracer(self.logger)
         litellm.callbacks = [callback]
         response = completion(
             model="anthropic/claude-3-5-sonnet",
@@ -134,18 +168,45 @@ class TestLiteLLM(unittest.TestCase):
         )
         print(response)
 
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
     def tearDown(self) -> None:
-        maxim.cleanup()
+        # Print final summary for debugging
+        self.mock_writer.print_logs_summary()
+
+        # Cleanup the mock writer
+        self.mock_writer.cleanup()
+        self.maxim.cleanup()
 
 
-class TestLiteLLMAsync(AsyncTestCase):
+class TestLiteLLMAsync(unittest.IsolatedAsyncioTestCase):
     def __init__(self, methodName: str = "runTest") -> None:
         super().__init__(methodName)
 
-    def setUp(self):
-        pass
+    async def asyncSetUp(self):
+        # This is a hack to ensure that the Maxim instance is not cached
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        self.maxim = Maxim()
+        self.logger = self.maxim.logger()
+        self.mock_writer = inject_mock_writer(self.logger)
+        callback = MaximLiteLLMTracer(self.logger)
+        litellm.callbacks = [callback]
 
-    @pytest.mark.asyncio
     async def test_openai_async(self) -> None:
         response = await acompletion(
             model="openai/gpt-4o",
@@ -153,7 +214,29 @@ class TestLiteLLMAsync(AsyncTestCase):
             messages=[{"content": "Hello, how are you?", "role": "user"}],
         )
         print(response)
-        await asyncio.sleep(10)
+        # Remove the long sleep for faster testing
+        # await asyncio.sleep(10)
 
-    def tearDown(self) -> None:
-        maxim.cleanup()
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
+    async def asyncTearDown(self) -> None:
+        # Print final summary for debugging
+        self.mock_writer.print_logs_summary()
+
+        # Cleanup the mock writer
+        self.mock_writer.cleanup()
+        self.maxim.cleanup()

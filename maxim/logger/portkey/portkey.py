@@ -8,6 +8,8 @@ It also provides a wrapper around the Portkey chat-completions client that allow
 from typing import Optional, Union
 from uuid import uuid4
 
+from portkey_ai import ChatCompletion
+
 from ...scribe import scribe
 from ..logger import Generation, Logger, Trace
 from ..openai.utils import OpenAIUtils
@@ -122,10 +124,16 @@ class MaximPortkeyChatCompletions:
         response = self._client.chat.completions.create(*args, **kwargs)
 
         try:
+            parsed_response = None
             if generation is not None:
-                generation.result(OpenAIUtils.parse_completion(response))
-            if is_local_trace and trace is not None:
-                trace.set_output(response.choices[0].message.content or "")
+                parsed_response = OpenAIUtils.parse_completion(response)
+                generation.result(parsed_response)
+            if is_local_trace and trace is not None and parsed_response is not None:
+                trace.set_output(
+                    parsed_response.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                )
                 trace.end()
         except Exception as e:
             scribe().warning(
@@ -183,10 +191,16 @@ class MaximAsyncPortkeyChatCompletions:
         response = await self._client.chat.completions.create(*args, **kwargs)
 
         try:
+            parsed_response = None
             if generation is not None:
-                generation.result(OpenAIUtils.parse_completion(response))
-            if is_local_trace and trace is not None:
-                trace.set_output(response.choices[0].message.content or "")
+                parsed_response = OpenAIUtils.parse_completion(response)
+                generation.result(parsed_response)
+            if is_local_trace and trace is not None and parsed_response is not None:
+                trace.set_output(
+                    parsed_response.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                )
                 trace.end()
         except Exception as e:
             scribe().warning(

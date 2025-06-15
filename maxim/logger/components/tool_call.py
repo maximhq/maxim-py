@@ -27,6 +27,7 @@ class ToolCallConfigDict(TypedDict, total=False):
     description: str
     args: str
     tags: Optional[Dict[str, str]]
+    start_timestamp: Optional[datetime]
 
 
 def get_tool_call_config_dict(
@@ -38,7 +39,7 @@ def get_tool_call_config_dict(
             name=config.name,
             description=config.description,
             args=config.args,
-            tags=config.tags,
+            tags=config.tags,            
         )
         if isinstance(config, ToolCallConfig)
         else config

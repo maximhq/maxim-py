@@ -380,8 +380,11 @@ def parse_token_usage_for_result(result: LLMResult):
                     usage_data = gen.__dict__.get("message").__dict__.get(
                         "usage_metadata"
                     )
-                elif "generation_info" in gen.__dict__:
-                    usage_data = gen.__dict__.get("generation_info").get(
+                elif (
+                    "generation_info" in gen.__dict__
+                    and gen.__dict__.get("generation_info", None) is not None
+                ):
+                    usage_data = gen.__dict__.get("generation_info", {}).get(
                         "usage_metadata"
                     )
                 if usage_data is not None:

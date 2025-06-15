@@ -117,7 +117,7 @@ def span(
                         evaluator_variables if evaluator_variables is not None else {}
                     )
                 # If actual_trace_id is None, we will try to get the current trace id
-                try:
+                try:                    
                     with _push_span(span):
                         return await func(*args, **kwargs)
                 finally:

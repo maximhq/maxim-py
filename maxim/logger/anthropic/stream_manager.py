@@ -1,8 +1,8 @@
 from types import TracebackType
 from typing import Callable, Union
 
-from anthropic import MessageStreamEvent, MessageStreamManager
-from anthropic.lib.streaming import MessageStream
+from anthropic import MessageStreamManager, MessageStream, MessageStreamEvent
+
 
 from ...scribe import scribe
 
@@ -25,19 +25,20 @@ class TextStreamWrapper:
         return ""
 
 
-class StreamWrapper:
+class StreamWrapper(MessageStreamManager):
     def __init__(
         self,
         mgr: MessageStreamManager,
         callback: Callable[[MessageStreamEvent], None],
     ) -> None:
-        self.__mgr = mgr
-        self.__callback = callback
+        # Do not call super().__init__() since we're wrapping another manager
+        self._mgr = mgr
+        self._callback = callback
+        self._stream = None
 
     def __enter__(self) -> MessageStream:
-        stream = self.__mgr.__enter__()
+        stream = self._mgr.__enter__()
 
-        # Create a wrapper that processes chunks while still yielding them
         class StreamWithCallback(MessageStream):
             def __init__(self, stream, callback):
                 self._stream = stream
@@ -56,10 +57,10 @@ class StreamWrapper:
 
             @property
             def text_stream(self) -> TextStreamWrapper:  # type: ignore
-                # Return a wrapper around the original text_stream that calls the callback
                 return TextStreamWrapper(self, self._callback)
 
-        return StreamWithCallback(stream, self.__callback)
+        self._stream = StreamWithCallback(stream, self._callback)
+        return self._stream
 
     def __exit__(
         self,
@@ -67,4 +68,18 @@ class StreamWrapper:
         exc: Union[BaseException, None],
         exc_tb: Union[TracebackType, None],
     ) -> None:
-        self.__mgr.__exit__(exc_type, exc, exc_tb)
+        self._mgr.__exit__(exc_type, exc, exc_tb)
+
+    def __iter__(self):
+        if self._stream is None:
+            self.__enter__()
+        return self
+
+    def __next__(self):
+        if self._stream is None:
+            self.__enter__()
+        return next(self._stream)
+
+    def __getattr__(self, name: str):
+        # Delegate attribute access to the wrapped manager
+        return getattr(self._mgr, name)

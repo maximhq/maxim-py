@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maxim-py"
-version = "3.8.5"
+version = "3.9.0"
 description = "A package that allows you to use the Maxim Python Library to interact with the Maxim Platform."
 readme = "README.md"
 requires-python = ">=3.9.20"
@@ -28,9 +28,19 @@ classifiers = [
 
 [dependency-groups]
 dev = [
-  "python-dotenv>=0.9.9",
-  "crewai>=0.5.0",
+  "boto3>=1.7.84",  
+  "langchain-anthropic>=0.3.15",
+  "langchain-community>=0.3.25",
+  "langchain-openai>=0.3.23",
+  "langgraph>=0.4.8",
+  "flask>=3.1.1",
+  "google-genai>=1.18.0",
+  "litellm>=1.72.6",
+  "botocore>=1.10.84",
+  "anthropic>=0.54.0",
+  "python-dotenv>=0.9.9",  
   "filetype>=1.2.0",
+  "langchain==0.3.25",
   "livekit>=1.0.8",
   "livekit-agents[openai]>=1.0.22",
   "livekit-agents[google]~=1.0",
@@ -42,4 +52,6 @@ dev = [
   "urllib3>=2.4.0",
   "setuptools>=80.9.0",
   "wheel>=0.45.1",
+  "openai-agents>=0.0.17",
+  "mistralai>=1.8.2",
 ]

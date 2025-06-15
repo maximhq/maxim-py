@@ -114,10 +114,20 @@ def parse_response_input(
                     role = "Tool"
                     content = json.dumps(
                         {
-                            "id": input_item["id"],
-                            "call_id": input_item["call_id"],
-                            "name": input_item["name"],
-                            "arguments": input_item["arguments"],
+                            "id": input_item["id"] if "id" in input_item else None,
+                            "call_id": (
+                                input_item["call_id"]
+                                if "call_id" in input_item
+                                else None
+                            ),
+                            "name": (
+                                input_item["name"] if "name" in input_item else None
+                            ),
+                            "arguments": (
+                                input_item["arguments"]
+                                if "arguments" in input_item
+                                else None
+                            ),
                         }
                     )
                     # Add the processed message to the result list

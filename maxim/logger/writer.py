@@ -155,7 +155,7 @@ class LogWriter:
             return
         try:
             if "data" not in attachment:
-                scribe().error(
+                scribe().warning(
                     "[MaximSDK] Data is not set for file attachment. Skipping upload"
                 )
                 return
@@ -207,7 +207,7 @@ class LogWriter:
             return
         try:
             if "path" not in attachment:
-                scribe().error(
+                scribe().warning(
                     "[MaximSDK] Path is not set for file data attachment. Skipping upload"
                 )
                 return
@@ -291,7 +291,7 @@ class LogWriter:
             self.upload_file_data(add_attachment_log)
         elif type == "url":
             if "url" not in add_attachment_log.data:
-                scribe().error(
+                scribe().warning(
                     f"[MaximSDK] URL is not set for attachment. Skipping upload. Attachment: {add_attachment_log.serialize()}"
                 )
                 return
@@ -367,7 +367,7 @@ class LogWriter:
                     self.maxim_api.push_logs(self.config.repository_id, logs)
                     os.remove(os.path.join(self.logs_dir, file))
                 except Exception as e:
-                    scribe().warn(f"[MaximSDK] Failed to access filesystem. Error: {e}")
+                    scribe().warning(f"[MaximSDK] Failed to access filesystem. Error: {e}")
                     if self.raise_exceptions:
                         raise Exception(e)
         except Exception as e:
@@ -424,7 +424,7 @@ class LogWriter:
                 self.maxim_api.push_logs(self.config.repository_id, batch_content)
             scribe().debug("[MaximSDK] Flush complete")
         except Exception as e:
-            scribe().error(
+            scribe().warning(
                 f"[MaximSDK] Failed to push logs to server. Error: {e}. We are trying to store logs in a file and push it later."
             )
             if self.is_running_on_lambda():
@@ -471,7 +471,7 @@ class LogWriter:
         if log.action == "upload-attachment":
             if log.data is None:
                 # We can't upload the attachment
-                scribe().error(
+                scribe().warning(
                     f"[MaximSDK] Attachment data is not set for log. Skipping upload. Log: {log.serialize()}"
                 )
                 return
@@ -515,7 +515,7 @@ class LogWriter:
             try:
                 self.upload_executor.submit(self.upload_attachments, items)
             except Exception as e:
-                scribe().error(
+                scribe().warning(
                     f"[MaximSDK] Error while flushing attachments from worker. Error: {e}.\nFlushing synchronously"
                 )
                 self.upload_attachments(items)
@@ -548,7 +548,7 @@ class LogWriter:
             try:
                 self.executor.submit(self.flush_logs, items)
             except Exception as e:
-                scribe().error(
+                scribe().warning(
                     f"[MaximSDK] Error while flushing logs from worker. Error: {e}.\nFlushing synchronously"
                 )
                 self.flush_logs(items)

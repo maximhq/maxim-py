@@ -1,8 +1,8 @@
 import time
 from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
-
-from anthropic.types import MessageParam, MessageStreamEvent, TextDelta
+from anthropic import MessageStreamEvent
+from anthropic.types import MessageParam, TextDelta
 
 from ..logger import GenerationRequestMessage
 

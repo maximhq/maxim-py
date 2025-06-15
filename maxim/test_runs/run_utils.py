@@ -21,14 +21,14 @@ def get_variables_from_row(
     for column_name, column_type in data_structure.items():
         if column_type == "FILE_URL_VARIABLE":
             variables[column_name] = Variable(
-                type="file", payload={"files": [{"url": row[column_name]}]}
+                type_="file", payload={"files": [{"url": row[column_name]}]}
             )
         elif column_type in ("VARIABLE", "NULLABLE_VARIABLE"):
             # Skip nullable variables with None values to avoid invalid payloads
             if column_type == "NULLABLE_VARIABLE" and row[column_name] is None:
                 continue
             variables[column_name] = Variable(
-                type="text", payload={"text": row[column_name]}
+                type_="text", payload={"text": row[column_name]}
             )
     return variables
 

@@ -4,7 +4,7 @@ from typing import Any, Iterable, List, Optional, Union
 from uuid import uuid4
 
 import httpx
-from anthropic import Anthropic, MessageStreamEvent
+from anthropic import Anthropic, MessageStopEvent, MessageStreamEvent
 from anthropic._types import NOT_GIVEN, Body, Headers, NotGiven, Query
 from anthropic.resources.messages import Messages
 from anthropic.types.message_param import MessageParam
@@ -84,7 +84,7 @@ class MaximAnthropicMessages(Messages):
                 generation.result(response)
             if is_local_trace and trace is not None:
                 if response is not None:
-                    trace.set_output(str(response.content))
+                    trace.set_output(str(response.content)) # type: ignore
                 trace.end()
         except Exception as e:
             scribe().warning(
@@ -140,39 +140,37 @@ class MaximAnthropicMessages(Messages):
             )
 
         response = super().stream(*args, **kwargs)
-        stream_wrapper = StreamWrapper(response, lambda chunk: process_chunk(chunk))
 
         def process_chunk(chunk: MessageStreamEvent):
             try:
-                if chunk.type != "message_stop":
-                    return
-                message = chunk.message
-                scribe().info(f"final_chunk: {message}")
-                if generation is not None and message is not None:
+                if isinstance(chunk, MessageStopEvent):
+                    if chunk.type != "message_stop":
+                        return
+                    message = chunk.message
                     scribe().info(f"final_chunk: {message}")
-                    generation.result(message)
-                    if is_local_trace and trace is not None:
-                        trace.end()
+                    if generation is not None and message is not None:
+                        scribe().info(f"final_chunk: {message}")
+                        generation.result(message)
+                        if is_local_trace and trace is not None:
+                            trace.end()
             except Exception as e:
                 scribe().warning(
                     f"[MaximSDK][AnthropicClient] Error in background stream listener: {str(e)}"
                 )
-            if is_local_trace and trace is not None:
-                trace.end()
 
-        return stream_wrapper
+        return StreamWrapper(response, process_chunk)
 
     def create(
         self,
         *args,
         max_tokens: int,
         messages: Iterable[MessageParam],
-        model: ModelParam,
+        model: str,
         metadata: MetadataParam | NotGiven = NOT_GIVEN,
         stop_sequences: List[str] | NotGiven = NOT_GIVEN,
         system: Union[str, Iterable[TextBlockParam]] | NotGiven = NOT_GIVEN,
         temperature: float | NotGiven = NOT_GIVEN,
-        tool_choice: ToolChoiceParam | NotGiven = NOT_GIVEN,
+        tool_choice: dict | NotGiven = NOT_GIVEN,
         tools: Iterable[ToolParam] | NotGiven = NOT_GIVEN,
         top_k: int | NotGiven = NOT_GIVEN,
         top_p: float | NotGiven = NOT_GIVEN,
