@@ -122,34 +122,77 @@ class OpenAIUtils:
                 }
             else:
                 return {}
+        else:
+            # Handle regular ChatCompletion objects
+            return {
+                "id": completion.id,
+                "created": completion.created,
+                "choices": [
+                    {
+                        "index": choice.index,
+                        "message": {
+                            "role": choice.message.role,
+                            "content": choice.message.content,
+                            "tool_calls": getattr(choice.message, "tool_calls", None),
+                        },
+                        "finish_reason": choice.finish_reason,
+                    }
+                    for choice in completion.choices
+                ],
+                "usage": (
+                    {
+                        "prompt_tokens": (
+                            completion.usage.prompt_tokens if completion.usage else 0
+                        ),
+                        "completion_tokens": (
+                            completion.usage.completion_tokens
+                            if completion.usage
+                            else 0
+                        ),
+                        "total_tokens": (
+                            completion.usage.total_tokens if completion.usage else 0
+                        ),
+                    }
+                    if completion.usage
+                    else {}
+                ),
+            }
 
-        return {
-            "id": completion.id,
-            "created": int(time.time()),
-            "choices": [
-                {
-                    "index": choice.index,
-                    "message": {
-                        "role": "assistant",
-                        "content": choice.message.content,
-                        "tool_calls": [
-                            tool_call.model_dump()
-                            for tool_call in (choice.message.tool_calls or [])
-                        ],
-                    },
-                    "finish_reason": choice.finish_reason,
-                }
-                for choice in completion.choices
-            ],
-            "usage": {
-                "prompt_tokens": completion.usage.prompt_tokens
-                if completion.usage
-                else 0,
-                "completion_tokens": completion.usage.completion_tokens
-                if completion.usage
-                else 0,
-                "total_tokens": completion.usage.total_tokens
-                if completion.usage
-                else 0,
-            },
-        }
+    @staticmethod
+    def parse_completion_from_chunks(
+        chunks: List[ChatCompletionChunk],
+    ) -> Dict[str, Any]:
+        """Convert a list of ChatCompletionChunk objects into a combined response format."""
+        if not chunks:
+            return {}
+
+        # Parse each chunk
+        parsed_chunks = [OpenAIUtils.parse_stream_response(chunk) for chunk in chunks]
+
+        if parsed_chunks:
+            last_chunk = parsed_chunks[-1]
+            combined_content = "".join(
+                [
+                    choice.get("delta", {}).get("content", "")
+                    for chunk in parsed_chunks
+                    for choice in chunk.get("choices", [])
+                ]
+            )
+            return {
+                "id": last_chunk.get("id", ""),
+                "created": int(time.time()),
+                "choices": [
+                    {
+                        "index": choice.get("index", 0),
+                        "message": {
+                            "role": "assistant",
+                            "content": combined_content,
+                            "tool_calls": choice.get("delta", {}).get("tool_calls"),
+                        },
+                        "finish_reason": choice.get("finish_reason"),
+                    }
+                    for choice in last_chunk.get("choices", [])
+                ],
+            }
+        else:
+            return {}
