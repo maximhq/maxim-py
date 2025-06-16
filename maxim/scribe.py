@@ -16,9 +16,8 @@ class Scribe:
 
     def __init__(self, name):
         self.name = name
-        self.disable_internal_logs = False
+        self.disable_internal_logs = True
         self.logger = logging.getLogger(name)        
-        
 
     def _should_log(self, msg):
         return not (
@@ -57,7 +56,7 @@ class Scribe:
 
     def get_level(self):
         return self.logger.level
-    
+
     def set_level(self, level):
         self.logger.setLevel(level)
 

@@ -151,15 +151,17 @@ class Maxim:
         self.__is_debug = final_config.get("debug", False)
         self.__loggers: Dict[str, Logger] = {}
         self.prompt_management = final_config.get("prompt_management", False)
+        self.__cache = final_config.get("cache", MaximInMemoryCache())
         if self.prompt_management:
-            self.__cache = final_config.get("cache", MaximInMemoryCache())
             self.__sync_thread = threading.Thread(target=self.__sync_timer)
             self.__sync_thread.daemon = True
             self.__sync_thread.start()
+        else:
+            self.__sync_thread = None
 
     def enable_prompt_management(self) -> "Maxim":
         self.prompt_management = True
-        if not self.__sync_thread.is_alive():
+        if not self.__sync_thread or not self.__sync_thread.is_alive():
             self.__sync_thread = threading.Thread(target=self.__sync_timer)
             self.__sync_thread.daemon = True
             self.__sync_thread.start()
