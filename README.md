@@ -58,6 +58,10 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.9.1
+
+- fix: Fixes `enable_prompt_management` method bug. 
+
 ### 3.9.0
 
 - fix: Some minor fixes in Maxim log repo checks, Anthropic client and Gemini client
