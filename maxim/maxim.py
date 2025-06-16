@@ -85,6 +85,15 @@ EntityType = {"PROMPT": "PROMPT", "FOLDER": "FOLDER", "PROMPT_CHAIN": "PROMPT_CH
 
 
 def get_config_dict(config: Union[Config, ConfigDict]) -> dict[str, Any]:
+    """
+    Converts a Config or ConfigDict to a dictionary with default values.
+
+    Args:
+        config (Union[Config, ConfigDict]): The configuration object to convert.
+
+    Returns:
+        dict[str, Any]: A dictionary containing the configuration parameters with defaults applied.
+    """
     return (
         {
             "api_key": config.api_key,
@@ -159,8 +168,20 @@ class Maxim:
         else:
             self.__sync_thread = None
 
-    def enable_prompt_management(self) -> "Maxim":
+    def enable_prompt_management(self, cache: Optional[MaximCache] = None) -> "Maxim":
+        """
+        Enables prompt management functionality with optional cache configuration.
+
+        Args:
+            cache (Optional[MaximCache], optional): Custom cache implementation to use.
+                Defaults to None (uses existing cache).
+
+        Returns:
+            Maxim: The current Maxim instance for method chaining.
+        """
         self.prompt_management = True
+        if cache is not None:
+            self.__cache = cache
         if not self.__sync_thread or not self.__sync_thread.is_alive():
             self.__sync_thread = threading.Thread(target=self.__sync_timer)
             self.__sync_thread.daemon = True
@@ -168,10 +189,25 @@ class Maxim:
         return self
 
     def enable_exceptions(self, val: bool) -> "Maxim":
+        """
+        Enables or disables exception raising during logging operations.
+
+        Args:
+            val (bool): True to enable exception raising, False to disable.
+
+        Returns:
+            Maxim: The current Maxim instance for method chaining.
+        """
         self.raise_exceptions = val
         return self
 
     def __sync_timer(self):
+        """
+        Runs the synchronization timer in a separate thread.
+
+        Periodically syncs prompts and folders every 60 seconds while the instance is running
+        and prompt management is enabled.
+        """
         if not self.prompt_management:
             return
         while self.is_running:
@@ -179,6 +215,12 @@ class Maxim:
             time.sleep(60)
 
     def __sync_entities(self):
+        """
+        Synchronizes all entities (prompts, prompt chains, and folders) from the Maxim API.
+
+        This method coordinates the synchronization of all cached entities by calling
+        individual sync methods for prompts, prompt chains, and folders.
+        """
         scribe().debug("[MaximSDK] Syncing prompts and folders")
         if not self.prompt_management:
             return
@@ -186,10 +228,16 @@ class Maxim:
             return
         self.__sync_prompts()
         self.__sync_prompt_chains()
-        self.__syncFolders()
+        self.__sync_folders()
         scribe().debug("[MaximSDK] Syncing completed")
 
     def __sync_prompts(self):
+        """
+        Synchronizes prompts from the Maxim API and stores them in the cache.
+
+        Fetches all prompts from the API and caches them using the appropriate cache key.
+        Handles exceptions based on the raise_exceptions configuration.
+        """
         scribe().debug("[MaximSDK] Syncing prompts")
         try:
             prompts = self.maxim_api.get_prompts()
@@ -210,6 +258,12 @@ class Maxim:
                 raise err
 
     def __sync_prompt_chains(self):
+        """
+        Synchronizes prompt chains from the Maxim API and stores them in the cache.
+
+        Fetches all prompt chains from the API and caches them using the appropriate cache key.
+        Handles exceptions based on the raise_exceptions configuration.
+        """
         scribe().debug("[MaximSDK] Syncing prompt Chains")
         try:
             prompt_chains = self.maxim_api.get_prompt_chains()
@@ -235,7 +289,13 @@ class Maxim:
             if self.raise_exceptions:
                 raise err
 
-    def __syncFolders(self):
+    def __sync_folders(self):
+        """
+        Synchronizes folders from the Maxim API and stores them in the cache.
+
+        Fetches all folders from the API and caches them using the appropriate cache key.
+        Handles exceptions based on the raise_exceptions configuration.
+        """
         scribe().debug("[MaximSDK] Syncing folders")
         try:
             folders = self.maxim_api.get_folders()
@@ -256,12 +316,34 @@ class Maxim:
                 raise err
 
     def __get_cache_key(self, entity: str, id: str) -> str:
+        """
+        Generates a cache key for the given entity type and ID.
+
+        Args:
+            entity (str): The entity type (e.g., "PROMPT", "FOLDER", "PROMPT_CHAIN").
+            id (str): The entity ID.
+
+        Returns:
+            str: The formatted cache key.
+        """
         if entity == "PROMPT":
             return f"prompt:{id}"
-        else:
+        if entity == "PROMPT_CHAIN":
+            return f"prompt_chain:{id}"
+        if entity == "FOLDER":
             return f"folder:{id}"
+        raise ValueError(f"Invalid entity type: {entity}")
 
     def __get_prompt_from_cache(self, key: str) -> Optional[VersionsAndRules]:
+        """
+        Retrieves a prompt from the cache using the specified key.
+
+        Args:
+            key (str): The cache key for the prompt.
+
+        Returns:
+            Optional[VersionsAndRules]: The cached prompt data if found, None otherwise.
+        """
         data = self.__cache.get(key)
         if not data:
             return None
@@ -269,6 +351,12 @@ class Maxim:
         return VersionAndRulesWithPromptId.from_dict(json_data)
 
     def __get_all_prompts_from_cache(self) -> Optional[List[VersionsAndRules]]:
+        """
+        Retrieves all prompts from the cache.
+
+        Returns:
+            Optional[List[VersionsAndRules]]: A list of all cached prompts if found, None otherwise.
+        """
         keys = self.__cache.get_all_keys()
         if not keys:
             return None
@@ -285,6 +373,15 @@ class Maxim:
     def __get_prompt_chain_from_cache(
         self, key: str
     ) -> Optional[PromptChainVersionsAndRules]:
+        """
+        Retrieves a prompt chain from the cache using the specified key.
+
+        Args:
+            key (str): The cache key for the prompt chain.
+
+        Returns:
+            Optional[PromptChainVersionsAndRules]: The cached prompt chain data if found, None otherwise.
+        """
         data = self.__cache.get(key)
         if not data:
             return None
@@ -294,6 +391,12 @@ class Maxim:
     def __get_all_prompt_chains_from_cache(
         self,
     ) -> Optional[List[PromptChainVersionsAndRules]]:
+        """
+        Retrieves all prompt chains from the cache.
+
+        Returns:
+            Optional[List[PromptChainVersionsAndRules]]: A list of all cached prompt chains if found, None otherwise.
+        """
         keys = self.__cache.get_all_keys()
         if not keys:
             return None
@@ -312,6 +415,15 @@ class Maxim:
         return prompt_chain_list
 
     def __get_folder_from_cache(self, key: str) -> Optional[Folder]:
+        """
+        Retrieves a folder from the cache using the specified key.
+
+        Args:
+            key (str): The cache key for the folder.
+
+        Returns:
+            Optional[Folder]: The cached folder data if found, None otherwise.
+        """
         data = self.__cache.get(key)
         if not data:
             return None
@@ -319,6 +431,12 @@ class Maxim:
         return Folder(**json_data)
 
     def __get_all_folders_from_cache(self) -> Optional[List[Folder]]:
+        """
+        Retrieves all folders from the cache.
+
+        Returns:
+            Optional[List[Folder]]: A list of all cached folders if found, None otherwise.
+        """
         keys = self.__cache.get_all_keys()
         if not keys:
             return None
@@ -326,6 +444,15 @@ class Maxim:
         return [Folder(**json.loads(d)) for d in data if d is not None]
 
     def __format_prompt(self, prompt_version: PromptVersion) -> Prompt:
+        """
+        Formats a PromptVersion object into a Prompt object.
+
+        Args:
+            prompt_version (PromptVersion): The prompt version to format.
+
+        Returns:
+            Prompt: The formatted prompt object.
+        """
         return Prompt(
             prompt_id=prompt_version.promptId,
             version_id=prompt_version.id,
@@ -342,6 +469,15 @@ class Maxim:
     def __format_prompt_chain(
         self, prompt_chain_version: PromptChainVersion
     ) -> PromptChain:
+        """
+        Formats a PromptChainVersion object into a PromptChain object.
+
+        Args:
+            prompt_chain_version (PromptChainVersion): The prompt chain version to format.
+
+        Returns:
+            PromptChain: The formatted prompt chain object.
+        """
         prompt_nodes: List[Node] = []
         if prompt_chain_version.config is not None:
             for node in prompt_chain_version.config.nodes:
@@ -359,6 +495,19 @@ class Maxim:
         prompt_version_and_rules: VersionsAndRules,
         rule: Optional[QueryRule] = None,
     ) -> Optional[Prompt]:
+        """
+        Determines the appropriate prompt version based on the provided rule.
+
+        This method evaluates query rules against available prompt versions to find the best match.
+        It handles both rule-based matching and fallback scenarios.
+
+        Args:
+            prompt_version_and_rules (VersionsAndRules): The prompt versions and their associated rules.
+            rule (Optional[QueryRule], optional): The rule to match against. If None, uses default logic.
+
+        Returns:
+            Optional[Prompt]: The matching prompt if found, None otherwise.
+        """
         if rule:
             incoming_query = IncomingQuery(
                 query=rule.query, operator=rule.operator, exactMatch=rule.exact_match
@@ -444,6 +593,19 @@ class Maxim:
         prompt_chain_version_and_rules: PromptChainVersionsAndRules,
         rule: Optional[QueryRule] = None,
     ) -> Optional[PromptChain]:
+        """
+        Determines the appropriate prompt chain version based on the provided rule.
+
+        This method evaluates query rules against available prompt chain versions to find the best match.
+        It handles both rule-based matching and fallback scenarios.
+
+        Args:
+            prompt_chain_version_and_rules (PromptChainVersionsAndRules): The prompt chain versions and their associated rules.
+            rule (Optional[QueryRule], optional): The rule to match against. If None, uses default logic.
+
+        Returns:
+            Optional[PromptChain]: The matching prompt chain if found, None otherwise.
+        """
         if rule:
             incoming_query = IncomingQuery(
                 query=rule.query, operator=rule.operator, exactMatch=rule.exact_match
@@ -520,6 +682,19 @@ class Maxim:
     def __get_folders_for_rule(
         self, folders: List[Folder], rule: QueryRule
     ) -> List[Folder]:
+        """
+        Filters folders based on the provided rule.
+
+        This method evaluates folders against the given query rule to find matching folders
+        based on their tags and the rule's query parameters.
+
+        Args:
+            folders (List[Folder]): The list of folders to filter.
+            rule (QueryRule): The rule to match folders against.
+
+        Returns:
+            List[Folder]: A list of folders that match the given rule.
+        """
         incoming_query = IncomingQuery(
             query=rule.query, operator=rule.operator, exactMatch=rule.exact_match
         )
@@ -814,6 +989,15 @@ class Maxim:
         return self.maxim_api.run_prompt(model, messages, tools, **kwargs)
 
     def _signal_handler(self, signum, frame):
+        """
+        Handles system signals (SIGINT, SIGTERM) for graceful shutdown.
+
+        This method ensures proper cleanup when the application receives termination signals.
+
+        Args:
+            signum: The signal number that was received.
+            frame: The current stack frame (unused).
+        """
         if self.has_cleaned_up:
             return
         self.has_cleaned_up = True
