@@ -48,6 +48,18 @@ from .version import current_version
 
 
 class ConfigDict(TypedDict, total=False):
+    """
+    A class representing the configuration for the Maxim SDK.
+
+    Attributes:
+        api_key (Optional[str], optional): The API key for the Maxim instance. Defaults to None.
+        base_url (Optional[str], optional): The base URL for the Maxim instance. Defaults to None.
+        cache (Optional[MaximCache], optional): The cache to use for the Maxim instance. Defaults to None.
+        debug (Optional[bool], optional): Whether to enable debug logging. Defaults to False.
+        raise_exceptions (Optional[bool], optional): Whether to raise exceptions during logging operations. Defaults to False.
+        prompt_management (Optional[bool], optional): Whether to enable prompt management. Defaults to False.
+    """
+
     api_key: Optional[str]
     base_url: Optional[str]
     cache: Optional[MaximCache]

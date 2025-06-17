@@ -3,12 +3,20 @@ from typing import Any, Callable, Dict, List, Literal, Optional, TypeVar, Union
 
 
 class VariableType(str):
+    """
+    This class represents the type of a variable.
+    """
+
     TEXT = "text"
     JSON = "json"
 
 
 @dataclass
 class DatasetRow:
+    """
+    This class represents a row of a dataset.
+    """
+
     id: str
     data: Dict[str, str]
 
@@ -24,10 +32,21 @@ class DatasetRow:
 
 
 class Variable:
+    """
+    This class represents a variable.
+    """
 
     def __init__(
         self, type_: str, payload: Dict[str, Union[str, int, bool, float, List[str]]]
     ):
+        """
+        This class represents a variable.
+
+        Args:
+            type_: The type of the variable.
+            payload: The payload of the variable.
+        """
+
         self.type = type_
         self.payload = payload
 
@@ -40,12 +59,24 @@ class Variable:
 
 
 class DatasetEntry:
+    """
+    This class represents a dataset entry.
+    """
+
     def __init__(
         self,
         input: Variable,
         context: Optional[Variable] = None,
         expectedOutput: Optional[Variable] = None,
     ):
+        """
+        This class represents a dataset entry.
+
+        Args:
+            input: The input variable.
+            context: The context variable.
+            expectedOutput: The expected output variable.
+        """
         self.input = input
         self.context = context
         self.expectedOutput = expectedOutput

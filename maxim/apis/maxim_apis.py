@@ -1,11 +1,27 @@
 import contextlib
 import json
+import time
 from typing import Any, Dict, List, Optional, Union
 
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.poolmanager import PoolManager
-from urllib3.util import Retry, Timeout
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    ConnectTimeout,
+    HTTPError,
+    ReadTimeout,
+    RequestException,
+)
+from urllib3.exceptions import (
+    ConnectTimeoutError,
+    MaxRetryError,
+    NewConnectionError,
+    PoolError,
+    ProtocolError,
+    ReadTimeoutError,
+)
+from urllib3.util import Retry
+
 
 from ..models import (
     AgentResponse,
@@ -37,33 +53,37 @@ from ..version import current_version
 
 class ConnectionPool:
     """
-    Manages HTTP connection pooling for efficient network requests.
+    Manages HTTP session pooling for efficient network requests.
 
-    This class provides a reusable connection pool with retry logic
+    This class provides a reusable session with retry logic
     for handling transient network errors.
     """
 
     def __init__(self):
         """
-        Initialize a new connection pool with retry configuration.
+        Initialize a new session with retry configuration.
         """
         self.session = requests.Session()
+
+        # Set up retry configuration for the session
         retries = Retry(
-            connect=5,
+            total=5,
+            connect=3,
             read=3,
             redirect=1,
             status=3,
-            backoff_factor=0.4,
+            backoff_factor=0.5,
             status_forcelist=frozenset({413, 429, 500, 502, 503, 504}),
+            allowed_methods=frozenset(
+                {"HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"}
+            ),
+            raise_on_redirect=False,
+            raise_on_status=False,
         )
-        self.http = PoolManager(
-            num_pools=2,
-            maxsize=3,
-            retries=retries,
-            timeout=Timeout(connect=10, read=10),
-        )
-        self.session.mount("https://", HTTPAdapter(max_retries=retries))
-        self.session.mount("http://", HTTPAdapter(max_retries=retries))
+
+        adapter = HTTPAdapter(max_retries=retries, pool_connections=5, pool_maxsize=10)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     @contextlib.contextmanager
     def get_session(self):
@@ -74,19 +94,6 @@ class ConnectionPool:
             requests.Session: The HTTP session object
         """
         yield self.session
-
-    @contextlib.contextmanager
-    def get_connection(self):
-        """
-        Context manager that yields the connection pool and ensures it's cleared after use.
-
-        Yields:
-            PoolManager: The HTTP connection pool
-        """
-        try:
-            yield self.http
-        finally:
-            self.http.clear()
 
 
 class MaximAPI:
@@ -110,6 +117,161 @@ class MaximAPI:
         self.connection_pool = ConnectionPool()
         self.base_url = base_url
         self.api_key = api_key
+        self.max_retries = 3
+        self.base_delay = 1.0
+
+    def __make_network_call_with_retry(
+        self,
+        method: str,
+        endpoint: str,
+        body: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+        max_retries: int = 3,
+        max_pool_retries: int = 8,
+    ) -> bytes:
+        """
+        Make a network request with comprehensive retry logic for connection errors.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            endpoint: API endpoint path
+            body: Request body as a string
+            headers: Additional HTTP headers
+            max_retries: Maximum number of retries for connection errors
+            max_pool_retries: Maximum number of retries specifically for pool exhaustion errors
+
+        Returns:
+            bytes: Response content
+
+        Raises:
+            Exception: If the request fails after all retries
+        """
+        if headers is None:
+            headers = {}
+        headers["x-maxim-api-key"] = self.api_key
+        headers["x-maxim-sdk-version"] = current_version
+        headers["Connection"] = "keep-alive"  # Encourage connection reuse
+
+        url = f"{self.base_url}{endpoint}"
+        last_exception = None
+        pool_retry_count = 0
+
+        for attempt in range(max_retries + 1):
+            try:
+                with self.connection_pool.get_session() as session:
+                    response = session.request(
+                        method=method,
+                        url=url,
+                        data=body,
+                        headers=headers,
+                        timeout=(15, 30),  # (connect, read) timeout
+                        stream=False,  # Don't stream to avoid connection issues
+                    )
+                    response.raise_for_status()
+
+                    # Handle version check
+                    if "x-lt-maxim-sdk-version" in response.headers:
+                        if (
+                            response.headers["x-lt-maxim-sdk-version"]
+                            != current_version
+                        ):
+                            latest_version = response.headers["x-lt-maxim-sdk-version"]
+                            latest_version_parts = list(
+                                map(int, latest_version.split("."))
+                            )
+                            current_version_parts = list(
+                                map(int, current_version.split("."))
+                            )
+                            if latest_version_parts > current_version_parts:
+                                scribe().warning(
+                                    f"\033[33m[MaximSDK] SDK version is out of date. Please update to the latest version. Current version: {current_version}, Latest version: {latest_version}\033[0m",
+                                )
+
+                    return response.content
+
+            except (
+                NewConnectionError,
+                ConnectTimeoutError,
+                RequestsConnectionError,
+                ConnectTimeout,
+                ReadTimeout,
+                ReadTimeoutError,
+                ProtocolError,
+                MaxRetryError,
+            ) as e:
+                last_exception = e
+                if attempt < max_retries:
+                    delay = self.base_delay * (2**attempt)  # Exponential backoff
+                    scribe().warning(
+                        f"[MaximSDK] Connection error on attempt {attempt + 1}/{max_retries + 1}: {e}. Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    scribe().error(
+                        f"[MaximSDK] Failed to establish connection after {max_retries + 1} attempts. Last error: {e}"
+                    )
+                    raise Exception(
+                        f"Connection failed after {max_retries + 1} attempts: {e}"
+                    ) from e
+
+            except PoolError as e:
+                # Handle pool exhaustion separately with more aggressive retries
+                last_exception = e
+                pool_retry_count += 1
+                if pool_retry_count <= max_pool_retries:
+                    # Shorter delay for pool exhaustion - just waiting for connections to free up
+                    delay = 0.1 * (1.5**pool_retry_count)  # Shorter exponential backoff
+                    scribe().warning(
+                        f"[MaximSDK] Connection pool exhausted on attempt {pool_retry_count}/{max_pool_retries}: {e}. Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    scribe().error(
+                        f"[MaximSDK] Connection pool exhausted after {max_pool_retries} pool retries. Last error: {e}"
+                    )
+                    raise Exception(
+                        f"Connection pool exhausted after {max_pool_retries} retries: {e}"
+                    ) from e
+
+            except HTTPError as e:
+                # For HTTP errors, don't retry - these are usually permanent
+                if e.response is not None:
+                    try:
+                        error_data = e.response.json()
+                        if "error" in error_data and "message" in error_data["error"]:
+                            raise Exception(error_data["error"]["message"]) from e
+                    except (ValueError, KeyError):
+                        pass
+                raise Exception(f"HTTP Error {e.response.status_code}: {str(e)}") from e
+
+            except RequestException as e:
+                last_exception = e
+                if attempt < max_retries:
+                    delay = self.base_delay * (2**attempt)
+                    scribe().warning(
+                        f"[MaximSDK] Request error on attempt {attempt + 1}/{max_retries + 1}: {e}. Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    scribe().error(
+                        f"[MaximSDK] Request failed after {max_retries + 1} attempts. Last error: {e}"
+                    )
+                    raise Exception(
+                        f"Request failed after {max_retries + 1} attempts: {e}"
+                    ) from e
+
+            except Exception as e:
+                # For unexpected exceptions, log and re-raise immediately
+                scribe().error(f"[MaximSDK] Unexpected error in network call: {e}")
+                raise Exception(f"Unexpected error: {e}") from e
+
+        # This should never be reached, but just in case
+        if last_exception:
+            raise Exception(f"Network call failed: {last_exception}")
+        raise Exception("Network call failed for unknown reasons")
 
     def __make_network_call(
         self,
@@ -133,24 +295,9 @@ class MaximAPI:
         Raises:
             Exception: If the request fails
         """
-        if headers is None:
-            headers = {}
-        headers["x-maxim-api-key"] = self.api_key
-        headers["x-maxim-sdk-version"] = current_version
-        url = f"{self.base_url}{endpoint}"
-        with self.connection_pool.get_session() as session:
-            response = session.request(method, url, data=body, headers=headers)
-            response.raise_for_status()
-            if "x-lt-maxim-sdk-version" in response.headers:
-                if response.headers["x-lt-maxim-sdk-version"] != current_version:
-                    latest_version = response.headers["x-lt-maxim-sdk-version"]
-                    latest_version_parts = list(map(int, latest_version.split(".")))
-                    current_version_parts = list(map(int, current_version.split(".")))
-                    if latest_version_parts > current_version_parts:
-                        scribe().warning(
-                            f"\033[33m[MaximSDK] SDK version is out of date. Please update to the latest version. Current version: {current_version}, Latest version: {latest_version}\033[0m",
-                        )
-            return response.content
+        return self.__make_network_call_with_retry(
+            method, endpoint, body, headers, self.max_retries
+        )
 
     def get_prompt(self, id: str) -> VersionAndRulesWithPromptId:
         """
@@ -174,10 +321,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def get_prompts(self) -> List[VersionAndRulesWithPromptId]:
         """
@@ -198,10 +345,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def getPromptChain(self, id: str) -> VersionAndRulesWithPromptChainId:
         """
@@ -225,10 +372,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def get_prompt_chains(self) -> List[VersionAndRulesWithPromptChainId]:
         """
@@ -252,10 +399,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def run_prompt(
         self,
@@ -303,10 +450,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def run_prompt_version(
         self,
@@ -351,10 +498,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def run_prompt_chain_version(
         self,
@@ -395,10 +542,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def get_folder(self, id: str) -> Folder:
         """
@@ -424,10 +571,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def get_folders(self) -> List[Folder]:
         """
@@ -449,10 +596,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def add_dataset_entries(
         self, dataset_id: str, dataset_entries: List[DatasetEntry]
@@ -485,10 +632,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def get_dataset_total_rows(self, dataset_id: str) -> int:
         """
@@ -515,10 +662,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def get_dataset_row(self, dataset_id: str, row_index: int) -> Optional[DatasetRow]:
         """
@@ -547,7 +694,7 @@ class MaximAPI:
             if e.response.status_code == 404:
                 return None
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def get_dataset_structure(self, dataset_id: str) -> Dict[str, str]:
         """
@@ -574,10 +721,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def does_log_repository_exist(self, logger_id: str) -> bool:
         """
@@ -624,10 +771,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def fetch_platform_evaluator(self, name: str, in_workspace_id: str) -> Evaluator:
         """
@@ -655,10 +802,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def create_test_run(
         self,
@@ -737,10 +884,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def attach_dataset_to_test_run(self, test_run_id: str, dataset_id: str) -> None:
         """
@@ -766,10 +913,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def push_test_run_entry(
         self,
@@ -810,10 +957,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def mark_test_run_processed(self, test_run_id: str) -> None:
         """
@@ -838,10 +985,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def mark_test_run_failed(self, test_run_id: str) -> None:
         """
@@ -866,10 +1013,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def get_test_run_status(self, test_run_id: str) -> TestRunStatus:
         """
@@ -899,10 +1046,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def get_test_run_final_result(self, test_run_id: str) -> TestRunResult:
         """
@@ -929,10 +1076,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def execute_workflow_for_data(
         self,
@@ -963,10 +1110,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def execute_prompt_for_data(
         self,
@@ -1002,10 +1149,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def execute_prompt_chain_for_data(
         self,
@@ -1041,10 +1188,10 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
         except Exception as e:
-            raise Exception(e)
+            raise Exception(e) from e
 
     def get_upload_url(self, key: str, mime_type: str, size: int) -> SignedURLResponse:
         """
@@ -1073,12 +1220,12 @@ class MaximAPI:
         except requests.HTTPError as e:
             if e.response is not None and e.response.json() is not None:
                 error = e.response.json()
-                raise Exception(error["error"]["message"])
-            raise Exception(e)
+                raise Exception(error["error"]["message"]) from e
+            raise Exception(e) from e
 
     def upload_to_signed_url(self, url: str, data: bytes, mime_type: str) -> bool:
         """
-        Upload data to a signed URL using multipart form data.
+        Upload data to a signed URL using multipart form data with retry logic.
 
         Args:
             url: The signed URL to upload to
@@ -1088,14 +1235,76 @@ class MaximAPI:
         Returns:
             bool: True if upload was successful, False otherwise
         """
-        try:
-            headers = {"Content-Type": mime_type}
-            response = requests.put(url=url, data=data, headers=headers)
-            response.raise_for_status()
-            return True
-        except requests.HTTPError as e:
-            status_code = e.response.status_code if e.response else "unknown"
-            message = str(e)
-            raise Exception(f"Client response error: {status_code} {message}")
-        except Exception as e:
-            raise Exception(e)
+        max_retries = 3
+        last_exception = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                headers = {"Content-Type": mime_type}
+                response = requests.put(
+                    url=url,
+                    data=data,
+                    headers=headers,
+                    timeout=(15, 60),  # Extended timeout for file uploads
+                )
+                response.raise_for_status()
+                return True
+
+            except (
+                NewConnectionError,
+                ConnectTimeoutError,
+                RequestsConnectionError,
+                ConnectTimeout,
+                ReadTimeout,
+                ReadTimeoutError,
+                ProtocolError,
+                MaxRetryError,
+            ) as e:
+                last_exception = e
+                if attempt < max_retries:
+                    delay = self.base_delay * (2**attempt)
+                    scribe().warning(
+                        f"[MaximSDK] File upload connection error on attempt {attempt + 1}/{max_retries + 1}: {e}. Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    scribe().error(
+                        f"[MaximSDK] File upload failed after {max_retries + 1} attempts. Last error: {e}"
+                    )
+                    raise Exception(
+                        f"File upload connection failed after {max_retries + 1} attempts: {e}"
+                    ) from e
+
+            except HTTPError as e:
+                status_code = e.response.status_code if e.response else "unknown"
+                message = str(e)
+                raise Exception(
+                    f"Client response error: {status_code} {message}"
+                ) from e
+
+            except RequestException as e:
+                last_exception = e
+                if attempt < max_retries:
+                    delay = self.base_delay * (2**attempt)
+                    scribe().warning(
+                        f"[MaximSDK] File upload request error on attempt {attempt + 1}/{max_retries + 1}: {e}. Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    scribe().error(
+                        f"[MaximSDK] File upload request failed after {max_retries + 1} attempts. Last error: {e}"
+                    )
+                    raise Exception(
+                        f"File upload request failed after {max_retries + 1} attempts: {e}"
+                    ) from e
+
+            except Exception as e:
+                scribe().error(f"[MaximSDK] Unexpected error in file upload: {e}")
+                raise Exception(f"Unexpected file upload error: {e}") from e
+
+        # This should never be reached, but just in case
+        if last_exception:
+            raise Exception(f"File upload failed: {last_exception}")
+        raise Exception("File upload failed for unknown reasons")

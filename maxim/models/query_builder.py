@@ -16,6 +16,10 @@ class QueryRule():
 
 
 class QueryBuilder:
+    """
+    This class represents a query builder. Users can use this class to build a query rule for fetching prompts, agents or workflow from Maxim server.
+    """
+
     def __init__(self):
         self.query: str = ""
         self.scopes: Dict[str, str] = {}

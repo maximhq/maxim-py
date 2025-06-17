@@ -13,9 +13,22 @@ from .logger import (
     Trace,
     TraceConfig,
 )
+from .models import (
+    DatasetEntry,
+    DatasetRow,
+    Evaluator,
+    LocalData,
+    DataStructure,
+    DataValue,
+    Variable,
+)
 
 __all__ = [
     "Generation",
+    "LocalData",
+    "DataStructure",
+    "DataValue",
+    "Variable",
     "GenerationConfig",
     "GenerationError",
     "GenerationRequestMessage",
@@ -28,4 +41,8 @@ __all__ = [
     "ToolCall",
     "ToolCallError",
     "ToolCallConfig",
+    "DatasetEntry",
+    "DatasetRow",
+    "Evaluator",
 ]
+# type: ignore

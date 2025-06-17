@@ -14,6 +14,10 @@ from .evaluator import (
 
 @dataclass
 class YieldedOutputTokenUsage:
+    """
+    This class represents the token usage of a yielded output. Users can pass custom token usage to the `yieldsOutput` function.
+    """
+
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -60,6 +64,10 @@ class YieldedOutputTokenUsage:
 
 @dataclass
 class YieldedOutputCost:
+    """
+    This class represents the cost of a yielded output. Users can pass custom cost to the `yieldsOutput` function.
+    """
+
     input_cost: float
     output_cost: float
     total_cost: float
@@ -94,6 +102,10 @@ class YieldedOutputCost:
 
 @dataclass
 class YieldedOutputMeta:
+    """
+    This class represents the meta of a yielded output. Users can pass custom meta to the `yieldsOutput` function.
+    """
+
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
     usage: Optional[YieldedOutputTokenUsage] = None
@@ -148,6 +160,10 @@ class YieldedOutput:
 
 @dataclass
 class EvaluatorArgs:
+    """
+    This class represents the arguments of an evaluator.
+    """
+
     output: str
     input: Optional[str] = None
     expectedOutput: Optional[str] = None
@@ -196,6 +212,10 @@ class RunType(str, Enum):
 
 @dataclass
 class EvaluatorConfig:
+    """
+    This class represents the config of an evaluator.
+    """
+
     id: str
     name: str
     type: EvaluatorType
@@ -230,6 +250,10 @@ class EvaluatorConfig:
 
 @dataclass
 class TestRun:
+    """
+    This class represents a test run.
+    """
+
     id: str
     workspace_id: str
     eval_config: Dict[str, Any]
@@ -298,6 +322,10 @@ class TestRun:
 
 @dataclass
 class TestRunEntry:
+    """
+    This class represents an entry of a test run.
+    """
+
     variables: Dict[str, Variable]
     output: Optional[str] = None
     input: Optional[str] = None
@@ -393,6 +421,10 @@ class TestRunEntry:
 
 @dataclass
 class TestRunWithDatasetEntry(TestRun):
+    """
+    This class represents a test run with a dataset entry.
+    """
+
     def __init__(self, test_run: TestRun, dataset_entry_id: str, dataset_id: str):
         super().__init__(
             id=test_run.id,
@@ -457,6 +489,10 @@ class RunStatus(str, Enum):
 
 @dataclass
 class TestRunStatus:
+    """
+    This class represents the status of a test run.
+    """
+
     total_entries: int
     running_entries: int
     queued_entries: int
@@ -496,6 +532,10 @@ class TestRunStatus:
 
 @dataclass
 class EvaluatorMeanScore:
+    """
+    This class represents the mean score of an evaluator. This helps users to specify the score of an custom evaluator.
+    """
+
     score: Union[float, bool, str]
     out_of: Optional[float] = None
     is_pass: Optional[bool] = None
@@ -517,6 +557,10 @@ class EvaluatorMeanScore:
 
 @dataclass
 class TestRunTokenUsage:
+    """
+    This class represents the token usage of a test run.
+    """
+
     total: int
     input: int
     completion: int
@@ -544,6 +588,10 @@ class TestRunTokenUsage:
 
 @dataclass
 class TestRunCost:
+    """
+    This class represents the cost of a test run.
+    """
+
     total: float
     input: float
     completion: float
@@ -571,6 +619,10 @@ class TestRunCost:
 
 @dataclass
 class TestRunLatency:
+    """
+    This class represents the latency of a test run.
+    """
+
     min: float
     max: float
     p50: float
@@ -668,6 +720,10 @@ class TestRunResultObj:
 
 @dataclass
 class TestRunResult:
+    """
+    This class represents the result of a test run.
+    """
+
     link: str
     result: List[TestRunResultObj]
 
@@ -689,6 +745,10 @@ class TestRunResult:
 
 @dataclass
 class RunResult:
+    """
+    This class represents the result of a comparison test run.
+    """
+
     test_run_result: TestRunResult
     failed_entry_indices: List[int]
 

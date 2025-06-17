@@ -17,6 +17,12 @@ _retrieval_ctx_var: ContextVar[Optional[Retrieval]] = ContextVar(
 
 
 def current_retrieval() -> Optional[Retrieval]:
+    """Get the current retrieval from the context variable.
+
+    Returns:
+        Optional[Retrieval]: The current retrieval instance if one exists,
+            otherwise None.
+    """
     return _retrieval_ctx_var.get()
 
 
@@ -29,6 +35,18 @@ def retrieval(
     evaluators: Optional[List[str]] = None,
     evaluator_variables: Optional[Dict[str, str]] = None,
 ):
+    """Decorator for tracking retrieval operations.
+
+    This decorator wraps functions to automatically create and manage Retrieval
+    objects for tracking retrieval operations, including inputs, outputs, and metadata.
+    The decorated function must be called within a @trace or @span decorated context.
+
+    Args:
+        logger (Optional[Logger]): Maxim logger instance. If None, uses the current
+            logger from context.
+        id (Optional[str] or Optional[Callable], optional): The ID for the retrieval. If callable, it will be called to generate the ID. Defaults to None.
+        input (Optional[str] or Optional[Callable], optional): The input for the retrieval. If callable, it will be called to generate the input. Defaults to None.
+    """
 
     def decorator(func):
         if asyncio.iscoroutinefunction(func):
@@ -99,9 +117,9 @@ def retrieval(
                 # First check if the logger is available
                 maxim_logger = logger or current_logger()
                 if maxim_logger is None:
-                        raise ValueError(
-                            "[MaximSDK]: no logger found. either call this function from a @trace decorated function or pass a logger"
-                        )
+                    raise ValueError(
+                        "[MaximSDK]: no logger found. either call this function from a @trace decorated function or pass a logger"
+                    )
                 # Here there should be an active span or active trace
                 # If none of this is the case then we raise an error
                 if current_span() is None and current_trace() is None:

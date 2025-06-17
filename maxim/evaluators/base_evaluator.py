@@ -12,11 +12,13 @@ from .utils import sanitize_pass_fail_criteria
 
 
 class BaseEvaluator(ABC):
+    """Base class for all evaluators."""
     _evaluator_names: list[str]
     _pass_fail_criteria: dict[str, PassFailCriteria]
 
     def __init__(self, pass_fail_criteria: dict[str, PassFailCriteria]):
         self._evaluator_names = []
+        """Initialize the evaluator."""
         for name, pfc in pass_fail_criteria.items():
             sanitize_pass_fail_criteria(name, pfc)
             self._evaluator_names.append(name)
@@ -24,22 +26,26 @@ class BaseEvaluator(ABC):
 
     @property
     def names(self) -> list[str]:
+        """Get the names of the evaluators."""
         return self._evaluator_names
 
     @property
     def pass_fail_criteria(self):
+        """Get the pass fail criteria for the evaluators."""
         return self._pass_fail_criteria
 
     @abstractmethod
     def evaluate(
         self, result: LocalEvaluatorResultParameter, data: LocalData
     ) -> Dict[str, LocalEvaluatorReturn]:
+        """Evaluate the result."""
         pass
 
     @final
     def guarded_evaluate(
         self, result: LocalEvaluatorResultParameter, data: LocalData
     ) -> Dict[str, LocalEvaluatorReturn]:
+        """Guarded evaluate the result."""
         response = self.evaluate(result, data)
         invalid_evaluator_names: list[str] = []
         for key in response.keys():

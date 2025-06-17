@@ -5,6 +5,16 @@ from typing import Any, Dict, List, Optional, Union
 
 @dataclass
 class Folder:
+    """
+    This class represents a folder.
+
+    Attributes:
+        id: The id of the folder.
+        name: The name of the folder.
+        parent_folder_id: The id of the parent folder.
+        tags: The tags of the folder.
+    """
+
     id: str
     name: str
     parent_folder_id: str
@@ -21,6 +31,10 @@ class Folder:
 
 
 class FolderEncoder(json.JSONEncoder):
+    """
+    This class represents a JSON encoder for Folder.
+    """
+
     def default(self, o):
         if isinstance(o, Folder):
             return asdict(o)

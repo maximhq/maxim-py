@@ -15,11 +15,24 @@ class Scribe:
     """
 
     def __init__(self, name):
+        """Initialize a scribe logger.
+
+        Args:
+            name: The name of the logger.
+        """
         self.name = name
         self.disable_internal_logs = True
         self.logger = logging.getLogger(name)        
 
     def _should_log(self, msg):
+        """Check if the message should be logged.
+
+        Args:
+            msg: The message to check.
+
+        Returns:
+            bool: True if the message should be logged, False otherwise.
+        """
         return not (
             self.disable_internal_logs
             and isinstance(msg, str)
@@ -27,27 +40,67 @@ class Scribe:
         )
 
     def debug(self, msg, *args, **kwargs):
+        """Log a debug message.
+
+        Args:
+            msg: The message to log.
+            *args: The arguments to log.
+            **kwargs: The keyword arguments to log.
+        """
         if not self._should_log(msg):
             return
         self.logger.debug(msg, *args, **kwargs)
 
     def warning(self, msg, *args, **kwargs):
+        """Log a warning message.
+
+        Args:
+            msg: The message to log.
+            *args: The arguments to log.
+            **kwargs: The keyword arguments to log.
+        """
         if not self._should_log(msg):
             return
         self.logger.warning(msg, *args, **kwargs)
 
     def log(self, level, msg, *args, **kwargs):
+        """Log a message.
+
+        Args:
+            level: The level of the message.
+            msg: The message to log.
+            *args: The arguments to log.
+            **kwargs: The keyword arguments to log.
+        """
         if not self._should_log(msg):
             return
         self.logger.log(level, msg, *args, **kwargs)
 
     def silence(self):
+        """Silence the logger.
+
+        This method sets the logger level to CRITICAL + 1.
+        """
         self.logger.setLevel(logging.CRITICAL + 1)
 
     def error(self, msg, *args, **kwargs):
+        """Log an error message.
+
+        Args:
+            msg: The message to log.
+            *args: The arguments to log.
+            **kwargs: The keyword arguments to log.
+        """
         self.logger.error(msg, *args, **kwargs)
 
     def info(self, msg, *args, **kwargs):
+        """Log an info message.
+
+        Args:
+            msg: The message to log.
+            *args: The arguments to log.
+            **kwargs: The keyword arguments to log.
+        """
         if not self._should_log(msg):
             return
         if self.get_level() > logging.INFO:
@@ -55,9 +108,19 @@ class Scribe:
         self.logger.info(msg, *args, **kwargs)
 
     def get_level(self):
+        """Get the level of the logger.
+
+        Returns:
+            int: The level of the logger.
+        """
         return self.logger.level
 
     def set_level(self, level):
+        """Set the level of the logger.
+
+        Args:
+            level: The level to set.
+        """
         self.logger.setLevel(level)
 
 
