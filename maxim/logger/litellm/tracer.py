@@ -16,6 +16,12 @@ class MaximLiteLLMTracer(CustomLogger):
     """
 
     def __init__(self, logger: Logger):
+        """
+        This class represents a MaximLiteLLMTracer.
+
+        Args:
+            logger: The logger to use.
+        """
         super().__init__()
         scribe().warning("[MaximSDK] Litellm support is in beta")
         self.logger = logger

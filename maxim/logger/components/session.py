@@ -21,11 +21,21 @@ from .types import Entity
 )
 @dataclass
 class SessionConfig:
+    """Session config.
+
+    This class represents a session config.
+    """
+
     id: str
     name: Optional[str] = None
     tags: Optional[Dict[str, str]] = None
 
 class SessionConfigDict(TypedDict, total=False):
+    """Session config dict.
+
+    This class represents a session config dictionary.
+    """
+
     id: str
     name: Optional[str]
     tags: Optional[Dict[str, str]]
@@ -34,6 +44,14 @@ class SessionConfigDict(TypedDict, total=False):
 def get_session_config_dict(
     config: Union[SessionConfig, SessionConfigDict],
 ) -> dict[str, Any]:
+    """Convert a session config to a session config dict else return the config.
+
+    Args:
+        config: The config to convert.
+
+    Returns:
+        dict[str, Any]: The session config dict.
+    """
     return (
         dict(
             SessionConfigDict(

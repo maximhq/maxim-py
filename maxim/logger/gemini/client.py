@@ -31,6 +31,11 @@ T = TypeVar("T")
 
 
 class MaximGeminiChatSession(Chat):
+    """Maxim Gemini chat session.
+
+    This class represents a Maxim wrapped Gemini chat session.
+    """
+
     def __init__(
         self,
         chat: Chat,
@@ -38,6 +43,14 @@ class MaximGeminiChatSession(Chat):
         trace_id: Optional[str] = None,
         is_local_trace: Optional[bool] = False,
     ):
+        """Initialize a Maxim wrapped Gemini chat session.
+
+        Args:
+            chat: The chat.
+            logger: The logger.
+            trace_id: The trace id.
+            is_local_trace: Whether the trace is local.
+        """
         self._chat = chat
         self._logger = logger
         self._trace_id = trace_id
@@ -49,6 +62,15 @@ class MaximGeminiChatSession(Chat):
         message: Union[list[PartUnionDict], PartUnionDict],
         generation_name: Optional[str] = None,
     ) -> GenerateContentResponse:
+        """Send a message to the Maxim wrapped Gemini chat session.
+
+        Args:
+            message: The message to send.
+            generation_name: The name of the generation.
+
+        Returns:
+            GenerateContentResponse: The response from the Maxim wrapped Gemini chat session.
+        """
         # Without trace_id we can't do anything
         if self._trace_id is None:
             return super().send_message(message)
@@ -107,6 +129,12 @@ class MaximGeminiChatSession(Chat):
         message: Union[list[PartUnionDict], PartUnionDict],
         generation_name: Optional[str] = None,
     ):
+        """Send a message to the Maxim wrapped Gemini chat session stream.
+
+        Args:
+            message: The message to send.
+            generation_name: The name of the generation.
+        """
         # Without trace_id we can't do anything
         if self._trace_id is None:
             return super().send_message_stream(message)
@@ -158,22 +186,51 @@ class MaximGeminiChatSession(Chat):
         return response
 
     def __getattr__(self, name: str) -> Any:
+        """Get an attribute from the chat session.
+
+        Args:
+            name: The name of the attribute.
+
+        Returns:
+            Any: The attribute.
+        """
         return getattr(self._chat, name)        
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Set an attribute on the chat session.
+
+        Args:
+            name: The name of the attribute.
+            value: The value of the attribute.
+        """
         if name in ("_chat", "_logger", "_trace_id", "_is_local_trace"):
             super().__setattr__(name, value)
         else:
             setattr(self._chat, name, value)
 
     def end_trace(self):
+        """End the trace of the chat session.
+
+        This method will end the trace of the chat session if the trace id is not None and the trace is local.
+        """
         if self._trace_id is not None and self._is_local_trace:
             self._logger.trace_end(self._trace_id)
             self._trace_id = None
 
 
 class MaximGeminiChats(Chats):
+    """Maxim Gemini chats.
+
+    This class represents a Maxim wrapped Gemini chats.
+    """
+
     def __init__(self, chats: Chats, logger: Logger):
+        """Initialize a Maxim wrapped Gemini chats.
+
+        Args:
+            chats: The chats.
+            logger: The logger.
+        """
         self._chats = chats
         self._logger = logger
         self._trace_id = None
@@ -189,6 +246,18 @@ class MaximGeminiChats(Chats):
         trace_id: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> Chat:
+        """Create a Maxim wrapped Gemini chat session.
+
+        Args:
+            model: The model to use.
+            config: The config to use.
+            history: The history to use.
+            trace_id: The trace id.
+            session_id: The session id.
+
+        Returns:
+            Chat: The Maxim wrapped Gemini chat session.
+        """
         self._is_local_trace = trace_id is None
         self._trace_id = trace_id or str(uuid4())
         if session_id is not None:
@@ -221,10 +290,24 @@ class MaximGeminiChats(Chats):
         return maxim_chat_session
 
     def __getattr__(self, name: str) -> Any:
+        """Get an attribute from the chats.
+
+        Args:
+            name: The name of the attribute.
+
+        Returns:
+            Any: The attribute.
+        """
         result = getattr(self._chats, name)
         return result
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Set an attribute on the chats.
+
+        Args:
+            name: The name of the attribute.
+            value: The value of the attribute.
+        """
         if name in ("_chats", "_logger", "_trace_id", "_is_local_trace"):
             super().__setattr__(name, value)
         else:
@@ -232,7 +315,18 @@ class MaximGeminiChats(Chats):
 
 
 class MaximGeminiModels(Models):
+    """Maxim Gemini models.
+
+    This class represents a Maxim wrapped Gemini models.
+    """
+
     def __init__(self, models: Models, logger: Logger):
+        """Initialize a Maxim wrapped Gemini models.
+
+        Args:
+            models: The models.
+            logger: The logger.
+        """
         self._models = models
         self._logger = logger
 
@@ -246,6 +340,18 @@ class MaximGeminiModels(Models):
         trace_id: Optional[str] = None,
         generation_name: Optional[str] = None,
     ) -> Iterator[GenerateContentResponse]:
+        """Generate content stream.
+
+        Args:
+            model: The model to use.
+            contents: The contents to use.
+            config: The config to use.
+            trace_id: The trace id.
+            generation_name: The generation name.
+
+        Returns:
+            Iterator[GenerateContentResponse]: The content stream.
+        """
         is_local_trace = trace_id is None
         final_trace_id = trace_id or str(uuid4())
         generation: Optional[Generation] = None
@@ -317,6 +423,18 @@ class MaximGeminiModels(Models):
         trace_id: Optional[str] = None,
         generation_name: Optional[str] = None,
     ) -> GenerateContentResponse:
+        """Generate content.
+
+        Args:
+            model: The model to use.
+            contents: The contents to use.
+            config: The config to use.
+            trace_id: The trace id.
+            generation_name: The generation name.
+
+        Returns:
+            GenerateContentResponse: The content.
+        """
         is_local_trace = trace_id is None
         final_trace_id = trace_id or str(uuid4())
         generation: Optional[Generation] = None
@@ -374,9 +492,23 @@ class MaximGeminiModels(Models):
         return response
 
     def __getattr__(self, name: str) -> Any:
+        """Get an attribute from the models.
+
+        Args:
+            name: The name of the attribute.
+
+        Returns:
+            Any: The attribute.
+        """
         return getattr(self._models, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Set an attribute on the models.
+
+        Args:
+            name: The name of the attribute.
+            value: The value of the attribute.
+        """
         if name in ("_models", "_logger"):
             super().__setattr__(name, value)
         else:
@@ -384,7 +516,18 @@ class MaximGeminiModels(Models):
 
 
 class MaximGeminiClient(Client):
+    """Maxim Gemini client.
+
+    This class represents a Maxim wrapped Gemini client.
+    """
+
     def __init__(self, client: Client, logger: Logger):
+        """Initialize a Maxim wrapped Gemini client.
+
+        Args:
+            client: The client.
+            logger: The logger.
+        """
         self._client = client
         self._logger = logger
         self._w_models = MaximGeminiModels(client.models, logger)
@@ -393,17 +536,40 @@ class MaximGeminiClient(Client):
 
     @property
     def chats(self) -> MaximGeminiChats:
+        """Get the Maxim wrapped Gemini chats.
+
+        Returns:
+            MaximGeminiChats: The Maxim wrapped Gemini chats.
+        """
         return self._w_chats
 
     @property
     def aio(self) -> MaximGeminiAsyncClient:
+        """Get the Maxim wrapped Gemini async client.
+
+        Returns:
+            MaximGeminiAsyncClient: The Maxim wrapped Gemini async client.
+        """
         return self._w_aio
 
     @property
     def models(self) -> MaximGeminiModels:
+        """Get the Maxim wrapped Gemini models.
+
+        Returns:
+            MaximGeminiModels: The Maxim wrapped Gemini models.
+        """
         return self._w_models
 
     def __getattr__(self, name: str) -> Any:
+        """Get an attribute from the client.
+
+        Args:
+            name: The name of the attribute.
+
+        Returns:
+            Any: The attribute.
+        """
         if name == "_models":
             return self._w_models
         elif name == "_chats":
@@ -413,6 +579,12 @@ class MaximGeminiClient(Client):
         return getattr(self._client, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Set an attribute on the client.
+
+        Args:
+            name: The name of the attribute.
+            value: The value of the attribute.
+        """
         if name in ("_client", "_logger", "_w_models", "_w_chats", "_w_aio"):
             super().__setattr__(name, value)
         else:

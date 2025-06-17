@@ -6,6 +6,10 @@ from typing import Any, Dict, List, Optional, TypedDict, Union
 
 @dataclass
 class FunctionCall():
+    """
+    This class represents a function call.
+    """
+
     name: str
     arguments: str
 
@@ -17,6 +21,10 @@ class FunctionCall():
 
 @dataclass
 class ToolCall():
+    """
+    This class represents a tool call.
+    """
+
     id:str
     type:str
     function:FunctionCall
@@ -30,6 +38,10 @@ class ToolCall():
 
 @dataclass
 class Message():
+    """
+    This class represents a message of a LLM response choice.
+    """
+
     role: str
     content: str
     tool_calls: Optional[List[ToolCall]] = None
@@ -43,12 +55,20 @@ class Message():
 
 @dataclass
 class Choice:
+    """
+    This class represents a choice of a LLM response.
+    """
+
     index: int
     message: Message
     finish_reason: str
 
 @dataclass
 class Usage:
+    """
+    This class represents the usage of a LLM response.
+    """
+
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -56,6 +76,10 @@ class Usage:
 
 @dataclass
 class PromptResponse:
+    """
+    This class represents a response of a prompt.
+    """
+
     id: str
     provider:str
     model:str
@@ -75,36 +99,64 @@ class PromptResponse:
 
 
 class ImageURL(TypedDict):
+    """
+    This class represents an image URL.
+    """
+
     url: str
     detail: Optional[str]
 
 
 class ChatCompletionMessageImageContent(TypedDict):
+    """
+    This class represents an image content of a chat completion message.
+    """
+
     type: str
     image_url: ImageURL
 
 
 class ChatCompletionMessageTextContent(TypedDict):
+    """
+    This class represents a text content of a chat completion message.
+    """
+
     type: str
     text: str
 
 class ChatCompletionMessage(TypedDict):
+    """
+    This class represents a chat completion message.
+    """
+
     role: str
     content: Union[str,List[Union[ChatCompletionMessageImageContent,ChatCompletionMessageTextContent]]]
 
 
 class Function(TypedDict):
+    """
+    This class represents a function.
+    """
+
     name:str
     description:str
     parameters:Dict[str,Any]
 
 
 class Tool(TypedDict):
+    """
+    This class represents a tool.
+    """
+
     type: str
     function: Function
 
 
 class ImageUrls(TypedDict):
+    """
+    This class represents an image URLs.
+    """
+
     url: str
     detail: str
 
@@ -112,6 +164,10 @@ class ImageUrls(TypedDict):
 # Note: Any changes here should be done in RunnablePrompt as well
 @dataclass
 class Prompt:
+    """
+    This class represents a prompt.
+    """
+
     prompt_id: str
     version: int
     version_id: str
@@ -137,6 +193,10 @@ class Prompt:
 
 @dataclass
 class RuleType():
+    """
+    This class represents a rule type.
+    """
+
     field: str
     value: Union[str, int, List[str], bool, None]  # adding None here
     operator: str
@@ -150,6 +210,10 @@ class RuleType():
 
 @dataclass
 class RuleGroupType():
+    """
+    This class represents a rule group type.
+    """
+
     rules: List[Union['RuleType', 'RuleGroupType']]
     combinator: str
 
@@ -166,6 +230,10 @@ class RuleGroupType():
 
 @dataclass
 class PromptDeploymentRules():
+    """
+    This class represents the deployment rules of a prompt.
+    """
+
     version: int
     query: Optional[RuleGroupType] = None
 
@@ -179,6 +247,10 @@ class PromptDeploymentRules():
 
 @dataclass
 class VersionSpecificDeploymentConfig():
+    """
+    This class represents the deployment rules of a prompt version.
+    """
+
     id: str
     timestamp: datetime
     rules: PromptDeploymentRules
@@ -192,6 +264,10 @@ class VersionSpecificDeploymentConfig():
 
 @dataclass
 class PromptVersionConfig():
+    """
+    This class represents the config of a prompt version.
+    """
+
     messages: List[Message]
     modelParameters: Dict[str, Union[str, int, bool, Dict, None]]
     model: str
@@ -212,6 +288,10 @@ class PromptVersionConfig():
 
 @dataclass
 class PromptVersion():
+    """
+    This class represents a prompt version.
+    """
+
     id: str
     version: int
     promptId: str
@@ -231,6 +311,10 @@ class PromptVersion():
 
 @dataclass
 class VersionsAndRules():
+    """
+    This class represents the versions and rules of a prompt.
+    """
+
     rules: Dict[str, List[VersionSpecificDeploymentConfig]]
     versions: List[PromptVersion]
     folderId: Optional[str] = None
@@ -256,6 +340,10 @@ class VersionsAndRules():
 
 @ dataclass
 class VersionAndRulesWithPromptId(VersionsAndRules):
+    """
+    This class represents the versions and rules of a prompt with a prompt id.
+    """
+
     promptId: str = ""
 
     @staticmethod
@@ -267,6 +355,10 @@ class VersionAndRulesWithPromptId(VersionsAndRules):
 
 
 class VersionAndRulesWithPromptIdEncoder(json.JSONEncoder):
+    """
+    This class represents a JSON encoder for VersionAndRulesWithPromptId.
+    """
+
     def default(self, o):
         if isinstance(o, VersionAndRulesWithPromptId):
             return asdict(o)
@@ -275,11 +367,19 @@ class VersionAndRulesWithPromptIdEncoder(json.JSONEncoder):
 
 @ dataclass
 class Error():
+    """
+    This class represents an error from Prompt.
+    """
+
     message: str
 
 
 @ dataclass
 class PromptData():
+    """
+    This class represents the data of a prompt.
+    """
+
     promptId: str
     rules: Dict[str, List[VersionSpecificDeploymentConfig]]
     versions: List[PromptVersion]
@@ -289,16 +389,28 @@ class PromptData():
 
 @ dataclass
 class MaximApiPromptResponse():
+    """
+    This class represents the response of a prompt.
+    """
+
     data: VersionsAndRules
     error: Optional[Error] = None
 
 
 @ dataclass
 class MaximApiPromptsResponse():
+    """
+    This class represents the response of a prompts.
+    """
+
     data: List[PromptData]
     error: Optional[Error] = None
 
 
 @ dataclass
 class MaximAPIResponse():
+    """
+    This class represents the response of a Maxim API.
+    """
+
     error: Optional[Error] = None

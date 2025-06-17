@@ -27,11 +27,51 @@ from .utils import AnthropicUtils
 
 
 class MaximAnthropicMessages(Messages):
+    """Maxim-enhanced Anthropic Messages client.
+
+    This class extends the Anthropic Messages resource to integrate with Maxim's
+    logging and monitoring capabilities. It automatically tracks message creation,
+    both streaming and non-streaming, and logs them through the Maxim platform.
+
+    The class handles trace management, generation logging, and error handling
+    while maintaining compatibility with the original Anthropic Messages API.
+
+    Attributes:
+        _logger (Logger): The Maxim logger instance for tracking interactions.
+    """
+
     def __init__(self, client: Anthropic, logger: Logger):
+        """Initialize the Maxim Anthropic Messages client.
+
+        Args:
+            client (Anthropic): The Anthropic client instance.
+            logger (Logger): The Maxim logger instance for tracking and
+                logging message interactions.
+        """
         super().__init__(client)
         self._logger = logger
 
     def create_non_stream(self, *args, **kwargs) -> Any:
+        """Create a non-streaming message with Maxim logging.
+
+        This method handles non-streaming message creation while automatically
+        logging the interaction through Maxim. It manages trace creation,
+        generation tracking, and error handling.
+
+        Args:
+            *args: Variable length argument list passed to the parent create method.
+            **kwargs: Arbitrary keyword arguments passed to the parent create method.
+                Special headers:
+                - x-maxim-trace-id: Optional trace ID for associating with existing trace.
+                - x-maxim-generation-name: Optional name for the generation.
+
+        Returns:
+            Any: The response from the Anthropic API create method.
+
+        Note:
+            If logging fails, the method will still return the API response
+            but will log a warning message.
+        """
         extra_headers = kwargs.get("extra_headers", None)
         trace_id = None
         generation_name = None
@@ -94,6 +134,27 @@ class MaximAnthropicMessages(Messages):
         return response
 
     def create_stream(self, *args, **kwargs) -> Any:
+        """Create a streaming message with Maxim logging.
+
+        This method handles streaming message creation while automatically
+        logging the interaction through Maxim. It manages trace creation,
+        generation tracking, and processes streaming events.
+
+        Args:
+            *args: Variable length argument list passed to the parent stream method.
+            **kwargs: Arbitrary keyword arguments passed to the parent stream method.
+                Special headers:
+                - x-maxim-trace-id: Optional trace ID for associating with existing trace.
+                - x-maxim-generation-name: Optional name for the generation.
+
+        Returns:
+            StreamWrapper: A wrapped stream manager that processes chunks and
+                handles logging of streaming events.
+
+        Note:
+            The method returns a StreamWrapper that automatically processes
+            stream chunks and logs the final result when the stream ends.
+        """
         extra_headers = kwargs.get("extra_headers", None)
         trace_id = None
         generation_name = None
@@ -142,6 +203,11 @@ class MaximAnthropicMessages(Messages):
         response = super().stream(*args, **kwargs)
 
         def process_chunk(chunk: MessageStreamEvent):
+            """Process individual stream chunks for logging.
+
+            Args:
+                chunk (MessageStreamEvent): Individual event from the message stream.
+            """
             try:
                 if isinstance(chunk, MessageStopEvent):
                     if chunk.type != "message_stop":
@@ -182,6 +248,37 @@ class MaximAnthropicMessages(Messages):
         timeout: float | httpx.Timeout | None | NotGiven = NOT_GIVEN,
         **kwargs,
     ) -> Any:
+        """Create a message with automatic streaming detection and Maxim logging.
+
+        This is the main entry point for message creation. It automatically
+        detects whether streaming is requested and routes to the appropriate
+        handler while ensuring all interactions are logged through Maxim.
+
+        Args:
+            max_tokens (int): The maximum number of tokens to generate.
+            messages (Iterable[MessageParam]): The conversation messages.
+            model (str): The model to use for generation.
+            metadata (MetadataParam | NotGiven): Additional metadata for the request.
+            stop_sequences (List[str] | NotGiven): Sequences that will stop generation.
+            system (Union[str, Iterable[TextBlockParam]] | NotGiven): System message.
+            temperature (float | NotGiven): Sampling temperature (0-1).
+            tool_choice (dict | NotGiven): How the model should use tools.
+            tools (Iterable[ToolParam] | NotGiven): Available tools for the model.
+            top_k (int | NotGiven): Top-k sampling parameter.
+            top_p (float | NotGiven): Top-p (nucleus) sampling parameter.
+            extra_headers (Headers | None): Additional HTTP headers.
+            extra_query (Query | None): Additional query parameters.
+            extra_body (Body | None): Additional request body data.
+            timeout (float | httpx.Timeout | None | NotGiven): Request timeout.
+            **kwargs: Additional arguments, including 'stream' for streaming mode.
+
+        Returns:
+            Any: Either a direct message response or a StreamWrapper for streaming.
+
+        Note:
+            The method automatically detects streaming mode via the 'stream' parameter
+            in kwargs and routes accordingly.
+        """
         stream = kwargs.get("stream", False)
         # Add all parameters back to kwargs
         kwargs["max_tokens"] = max_tokens
@@ -220,4 +317,16 @@ class MaximAnthropicMessages(Messages):
             return self.create_non_stream(*args, **kwargs)
 
     def stream(self, *args, **kwargs) -> Any:
+        """Create a streaming message with Maxim logging.
+
+        This method is a direct alias for create_stream, providing compatibility
+        with the standard Anthropic Messages API while adding Maxim logging.
+
+        Args:
+            *args: Variable length argument list passed to create_stream.
+            **kwargs: Arbitrary keyword arguments passed to create_stream.
+
+        Returns:
+            StreamWrapper: A wrapped stream manager with logging capabilities.
+        """
         return self.create_stream(*args, **kwargs)

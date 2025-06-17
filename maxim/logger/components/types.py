@@ -11,6 +11,11 @@ from ...scribe import scribe
 
 
 class Entity(Enum):
+    """Entity.
+
+    This class represents an entity.
+    """
+
     SESSION = "session"
     TRACE = "trace"
     SPAN = "span"
@@ -22,6 +27,11 @@ class Entity(Enum):
 
 
 class DateTimeEncoder(json.JSONEncoder):
+    """DateTime encoder.
+
+    This class represents a date time encoder.
+    """
+
     def default(self, o):
         if isinstance(o, datetime):
             return o.isoformat()
@@ -29,6 +39,10 @@ class DateTimeEncoder(json.JSONEncoder):
 
 
 class CommitLog:
+    """Commit log.
+
+    This class represents a commit log.
+    """
 
     def __init__(
         self,
@@ -37,12 +51,28 @@ class CommitLog:
         action: str,
         data: Optional[Dict[str, Any]] = None,
     ):
+        """Initialize a commit log.
+
+        Args:
+            entity: The entity of the commit log.
+            entity_id: The id of the entity.
+            action: The action of the commit log.
+            data: The data of the commit log.
+        """
         self.entity = entity
         self.entity_id = entity_id
         self.action = action
         self.data = data
 
     def serialize(self, custom_data: Optional[Dict[str, Any]] = None) -> str:
+        """Serialize the commit log.
+
+        Args:
+            custom_data: The custom data to serialize.
+
+        Returns:
+            str: The serialized commit log.
+        """
         if custom_data is not None:
             if self.data is None:
                 self.data = {}
@@ -131,6 +161,11 @@ def object_to_dict(obj: Any) -> Union[Dict, List, str, int, float, bool, None]:
 
 
 class GenerationErrorTypedDict(TypedDict, total=False):
+    """Generation error typed dict.
+
+    This class represents a generation error typed dict.
+    """
+
     message: str
     code: Optional[str]
     type: Optional[str]

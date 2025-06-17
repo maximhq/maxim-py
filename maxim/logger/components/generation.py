@@ -77,6 +77,11 @@ class GenerationConfig:
 
 
 class GenerationConfigDict(TypedDict, total=False):
+    """Generation config dict.
+
+    This class represents a generation config dictionary.
+    """
+
     id: str
     provider: str
     model: str
@@ -91,6 +96,14 @@ class GenerationConfigDict(TypedDict, total=False):
 def get_generation_config_dict(
     config: Union[GenerationConfig, GenerationConfigDict],
 ) -> dict[str, Any]:
+    """Convert a generation config to a generation config dict else return the config.
+
+    Args:
+        config (Union[GenerationConfig, GenerationConfigDict]): The config to get the dict from.
+
+    Returns:
+        dict[str, Any]: The generation config dict.
+    """
     if isinstance(config, GenerationConfig):
         return dict(
             GenerationConfigDict(
@@ -124,38 +137,73 @@ valid_providers = [
 
 
 class GenerationToolCallFunction(TypedDict):
+    """Generation tool call function.
+
+    This class represents a tool call function.
+    """
+
     name: str
     arguments: Optional[str]
 
 
 class GenerationToolCall(TypedDict):
+    """Generation tool call.
+
+    This class represents a tool call.
+    """
+
     id: str
     type: str
     function: GenerationToolCallFunction
 
 
 class TextContent(TypedDict):
+    """Text content.
+
+    This class represents a text content.
+    """
+
     type: Literal["text"]
     text: str
 
 
 class ImageContent(TypedDict):
+    """Image content.
+
+    This class represents an image content.
+    """
+
     type: Literal["image"]
     image_url: str
 
 
 class AudioContent(TypedDict):
+    """Audio content.
+
+    This class represents an audio content.
+    """
+
     type: Literal["audio"]
     transcript: str
 
 
 class GenerationResultMessage(TypedDict):
+    """Generation result message.
+
+    This class represents a generation result message.
+    """
+
     role: str
     content: Optional[Union[List[Union[TextContent, ImageContent, AudioContent]], str]]
     tool_calls: Optional[List[GenerationToolCall]]
 
 
 class GenerationResultChoice(TypedDict):
+    """Generation result choice.
+
+    This class represents a generation result choice.
+    """
+
     index: int
     message: GenerationResultMessage
     logprobs: Optional[Any]
@@ -163,12 +211,22 @@ class GenerationResultChoice(TypedDict):
 
 
 class TokenDetails(TypedDict):
+    """Token details.
+
+    This class represents token details.
+    """
+
     text_tokens: int
     audio_tokens: int
     cached_tokens: int
 
 
 class GenerationUsage(TypedDict, total=False):
+    """Generation usage.
+
+    This class represents generation usage.
+    """
+
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -178,6 +236,11 @@ class GenerationUsage(TypedDict, total=False):
 
 
 class GenerationResult(TypedDict):
+    """Generation result.
+
+    This class represents a generation result.
+    """
+
     id: str
     object: str
     created: int
@@ -189,8 +252,7 @@ class GenerationResult(TypedDict):
 def get_generation_error_config_dict(
     config: Union[GenerationError, GenerationErrorTypedDict],
 ) -> GenerationErrorTypedDict:
-    """
-    Convert a TraceConfig object to a TraceConfigDict.
+    """Convert a generation error to a generation error dict else return the error.
 
     Args:
         config: Either a TraceConfig object or a TraceConfigDict dictionary.
@@ -213,6 +275,13 @@ class Generation(BaseContainer):
     def __init__(
         self, config: Union[GenerationConfig, GenerationConfigDict], writer: LogWriter
     ):
+        """
+        Initialize a generation.
+
+        Args:
+            config: The config to initialize the generation with.
+            writer: The writer to use.
+        """
         final_config = get_generation_config_dict(config)
         super().__init__(Entity.GENERATION, final_config, writer)
         self.model = final_config.get("model", None)

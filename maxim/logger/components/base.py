@@ -20,6 +20,14 @@ BaseConfig = Dict[str, Any]
 
 
 def _sanitize_metadata(metadata: Dict[str, Any]) -> Dict[str, str]:
+    """Sanitize the metadata.
+
+    Args:
+        metadata (Dict[str, Any]): The metadata to sanitize.
+
+    Returns:
+        Dict[str, str]: The sanitized metadata.
+    """
     sanitized_metadata: dict[str, str] = {}
     for key, value in metadata.items():
         serialized_obj = make_object_serializable(value)
@@ -31,15 +39,33 @@ def _sanitize_metadata(metadata: Dict[str, Any]) -> Dict[str, str]:
 
 
 class EvaluateContainerWithVariables:
+    """Evaluate container with variables.
+
+    This class provides functionality to manage evaluators with variables.
+    """
+
     def __init__(
         self, id: str, entity: Entity, log_writer: LogWriter, for_evaluators: List[str]
     ) -> None:
+        """Initialize the evaluate container with variables.
+
+        Args:
+            id (str): The ID of the evaluate container.
+            entity (Entity): The entity of the evaluate container.
+            log_writer (LogWriter): The log writer of the evaluate container.
+            for_evaluators (List[str]): The evaluators of the evaluate container.
+        """
         self.entity = entity
         self.writer = log_writer
         self.id = id
         self.for_evaluators = for_evaluators
 
     def with_variables(self, variables: Dict[str, str]):
+        """With variables.
+
+        Args:
+            variables (Dict[str, str]): The variables to use for the evaluate container.
+        """
         if len(self.for_evaluators) == 0:
             return
         self.writer.commit(
@@ -58,11 +84,9 @@ class EvaluateContainerWithVariables:
 
 
 class EvaluateContainer:
-    """
-    A class to manage evaluators for a specific entity.
+    """Evaluate container.
 
-    This class provides functionality to initialize and manage a set of evaluators
-    associated with a particular entity and writer.
+    This class provides functionality to manage evaluators for a specific entity.
 
     Attributes:
         entity (Entity): The entity associated with these evaluators.
@@ -75,11 +99,24 @@ class EvaluateContainer:
     """
 
     def __init__(self, id: str, entity: Entity, log_writer: LogWriter) -> None:
+        """Initialize the evaluate container.
+
+        Args:
+            id (str): The ID of the evaluate container.
+            entity (Entity): The entity of the evaluate container.
+            log_writer (LogWriter): The log writer of the evaluate container.
+        """
         self.entity = entity
         self.writer = log_writer
         self.id = id
 
     def with_variables(self, variables: Dict[str, str], for_evaluators: List[str]):
+        """With variables.
+
+        Args:
+            variables (Dict[str, str]): The variables to use for the evaluate container.
+            for_evaluators (List[str]): The evaluators of the evaluate container.
+        """
         if len(for_evaluators) == 0:
             raise ValueError("At least one evaluator must be provided")
 
@@ -98,6 +135,14 @@ class EvaluateContainer:
         )
 
     def with_evaluators(self, *evaluators: str) -> EvaluateContainerWithVariables:
+        """With evaluators.
+
+        Args:
+            *evaluators (str): The evaluators to use for the evaluate container.
+
+        Returns:
+            EvaluateContainerWithVariables: The evaluate container with variables.
+        """
         if len(evaluators) == 0:
             raise ValueError("At least one evaluator must be provided")
 
@@ -120,7 +165,19 @@ class EvaluateContainer:
 
 
 class BaseContainer:
+    """Base container.
+
+    This class provides functionality to manage containers for a specific entity.
+    """
+
     def __init__(self, entity: Entity, config: BaseConfig, writer: LogWriter):
+        """Initialize the base container.
+
+        Args:
+            entity (Entity): The entity of the base container.
+            config (BaseConfig): The config of the base container.
+            writer (LogWriter): The writer of the base container.
+        """
         self.entity = entity
         if "id" not in config:
             self._id = str(uuid.uuid4())
@@ -158,16 +215,38 @@ class BaseContainer:
 
     @property
     def id(self) -> str:
+        """Get the ID of the base container.
+
+        Returns:
+            str: The ID of the base container.
+        """
         return self._id
 
     def evaluate(self) -> EvaluateContainer:
+        """Evaluate the base container.
+
+        Returns:
+            EvaluateContainer: The evaluate container.
+        """
         return EvaluateContainer(self._id, self.entity, self.writer)
 
     @staticmethod
     def _evaluate_(writer: LogWriter, entity: Entity, id: str) -> EvaluateContainer:
+        """Evaluate the base container.
+
+        Args:
+            writer (LogWriter): The writer of the base container.
+            entity (Entity): The entity of the base container.
+            id (str): The ID of the base container.
+        """
         return EvaluateContainer(id, entity, writer)
 
     def add_metadata(self, metadata: Dict[str, Any]) -> None:
+        """Add metadata to the base container.
+
+        Args:
+            metadata (Dict[str, Any]): The metadata to add to the base container.
+        """
         sanitized_metadata: dict[str, str] = _sanitize_metadata(metadata)
         self._commit("update", {"metadata": sanitized_metadata})
 
@@ -175,10 +254,24 @@ class BaseContainer:
     def add_metadata_(
         writer: LogWriter, entity: Entity, id: str, metadata: Dict[str, Any]
     ) -> None:
+        """Add metadata to the base container.
+
+        Args:
+            writer (LogWriter): The writer of the base container.
+            entity (Entity): The entity of the base container.
+            id (str): The ID of the base container.
+            metadata (Dict[str, Any]): The metadata to add to the base container.
+        """
         sanitized_metadata: dict[str, str] = _sanitize_metadata(metadata)
         writer.commit(CommitLog(entity, id, "update", {"metadata": sanitized_metadata}))
 
     def add_tag(self, key: str, value: str):
+        """Add a tag to the base container.
+
+        Args:
+            key (str): The key of the tag.
+            value (str): The value of the tag.
+        """
         if self.tags is None:
             self.tags = {}
         if not isinstance(value, str):
@@ -192,9 +285,22 @@ class BaseContainer:
 
     @staticmethod
     def _add_tag_(writer: LogWriter, entity: Entity, id: str, key: str, value: str):
+        """Add a tag to the base container.
+
+        Args:
+            writer (LogWriter): The writer of the base container.
+            entity (Entity): The entity of the base container.
+            id (str): The ID of the base container.
+            key (str): The key of the tag.
+            value (str): The value of the tag.
+        """
         writer.commit(CommitLog(entity, id, "update", {"tags": {key: value}}))
 
     def end(self):
+        """End the base container.
+
+        This method is used to end the base container.
+        """
         self.end_timestamp = datetime.now(timezone.utc)
         self._commit("end", {"endTimestamp": self.end_timestamp})
 
@@ -205,12 +311,25 @@ class BaseContainer:
         id: str,
         data: Optional[Dict[str, Any]] = None,
     ):
+        """End the base container.
+
+        Args:
+            writer (LogWriter): The writer of the base container.
+            entity (Entity): The entity of the base container.
+            id (str): The ID of the base container.
+            data (Optional[Dict[str, Any]]): The data to add to the base container.
+        """
         if data is None:
             data = {}
         data = {k: v for k, v in data.items() if v is not None}
         writer.commit(CommitLog(entity, id, "end", data))
 
     def data(self) -> Dict[str, Any]:
+        """Get the data of the base container.
+
+        Returns:
+            Dict[str, Any]: The data of the base container.
+        """
         data = {
             "name": self._name,
             "spanId": self.span_id,
@@ -230,12 +349,27 @@ class BaseContainer:
         action: str,
         data: Optional[Dict[str, Any]] = None,
     ):
+        """Commit the base container.
+
+        Args:
+            writer (LogWriter): The writer of the base container.
+            entity (Entity): The entity of the base container.
+            id (str): The ID of the base container.
+            action (str): The action to commit.
+            data (Optional[Dict[str, Any]]): The data to commit.
+        """
         # Removing all null values from data dict
         if data is not None:
             data = {k: v for k, v in data.items() if v is not None}
         writer.commit(CommitLog(entity, id, action, data))
 
     def _commit(self, action: str, data: Optional[Dict[str, Any]] = None):
+        """Commit the base container.
+
+        Args:
+            action (str): The action to commit.
+            data (Optional[Dict[str, Any]]): The data to commit.
+        """
         if data is None:
             data = self.data()
         # Removing all null values from data dict
@@ -254,6 +388,17 @@ class EventEmittingBaseContainer(BaseContainer):
         tags: Optional[Dict[str, str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ):
+        """Add an event to the base container.
+
+        Args:
+            writer (LogWriter): The writer of the base container.
+            entity (Entity): The entity of the base container.
+            entity_id (str): The ID of the entity.
+            id (str): The ID of the event.
+            name (str): The name of the event.
+            tags (Optional[Dict[str, str]]): The tags of the event.
+            metadata (Optional[Dict[str, Any]]): The metadata of the event.
+        """
         if metadata is not None:
             sanitized_metadata: dict[str, str] = _sanitize_metadata(metadata)
             BaseContainer._commit_(
@@ -290,6 +435,14 @@ class EventEmittingBaseContainer(BaseContainer):
         tags: Optional[Dict[str, str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ):
+        """Add an event to the base container.
+
+        Args:
+            id (str): The ID of the event.
+            name (str): The name of the event.
+            tags (Optional[Dict[str, str]]): The tags of the event.
+            metadata (Optional[Dict[str, Any]]): The metadata of the event.
+        """
         if metadata is not None:
             sanitized_metadata: dict[str, str] = _sanitize_metadata(metadata)
             self._commit(

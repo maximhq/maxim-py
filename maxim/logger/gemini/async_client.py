@@ -28,6 +28,11 @@ from .utils import GeminiUtils
 
 
 class MaximGeminiAsyncChatSession(AsyncChat):
+    """Maxim Gemini async chat session.
+
+    This class represents a maxim gemini async chat session.
+    """
+
     def __init__(
         self,
         chat: AsyncChat,
@@ -35,6 +40,14 @@ class MaximGeminiAsyncChatSession(AsyncChat):
         trace_id: Optional[str] = None,
         is_local_trace: Optional[bool] = False,
     ):
+        """Initialize a maxim gemini async chat session.
+
+        Args:
+            chat: The chat.
+            logger: The logger.
+            trace_id: The trace id.
+            is_local_trace: Whether the trace is local.
+        """
         super().__init__(
             modules=chat._modules,
             model=chat._model,
@@ -52,6 +65,15 @@ class MaximGeminiAsyncChatSession(AsyncChat):
         message: Union[list[PartUnionDict], PartUnionDict],
         generation_name: Optional[str] = None,
     ) -> GenerateContentResponse:
+        """Send a message to the chat.
+
+        Args:
+            message: The message to send.
+            generation_name: The name of the generation.
+
+        Returns:
+            GenerateContentResponse: The response from the chat.
+        """
         # Without trace_id we can't do anything
         if self._trace_id is None:
             return await super().send_message(message)
@@ -112,6 +134,15 @@ class MaximGeminiAsyncChatSession(AsyncChat):
         message: Union[list[PartUnionDict], PartUnionDict],
         generation_name: Optional[str] = None,
     ) -> Awaitable[AsyncIterator[GenerateContentResponse]]:
+        """Send a message to the chat stream.
+
+        Args:
+            message: The message to send.
+            generation_name: The name of the generation.
+
+        Returns:
+            Awaitable[AsyncIterator[GenerateContentResponse]]: The response from the chat.
+        """
         # Without trace_id we can't do anything
         if self._trace_id is None:
             return super().send_message_stream(message)
@@ -180,23 +211,47 @@ class MaximGeminiAsyncChatSession(AsyncChat):
         return response_awaitable
 
     def __getattr__(self, name: str) -> Any:
+        """Get an attribute from the chat.
+
+        Args:
+            name: The name of the attribute.
+
+        Returns:
+            Any: The attribute.
+        """
         result = getattr(self._chats, name)
         return result
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Set an attribute on the chat.
+
+        Args:
+            name: The name of the attribute.
+            value: The value of the attribute.
+        """
         if name == "_chat":
             super().__setattr__(name, value)
         else:
             setattr(self._chats, name, value)
 
     def end_trace(self):
+        """End the trace.
+
+        This method ends the trace if it is local and the trace id is not None.
+        """
         if self._trace_id is not None and self._is_local_trace:
             self._logger.trace_end(self._trace_id)
             self._trace_id = None
 
 
 class MaximGeminiAsyncChats(AsyncChats):
+    """Maxim Gemini async chats.
+
+    This class represents a maxim gemini async chats.
+    """
+
     def __init__(self, chats: AsyncChats, logger: Logger):
+        """Initialize a maxim gemini async chats."""
         self._chats = chats
         self._logger = logger
         self._trace_id = None
@@ -211,6 +266,17 @@ class MaximGeminiAsyncChats(AsyncChats):
         history: Optional[list[Content]] = None,
         trace_id: Optional[str] = None,
     ) -> AsyncChat:
+        """Create a chat session.
+
+        Args:
+            model: The model to use.
+            config: The config to use.
+            history: The history to use.
+            trace_id: The trace id.
+
+        Returns:
+            AsyncChat: The chat session.
+        """
         self._is_local_trace = trace_id is None
         self._trace_id = trace_id or str(uuid4())
         # we start generation here and send it back to chat session
@@ -225,10 +291,24 @@ class MaximGeminiAsyncChats(AsyncChats):
         return maxim_chat_session
 
     def __getattr__(self, name: str) -> Any:
+        """Get an attribute from the chats.
+
+        Args:
+            name: The name of the attribute.
+
+        Returns:
+            Any: The attribute.
+        """
         result = getattr(self._chats, name)
         return result
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Set an attribute on the chats.
+
+        Args:
+            name: The name of the attribute.
+            value: The value of the attribute.
+        """
         if name == "_chats":
             super().__setattr__(name, value)
         else:
@@ -236,7 +316,18 @@ class MaximGeminiAsyncChats(AsyncChats):
 
 
 class MaximGeminiAsyncModels(AsyncModels):
+    """Maxim Gemini async models.
+
+    This class represents a maxim gemini async models.
+    """
+
     def __init__(self, models: AsyncModels, logger: Logger):
+        """Initialize a maxim gemini async models.
+
+        Args:
+            models: The models.
+            logger: The logger.
+        """
         self._models = models
         self._logger = logger
 
@@ -250,6 +341,18 @@ class MaximGeminiAsyncModels(AsyncModels):
         trace_id: Optional[str] = None,
         generation_name: Optional[str] = None,
     ) -> Awaitable[AsyncIterator[GenerateContentResponse]]:
+        """Generate content stream.
+
+        Args:
+            model: The model to use.
+            contents: The contents to use.
+            config: The config to use.
+            trace_id: The trace id.
+            generation_name: The generation name.
+
+        Returns:
+            Awaitable[AsyncIterator[GenerateContentResponse]]: The response from the models.
+        """
         is_local_trace = trace_id is None
         final_trace_id = trace_id or str(uuid4())
         generation: Optional[Generation] = None
@@ -333,6 +436,18 @@ class MaximGeminiAsyncModels(AsyncModels):
         trace_id: Optional[str] = None,
         generation_name: Optional[str] = None,
     ) -> GenerateContentResponse:
+        """Generate content.
+
+        Args:
+            model: The model to use.
+            contents: The contents to use.
+            config: The config to use.
+            trace_id: The trace id.
+            generation_name: The generation name.
+
+        Returns:
+            GenerateContentResponse: The response from the models.
+        """
         is_local_trace = trace_id is None
         final_trace_id = trace_id or str(uuid4())
         generation: Optional[Generation] = None
@@ -395,9 +510,23 @@ class MaximGeminiAsyncModels(AsyncModels):
         return response
 
     def __getattr__(self, name: str) -> Any:
+        """Get an attribute from the models.
+
+        Args:
+            name: The name of the attribute.
+
+        Returns:
+            Any: The attribute.
+        """
         return getattr(self._models, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Set an attribute on the models.
+
+        Args:
+            name: The name of the attribute.
+            value: The value of the attribute.
+        """
         if name == "_models":
             super().__setattr__(name, value)
         else:
@@ -405,13 +534,32 @@ class MaximGeminiAsyncModels(AsyncModels):
 
 
 class MaximGeminiAsyncClient(AsyncClient):
+    """Maxim Gemini async client.
+
+    This class represents a maxim gemini async client.
+    """
+
     def __init__(self, client: AsyncClient, logger: Logger):
+        """Initialize a maxim gemini async client.
+
+        Args:
+            client: The client.
+            logger: The logger.
+        """
         self._client = client
         self._logger = logger
         self._w_models = MaximGeminiAsyncModels(client.models, logger)
         self._w_chats = MaximGeminiAsyncChats(client.chats, logger)
 
     def __getattr__(self, name: str) -> Any:
+        """Get an attribute from the client.
+
+        Args:
+            name: The name of the attribute.
+
+        Returns:
+            Any: The attribute.
+        """
         if name == "_models":
             return self._w_models
         elif name == "_chats":
@@ -420,6 +568,12 @@ class MaximGeminiAsyncClient(AsyncClient):
         return result
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Set an attribute on the client.
+
+        Args:
+            name: The name of the attribute.
+            value: The value of the attribute.
+        """
         if name == "_client":
             super().__setattr__(name, value)
         else:
