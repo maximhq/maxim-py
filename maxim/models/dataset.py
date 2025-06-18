@@ -3,12 +3,20 @@ from typing import Any, Callable, Dict, List, Literal, Optional, TypeVar, Union
 
 
 class VariableType(str):
+    """
+    This class represents the type of a variable.
+    """
+
     TEXT = "text"
     JSON = "json"
 
 
 @dataclass
 class DatasetRow:
+    """
+    This class represents a row of a dataset.
+    """
+
     id: str
     data: Dict[str, str]
 
@@ -24,21 +32,51 @@ class DatasetRow:
 
 
 class Variable:
-    def __init__(self, type: str, payload: Dict[str, Union[str, int, bool]]):
-        self.type = type
+    """
+    This class represents a variable.
+    """
+
+    def __init__(
+        self, type_: str, payload: Dict[str, Union[str, int, bool, float, List[str]]]
+    ):
+        """
+        This class represents a variable.
+
+        Args:
+            type_: The type of the variable.
+            payload: The payload of the variable.
+        """
+
+        self.type = type_
         self.payload = payload
 
     def to_json(self):
         return {"type": self.type, "payload": self.payload}
 
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> "Variable":
+        return cls(type_=data["type"], payload=data["payload"])
+
 
 class DatasetEntry:
+    """
+    This class represents a dataset entry.
+    """
+
     def __init__(
         self,
         input: Variable,
         context: Optional[Variable] = None,
         expectedOutput: Optional[Variable] = None,
     ):
+        """
+        This class represents a dataset entry.
+
+        Args:
+            input: The input variable.
+            context: The context variable.
+            expectedOutput: The expected output variable.
+        """
         self.input = input
         self.context = context
         self.expectedOutput = expectedOutput
@@ -67,6 +105,7 @@ InputColumn = Literal["INPUT"]
 ExpectedOutputColumn = Literal["EXPECTED_OUTPUT"]
 ContextToEvaluateColumn = Literal["CONTEXT_TO_EVALUATE"]
 VariableColumn = Literal["VARIABLE"]
+FileURLVariableColumn = Literal["FILE_URL_VARIABLE"]
 NullableVariableColumn = Literal["NULLABLE_VARIABLE"]
 OutputColumn = Literal["OUTPUT"]
 
@@ -77,6 +116,7 @@ DataStructure = Dict[
         ExpectedOutputColumn,
         ContextToEvaluateColumn,
         VariableColumn,
+        FileURLVariableColumn,
         NullableVariableColumn,
     ],
 ]

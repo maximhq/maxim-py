@@ -43,6 +43,11 @@ if TYPE_CHECKING:
 )
 @dataclass
 class TraceConfig:
+    """Trace config.
+
+    This class represents a trace config.
+    """
+
     id: str
     name: Optional[str] = None
     session_id: Optional[str] = None
@@ -51,6 +56,11 @@ class TraceConfig:
 
 
 class TraceConfigDict(TypedDict, total=False):
+    """Trace config dict.
+
+    This class represents a trace config dictionary.
+    """
+
     id: str
     name: Optional[str]
     session_id: Optional[str]

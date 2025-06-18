@@ -1,3 +1,4 @@
+import enum
 import json
 from typing import Any, Dict, List, Optional
 
@@ -11,12 +12,30 @@ from .core import (
 
 
 def parse_function_call(function_call_data):
+    """
+    Parse function call from a dictionary.
+
+    Args:
+        function_call_data: The dictionary to parse.
+
+    Returns:
+        The parsed function call.
+    """
     validate_type(function_call_data.get("name"), str, "name")
     validate_type(function_call_data.get("arguments"), str, "arguments")
     return function_call_data
 
 
 def parse_tool_calls(tool_calls_data):
+    """
+    Parse tool calls from a dictionary.
+
+    Args:
+        tool_calls_data: The dictionary to parse.
+
+    Returns:
+        The parsed tool calls.
+    """
     validate_type(tool_calls_data.get("id"), str, "id")
     validate_type(tool_calls_data.get("type"), str, "type")
     parse_function_call(tool_calls_data.get("function"))
@@ -24,6 +43,15 @@ def parse_tool_calls(tool_calls_data):
 
 
 def parse_content_list(content_list_data):
+    """
+    Parse content list from a dictionary.
+
+    Args:
+        content_list_data: The dictionary to parse.
+
+    Returns:
+        The parsed content list.
+    """
     for content in content_list_data:
         if content is None:
             continue
@@ -41,6 +69,15 @@ def parse_content_list(content_list_data):
 
 
 def parse_chat_completion_choice(messages_data):
+    """
+    Parse chat completion choice from a dictionary.
+
+    Args:
+        messages_data: The dictionary to parse.
+
+    Returns:
+        The parsed chat completion choice.
+    """
     validate_type(messages_data.get("role"), str, "role")
     # Here it can be either string or list
     if isinstance(messages_data.get("content"), list):
@@ -60,8 +97,17 @@ def parse_chat_completion_choice(messages_data):
 
 
 def parse_choice(choice_data):
+    """
+    Parse choice from a dictionary.
+
+    Args:
+        choice_data: The dictionary to parse.
+
+    Returns:
+        The parsed choice.
+    """
     validate_type(choice_data.get("index"), int, "index")
-    validate_type(choice_data.get("finish_reason"), str, "finish_reason")
+    validate_optional_type(choice_data.get("finish_reason"), str, "finish_reason")
 
     # Checking if text completion or chat completion
     if choice_data.get("text") is not None:
@@ -76,6 +122,15 @@ def parse_choice(choice_data):
 
 
 def parse_usage(usage_data):
+    """
+    Parse usage from a dictionary.
+
+    Args:
+        usage_data: The dictionary to parse.
+
+    Returns:
+        The parsed usage.
+    """
     if usage_data is None:
         return None
     validate_type(usage_data.get("prompt_tokens"), int, "prompt_tokens")
@@ -85,6 +140,15 @@ def parse_usage(usage_data):
 
 
 def parse_generation_error(error_data):
+    """
+    Parse generation error from a dictionary.
+
+    Args:
+        error_data: The dictionary to parse.
+
+    Returns:
+        The parsed generation error.
+    """
     if error_data is None:
         return None
     validate_type(error_data.get("message"), str, "message")
@@ -93,7 +157,39 @@ def parse_generation_error(error_data):
     return error_data
 
 
+def default_json_serializer(o: Any) -> Any:
+    """
+    Default JSON serializer for objects.
+
+    Args:
+        o: The object to serialize.
+
+    Returns:
+        The serialized object.
+    """
+    if isinstance(o, enum.Enum):
+        return o.value
+    if hasattr(o, "to_dict"):
+        return o.to_dict()
+
+    try:
+        return vars(o)
+    except TypeError:
+        pass
+
+    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
+
+
 def parse_result(data: Any) -> Dict[str, Any]:
+    """
+    Parse result from a dictionary.
+
+    Args:
+        data: The dictionary to parse.
+
+    Returns:
+        The parsed result.
+    """
     if not isinstance(data, dict):
         raise ValueError("Text completion is not supported.")
     validate_type(data.get("id"), str, "id")
@@ -122,6 +218,15 @@ def parse_result(data: Any) -> Dict[str, Any]:
 
 
 def parse_message(message: Any) -> Any:
+    """
+    Parse message from a dictionary.
+
+    Args:
+        message: The dictionary to parse.
+
+    Returns:
+        The parsed message.
+    """
     validate_type(message.get("role"), str, "role")
     validate_content(
         message.get("role"), ["user", "assistant", "system", "bot", "chatbot", "model"]
@@ -146,12 +251,30 @@ def parse_message(message: Any) -> Any:
 
 
 def parse_messages(messages: List[Any]) -> List[Any]:
+    """
+    Parse messages from a list.
+
+    Args:
+        messages: The list to parse.
+
+    Returns:
+        The parsed messages.
+    """
     if len(messages) == 0:
         return []
     return [parse_message(message) for message in messages]
 
 
 def parse_model_parameters(parameters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Parse model parameters from a dictionary.
+
+    Args:
+        parameters: The dictionary to parse.
+
+    Returns:
+        The parsed model parameters.
+    """
     # convert parameters dict into JSON string
     if parameters is None:
         return {}
@@ -163,9 +286,9 @@ def parse_model_parameters(parameters: Optional[Dict[str, Any]]) -> Dict[str, An
             continue
         if not isinstance(value, str):
             try:
-                new_parameters[key] = json.dumps(value)
+                new_parameters[key] = json.dumps(value, default=default_json_serializer)
             except Exception as e:
-                scribe().error(
+                scribe().warning(
                     f'[MaximSDK] Failed to stringify model_parameters key - "{key}": {e}. Skipping it'
                 )
         else:

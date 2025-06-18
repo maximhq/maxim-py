@@ -1,5 +1,12 @@
 from .attachment import SignedURLResponse
-from .dataset import DatasetEntry, DatasetRow, VariableType
+from .dataset import (
+    DatasetEntry,
+    DatasetRow,
+    DataStructure,
+    DataValue,
+    Variable,
+    VariableType,
+)
 from .evaluator import (
     Evaluator,
     EvaluatorType,
@@ -48,11 +55,11 @@ from .query_builder import QueryBuilder, QueryRule, QueryRuleType
 from .test_run import (
     ConsoleLogger,
     Data,
+    LocalData,
     EvaluatorConfig,
     ExecutePromptForDataResponse,
     ExecuteWorkflowForDataResponse,
     HumanEvaluationConfig,
-    LocalData,
     RunResult,
     RunStatus,
     RunType,
@@ -66,10 +73,16 @@ from .test_run import (
     TestRunWithDatasetEntry,
     YieldedOutput,
     YieldedOutputMeta,
+    YieldedOutputCost,
+    YieldedOutputTokenUsage,
 )
 
 __all__ = [
     "PromptResponse",
+    "DatasetEntry",
+    "DataStructure",
+    "DataValue",
+    "LocalData",
     "LocalEvaluatorResultParameter",
     "LocalEvaluatorReturn",
     "DatasetRow",
@@ -80,10 +93,10 @@ __all__ = [
     "Prompt",
     "Folder",
     "PromptChain",
-    "Prompt",
     "PromptVersion",
     "QueryBuilder",
     "Node",
+    "Variable",
     "QueryRule",
     "PromptNode",
     "QueryRuleType",
@@ -114,7 +127,6 @@ __all__ = [
     "VersionAndRulesWithPromptIdEncoder",
     "VersionsAndRules",
     "FolderEncoder",
-    "DatasetEntry",
     "HumanEvaluationConfig",
     "VersionAndRulesWithPromptChainId",
     "EvaluatorConfig",
@@ -126,12 +138,13 @@ __all__ = [
     "TestRunResult",
     "YieldedOutput",
     "SignedURLResponse",
-    "LocalData",
     "T",
     "TestRunEntry",
     "TestRunStatus",
     "TestRunWithDatasetEntry",
     "YieldedOutputMeta",
+    "YieldedOutputCost",
+    "YieldedOutputTokenUsage",
     "TestRunLogger",
     "ConsoleLogger",
     "RunResult",

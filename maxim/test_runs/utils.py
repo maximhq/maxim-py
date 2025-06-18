@@ -13,6 +13,10 @@ from ..utils.utils import create_cuid_generator
 
 @dataclass
 class EvaluatorNameToIdAndPassFailCriteria:
+    """
+    This class represents an evaluator name to id and pass fail criteria.
+    """
+
     id: str
     pass_fail_criteria: PassFailCriteria
 
@@ -24,6 +28,9 @@ class EvaluatorNameToIdAndPassFailCriteria:
 def get_local_evaluator_name_to_id_and_pass_fail_criteria_map(
     evaluators: List[Union[BaseEvaluator, str]],
 ) -> Dict[str, EvaluatorNameToIdAndPassFailCriteria]:
+    """
+    This function returns a map of evaluator names to their corresponding ids and pass fail criteria.
+    """
     all_eval_names: List[str] = []
     for evaluator in evaluators:
         if isinstance(evaluator, str):
@@ -54,6 +61,9 @@ def get_local_evaluator_name_to_id_and_pass_fail_criteria_map(
 def get_evaluator_config_from_evaluator_name_and_pass_fail_criteria(
     id: str, name: str, pass_fail_criteria: PassFailCriteria
 ) -> Evaluator:
+    """
+    This function returns an evaluator config from the evaluator name and pass fail criteria.
+    """
     return Evaluator(
         builtin=False,
         id=id,

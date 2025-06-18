@@ -4,6 +4,12 @@ from ..models import (
 
 
 def sanitize_pass_fail_criteria(name: str, pass_fail_criteria: PassFailCriteria):
+    """Sanitize the pass fail criteria.
+
+    Args:
+        name (str): The name of the evaluator.
+        pass_fail_criteria (PassFailCriteria): The pass fail criteria to sanitize.
+    """
     all_operators = [">=", "<=", "<", ">", "=", "!="]
     boolean_operators = ["=", "!="]
 

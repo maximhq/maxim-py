@@ -1,8 +1,4 @@
-from .attachment import (
-    FileAttachment,
-    FileDataAttachment,
-    UrlAttachment,
-)
+from .attachment import Attachment, FileAttachment, FileDataAttachment, UrlAttachment
 from .error import Error, ErrorConfig
 from .feedback import Feedback, FeedbackDict, get_feedback_dict
 from .generation import (
@@ -11,11 +7,14 @@ from .generation import (
     GenerationConfig,
     GenerationConfigDict,
     GenerationError,
+    GenerationRequestImageMessageContent,
     GenerationRequestMessage,
+    GenerationRequestTextMessageContent,
     GenerationResult,
     GenerationResultChoice,
     GenerationUsage,
     ImageContent,
+    TokenDetails,
     TextContent,
     generation_request_from_gemini_content,
 )
@@ -48,6 +47,7 @@ from .trace import (
 )
 
 __all__ = [
+    "Attachment",
     "FileAttachment",
     "FileDataAttachment",
     "UrlAttachment",
@@ -68,6 +68,8 @@ __all__ = [
     "GenerationError",
     "GenerationResultChoice",
     "GenerationRequestMessage",
+    "GenerationRequestTextMessageContent",
+    "GenerationRequestImageMessageContent",
     "Retrieval",
     "RetrievalConfig",
     "RetrievalConfigDict",
@@ -89,5 +91,6 @@ __all__ = [
     "ToolCallConfigDict",
     "ToolCallError",
     "ToolCallErrorDict",
+    "TokenDetails",
     "get_tool_call_config_dict",
 ]

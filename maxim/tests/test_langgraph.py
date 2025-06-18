@@ -18,21 +18,16 @@ from maxim import Config, Maxim
 from maxim.decorators import current_trace, trace
 from maxim.decorators.langchain import langchain_callback, langgraph_agent
 from maxim.logger import LoggerConfig
+from maxim.tests.mock_writer import inject_mock_writer
 
-with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
 
 logging.basicConfig(level=logging.INFO)
-env = "beta"
 
-openAIKey = data["openAIKey"]
-anthropicApiKey = data["anthropicApiKey"]
-apiKey = data[env]["apiKey"]
-baseUrl = data[env]["baseUrl"]
-repoId = data[env]["repoId"]
-tavilyApiKey = data["tavilyApiKey"]
-
-os.environ["TAVILY_API_KEY"] = tavilyApiKey
+openAIKey = os.getenv("OPENAI_API_KEY")
+anthropicApiKey = os.getenv("ANTHROPIC_API_KEY")
+apiKey = os.getenv("MAXIM_API_KEY")
+baseUrl = os.getenv("MAXIM_BASE_URL")
+repoId = os.getenv("MAXIM_LOG_REPO_ID")
 
 
 class AgentState(TypedDict):
@@ -139,47 +134,71 @@ app = workflow.compile()
 
 flask_app = Flask(__name__)
 
-config = Config(api_key=apiKey, base_url=baseUrl, debug=True)
-maxim = Maxim(config)
-config = LoggerConfig(id=repoId)
-logger = maxim.logger(config)
-
-
-@langgraph_agent(name="ask_agent")
-async def ask_agent(query: str) -> str:
-    config = {"recursion_limit": 50, "callbacks": [langchain_callback()]}
-    async for event in app.astream(input={"messages": [query]}, config=config):
-        for k, v in event.items():
-            if k == "agent":
-                response = str(v["messages"][0].content)
-    return response
-
-
-@flask_app.post("/chat")
-@trace(logger=logger, name="chat_v1", id=lambda: request.headers["reqId"])
-async def handle():
-    current_trace().add_tag("test", "yes")
-    resp = await ask_agent(request.json["query"])
-    print(f"answer: {resp}")
-    current_trace().set_output(resp)
-    return jsonify({"result": resp})
+maxim = Maxim()
+logger = maxim.logger()
 
 
 class TestLangGraph(unittest.TestCase):
     def setUp(self) -> None:
+        # This is a hack to ensure that the Maxim instance is not cached
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
 
+        self.mock_writer = inject_mock_writer(logger)
         return super().setUp()
 
-    def test_log_agent(self):
+    @langgraph_agent(name="ask_agent", logger=logger)
+    async def ask_agent(self, query: str) -> str:
+        config = {"recursion_limit": 50, "callbacks": [langchain_callback()]}
+        async for event in app.astream(input={"messages": [query]}, config=config):
+            for k, v in event.items():
+                if k == "agent":
+                    response = str(v["messages"][0].content)
+        return response
 
-        with flask_app.test_client() as client:
-            response = client.post(
-                "/chat",
-                headers={"reqId": str(uuid4())},
-                json={"query": "name the last 3 captains of indian cricket team"},
-            )
-            self.assertEqual(response.status_code, 200)
+    @trace(name="chat_v1", id=lambda: str(uuid4()), logger=None)
+    async def handle_chat(self, query: str, req_id: str):
+        trace = current_trace()
+        if trace is None:
+            raise ValueError("current_trace is None")
+        trace.add_tag("test", "yes")
+        resp = await self.ask_agent(query)
+        print(f"answer: {resp}")
+        trace.set_output(resp)
+        return {"result": resp}
+
+    def test_log_agent(self):
+        # Since we can't easily test the Flask endpoints in isolation,
+        # we'll test the core functionality directly
+        import asyncio
+
+        async def run_test():
+            req_id = str(uuid4())
+            # We'll simulate a simple query instead of a complex one
+            query = "Hello, how are you?"
+
+            # Run the chat handler
+            result = await self.handle_chat(query, req_id)
+            self.assertIsNotNone(result)
+            self.assertIn("result", result)
+
+        # Run the async test
+        asyncio.run(run_test())
+
+        # Flush the logger and verify logging
+        logger.flush()
+        self.mock_writer.print_logs_summary()
+
+        # LangGraph creates multiple traces due to the agent workflow
+        # We expect at least one trace to be created
+        all_logs = self.mock_writer.get_all_logs()
+        self.assertGreater(len(all_logs), 0, "Expected at least one log to be captured")
 
     def tearDown(self) -> None:
+        # Print final summary for debugging
+        self.mock_writer.print_logs_summary()
+
+        # Cleanup the mock writer
+        self.mock_writer.cleanup()
         logger.flush()
         return super().tearDown()

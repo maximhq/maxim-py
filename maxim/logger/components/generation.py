@@ -11,16 +11,42 @@ from ..writer import LogWriter
 from .attachment import FileAttachment, FileDataAttachment, UrlAttachment
 from .base import BaseContainer
 from .types import Entity, GenerationError, GenerationErrorTypedDict, object_to_dict
+from .utils import parse_attachments_from_messages
 
 
-class GenerationRequestMessageContent(TypedDict):
-    type: str
+class GenerationRequestTextMessageContent(TypedDict):
+    """
+    This class is used to represent a text message in a generation request.
+    """
+
+    type: Literal["text"]
     text: str
 
 
+class GenerationRequestImageMessageContent(TypedDict):
+    """
+    This class is used to represent an image message in a generation request.
+    """
+
+    type: Literal["image"]
+    image_url: str
+
+
 class GenerationRequestMessage(TypedDict):
+    """
+    This class is used to represent a message in a generation request.
+    """
+
     role: str
-    content: Union[str, List[GenerationRequestMessageContent]]
+    content: Union[
+        str,
+        List[
+            Union[
+                GenerationRequestTextMessageContent,
+                GenerationRequestImageMessageContent,
+            ]
+        ],
+    ]
 
 
 def generation_request_from_gemini_content(content: Any) -> "GenerationRequestMessage":
@@ -51,6 +77,11 @@ class GenerationConfig:
 
 
 class GenerationConfigDict(TypedDict, total=False):
+    """Generation config dict.
+
+    This class represents a generation config dictionary.
+    """
+
     id: str
     provider: str
     model: str
@@ -65,6 +96,14 @@ class GenerationConfigDict(TypedDict, total=False):
 def get_generation_config_dict(
     config: Union[GenerationConfig, GenerationConfigDict],
 ) -> dict[str, Any]:
+    """Convert a generation config to a generation config dict else return the config.
+
+    Args:
+        config (Union[GenerationConfig, GenerationConfigDict]): The config to get the dict from.
+
+    Returns:
+        dict[str, Any]: The generation config dict.
+    """
     if isinstance(config, GenerationConfig):
         return dict(
             GenerationConfigDict(
@@ -98,38 +137,73 @@ valid_providers = [
 
 
 class GenerationToolCallFunction(TypedDict):
+    """Generation tool call function.
+
+    This class represents a tool call function.
+    """
+
     name: str
     arguments: Optional[str]
 
 
 class GenerationToolCall(TypedDict):
+    """Generation tool call.
+
+    This class represents a tool call.
+    """
+
     id: str
     type: str
     function: GenerationToolCallFunction
 
 
 class TextContent(TypedDict):
+    """Text content.
+
+    This class represents a text content.
+    """
+
     type: Literal["text"]
     text: str
 
 
 class ImageContent(TypedDict):
+    """Image content.
+
+    This class represents an image content.
+    """
+
     type: Literal["image"]
     image_url: str
 
 
 class AudioContent(TypedDict):
+    """Audio content.
+
+    This class represents an audio content.
+    """
+
     type: Literal["audio"]
     transcript: str
 
 
 class GenerationResultMessage(TypedDict):
+    """Generation result message.
+
+    This class represents a generation result message.
+    """
+
     role: str
     content: Optional[Union[List[Union[TextContent, ImageContent, AudioContent]], str]]
     tool_calls: Optional[List[GenerationToolCall]]
 
 
 class GenerationResultChoice(TypedDict):
+    """Generation result choice.
+
+    This class represents a generation result choice.
+    """
+
     index: int
     message: GenerationResultMessage
     logprobs: Optional[Any]
@@ -137,12 +211,22 @@ class GenerationResultChoice(TypedDict):
 
 
 class TokenDetails(TypedDict):
+    """Token details.
+
+    This class represents token details.
+    """
+
     text_tokens: int
     audio_tokens: int
     cached_tokens: int
 
 
 class GenerationUsage(TypedDict, total=False):
+    """Generation usage.
+
+    This class represents generation usage.
+    """
+
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -152,6 +236,11 @@ class GenerationUsage(TypedDict, total=False):
 
 
 class GenerationResult(TypedDict):
+    """Generation result.
+
+    This class represents a generation result.
+    """
+
     id: str
     object: str
     created: int
@@ -163,8 +252,7 @@ class GenerationResult(TypedDict):
 def get_generation_error_config_dict(
     config: Union[GenerationError, GenerationErrorTypedDict],
 ) -> GenerationErrorTypedDict:
-    """
-    Convert a TraceConfig object to a TraceConfigDict.
+    """Convert a generation error to a generation error dict else return the error.
 
     Args:
         config: Either a TraceConfig object or a TraceConfigDict dictionary.
@@ -187,6 +275,13 @@ class Generation(BaseContainer):
     def __init__(
         self, config: Union[GenerationConfig, GenerationConfigDict], writer: LogWriter
     ):
+        """
+        Initialize a generation.
+
+        Args:
+            config: The config to initialize the generation with.
+            writer: The writer to use.
+        """
         final_config = get_generation_config_dict(config)
         super().__init__(Entity.GENERATION, final_config, writer)
         self.model = final_config.get("model", None)
@@ -200,12 +295,24 @@ class Generation(BaseContainer):
         else:
             self.provider = "unknown"
         self.messages.extend([m for m in (final_config.get("messages") or [])])
+        self.messages, attachments = parse_attachments_from_messages(self.messages)
+        if len(attachments) > 0:
+            for attachment in attachments:
+                self.add_attachment(attachment)
         self.model_parameters = parse_model_parameters(
             final_config.get("model_parameters", {})
         )
 
     @staticmethod
     def set_provider_(writer: LogWriter, id: str, provider: str):
+        """
+        Static method to set the provider for a trace.
+
+        Args:
+            writer: The LogWriter instance to use.
+            id: The ID of the trace to set the provider for.
+            provider: The provider to set.
+        """
         if provider not in valid_providers:
             raise ValueError(
                 f"Invalid provider: {provider}. Must be one of {', '.join(valid_providers)}."
@@ -215,6 +322,12 @@ class Generation(BaseContainer):
         )
 
     def set_provider(self, provider: str):
+        """
+        Set the provider for this trace.
+
+        Args:
+            provider: The provider to set.
+        """
         if provider not in valid_providers:
             raise ValueError(
                 f"Invalid provider: {self.provider}. Must be one of {', '.join(valid_providers)}."
@@ -223,33 +336,76 @@ class Generation(BaseContainer):
 
     @staticmethod
     def set_model_(writer: LogWriter, id: str, model: str):
+        """
+        Static method to set the model for a trace.
+
+        Args:
+            writer: The LogWriter instance to use.
+            id: The ID of the trace to set the model for.
+            model: The model to set.
+        """
         BaseContainer._commit_(
             writer, Entity.GENERATION, id, "update", {"model": model}
         )
 
     def set_model(self, model: str):
+        """
+        Set the model for this trace.
+
+        Args:
+            model: The model to set.
+        """
         self.model = model
         self._commit("update", {"model": model})
 
     @staticmethod
     def add_message_(writer: LogWriter, id: str, message: GenerationRequestMessage):
+        """
+        Static method to add a message to a trace.
+
+        Args:
+            writer: The LogWriter instance to use.
+            id: The ID of the trace to add the message to.
+            message: The message to add.
+        """
         if "content" not in message or "role" not in message:
-            scribe.error(
+            scribe().error(
                 "[MaximSDK] Invalid message. Must have 'content' and 'role' keys. We are skipping adding this message."
             )
             return
+        messages, attachments = parse_attachments_from_messages([message])
+        if len(attachments) > 0:
+            for attachment in attachments:
+                Generation.add_attachment_(writer, id, attachment)
         BaseContainer._commit_(
-            writer, Entity.GENERATION, id, "update", {"messages": [message]}
+            writer, Entity.GENERATION, id, "update", {"messages": messages}
         )
 
-    def add_message(self, message: GenerationRequestMessage):
-        self.messages.append(message)
-        self._commit("update", {"messages": [message]})
+    def add_message(self, message: GenerationRequestMessage) -> None:
+        """
+        Add a message to this trace.
+
+        Args:
+            message: The message to add.
+        """
+        messages, attachments = parse_attachments_from_messages([message])
+        if len(attachments) > 0:
+            for attachment in attachments:
+                self.add_attachment(attachment)
+        self._commit("update", {"messages": messages})
 
     @staticmethod
     def set_model_parameters_(
         writer: LogWriter, id: str, model_parameters: Dict[str, Any]
     ):
+        """
+        Static method to set the model parameters for a trace.
+
+        Args:
+            writer: The LogWriter instance to use.
+            id: The ID of the trace to set the model parameters for.
+            model_parameters: The model parameters to set.
+        """
         model_parameters = parse_model_parameters(model_parameters)
         BaseContainer._commit_(
             writer,
@@ -260,6 +416,12 @@ class Generation(BaseContainer):
         )
 
     def set_model_parameters(self, model_parameters: Dict[str, Any]):
+        """
+        Set the model parameters for this trace.
+
+        Args:
+            model_parameters: The model parameters to set.
+        """
         model_parameters = parse_model_parameters(model_parameters)
         self.model_parameters = model_parameters
         self._commit("update", {"modelParameters": model_parameters})
@@ -301,6 +463,14 @@ class Generation(BaseContainer):
     def result_(
         writer: LogWriter, id: str, result: Union[GenerationResult, Dict[str, Any]]
     ):
+        """
+        Static method to add a result to a trace.
+
+        Args:
+            writer: The LogWriter instance to use.
+            id: The ID of the trace to add the result to.
+            result: The result to add.
+        """
         try:
             # Checking the type
             result = Generation.convert_result(result)
@@ -327,6 +497,14 @@ class Generation(BaseContainer):
 
     @staticmethod
     def end_(writer: LogWriter, id: str, data: Optional[Dict[str, Any]] = None):
+        """
+        Static method to end a trace.
+
+        Args:
+            writer: The LogWriter instance to use.
+            id: The ID of the trace to end.
+            data: The data to add to the trace.
+        """
         if data is None:
             data = {}
         BaseContainer._end_(
@@ -341,10 +519,28 @@ class Generation(BaseContainer):
 
     @staticmethod
     def add_tag_(writer: LogWriter, id: str, key: str, value: str):
+        """
+        Static method to add a tag to a trace.
+
+        Args:
+            writer: The LogWriter instance to use.
+            id: The ID of the trace to add the tag to.
+            key: The key of the tag to add.
+            value: The value of the tag to add.
+        """
         BaseContainer._add_tag_(writer, Entity.GENERATION, id, key, value)
 
     @staticmethod
     def convert_chat_completion(chat_completion: Dict[str, Any]):
+        """
+        Convert a chat completion to a generation result.
+
+        Args:
+            chat_completion: The chat completion to convert.
+
+        Returns:
+            A generation result.
+        """
         return {
             "id": chat_completion.get("id", str(uuid4())),
             "created": chat_completion.get("created", datetime.now(timezone.utc)),
@@ -371,6 +567,15 @@ class Generation(BaseContainer):
     def convert_result(
         result: Union[Any, GenerationResult, Dict[str, Any]],
     ) -> Union[Any, GenerationResult, Dict[str, Any]]:
+        """
+        Convert a result to a generation result.
+
+        Args:
+            result: The result to convert.
+
+        Returns:
+            A generation result.
+        """
         try:
             parse_result(result)
             return result
@@ -469,12 +674,18 @@ class Generation(BaseContainer):
             return result
 
     def result(self, result: Any):
+        """
+        Add a result to this trace.
+
+        Args:
+            result: The result to add.
+        """
         try:
             # Checking the type
             result = Generation.convert_result(result)
             # Validating the result
             parse_result(result)
-            # Logging the result
+            # Taking out attachments from the result
             self._commit("result", {"result": result})
             self.end()
         except ValueError as e:
@@ -486,6 +697,12 @@ class Generation(BaseContainer):
             )
 
     def error(self, error: Union[GenerationError, GenerationErrorTypedDict]):
+        """
+        Add an error to this trace.
+
+        Args:
+            error: The error to add.
+        """
         final_error = get_generation_error_config_dict(error)
         if not final_error.get("code"):
             final_error["code"] = ""
@@ -512,6 +729,14 @@ class Generation(BaseContainer):
         id: str,
         error: Union[GenerationError, GenerationErrorTypedDict],
     ):
+        """
+        Static method to add an error to a trace.
+
+        Args:
+            writer: The LogWriter instance to use.
+            id: The ID of the trace to add the error to.
+            error: The error to add.
+        """
         final_error = get_generation_error_config_dict(error)
         if not final_error.get("code"):
             final_error["code"] = ""
@@ -543,6 +768,12 @@ class Generation(BaseContainer):
         )
 
     def data(self) -> Dict[str, Any]:
+        """
+        Get the data for this trace.
+
+        Returns:
+            A dictionary containing the data for this trace.
+        """
         base_data = super().data()
         return {
             **base_data,

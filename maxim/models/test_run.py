@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, Union
 
 from ..evaluators import BaseEvaluator
-from ..models.dataset import Data, LocalData, T
+from ..models.dataset import Data, LocalData, T, Variable
 from .evaluator import (
     EvaluatorType,
     LocalEvaluationResultWithId,
@@ -14,31 +14,35 @@ from .evaluator import (
 
 @dataclass
 class YieldedOutputTokenUsage:
+    """
+    This class represents the token usage of a yielded output. Users can pass custom token usage to the `yieldsOutput` function.
+    """
+
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
-    latency: Optional[float]
+    latency: Optional[float] = None
 
     def __json__(self):
         ret_dict: Dict[str, Union[int, float]] = {}
         if self.prompt_tokens is not None:
-            ret_dict["promptTokens"] = self.prompt_tokens
+            ret_dict["prompt_tokens"] = self.prompt_tokens
         if self.completion_tokens is not None:
-            ret_dict["completionTokens"] = self.completion_tokens
+            ret_dict["completion_tokens"] = self.completion_tokens
         if self.total_tokens is not None:
-            ret_dict["totalTokens"] = self.total_tokens
+            ret_dict["total_tokens"] = self.total_tokens
         if self.latency is not None:
             ret_dict["latency"] = self.latency
         return ret_dict
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Union[int, float]]:
         ret_dict: Dict[str, Union[int, float]] = {}
         if self.prompt_tokens is not None:
-            ret_dict["promptTokens"] = self.prompt_tokens
+            ret_dict["prompt_tokens"] = self.prompt_tokens
         if self.completion_tokens is not None:
-            ret_dict["completionTokens"] = self.completion_tokens
+            ret_dict["completion_tokens"] = self.completion_tokens
         if self.total_tokens is not None:
-            ret_dict["totalTokens"] = self.total_tokens
+            ret_dict["total_tokens"] = self.total_tokens
         if self.latency is not None:
             ret_dict["latency"] = self.latency
         return ret_dict
@@ -51,15 +55,19 @@ class YieldedOutputTokenUsage:
     @classmethod
     def dict_to_class(cls, data: Dict[str, Any]):
         return cls(
-            prompt_tokens=data.get("promptTokens", 0),
-            completion_tokens=data.get("completionTokens", 0),
-            total_tokens=data.get("totalTokens", 0),
+            prompt_tokens=data.get("prompt_tokens", 0),
+            completion_tokens=data.get("completion_tokens", 0),
+            total_tokens=data.get("total_tokens", 0),
             latency=data.get("latency"),
         )
 
 
 @dataclass
 class YieldedOutputCost:
+    """
+    This class represents the cost of a yielded output. Users can pass custom cost to the `yieldsOutput` function.
+    """
+
     input_cost: float
     output_cost: float
     total_cost: float
@@ -94,6 +102,10 @@ class YieldedOutputCost:
 
 @dataclass
 class YieldedOutputMeta:
+    """
+    This class represents the meta of a yielded output. Users can pass custom meta to the `yieldsOutput` function.
+    """
+
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
     usage: Optional[YieldedOutputTokenUsage] = None
@@ -121,23 +133,8 @@ class YieldedOutputMeta:
         usage = data["usage"]
         cost = data["cost"]
         return cls(
-            usage=(
-                YieldedOutputTokenUsage(
-                    completion_tokens=usage.get("completionTokens", 0),
-                    prompt_tokens=usage.get("promptTokens", 0),
-                    total_tokens=usage.get("totalTokens", 0),
-                    latency=usage.get("latency", 0),
-                )
-                if usage
-                else None
-            ),
-            cost=YieldedOutputCost(
-                input_cost=cost.get("inputCost", 0),
-                output_cost=cost.get("outputCost", 0),
-                total_cost=cost.get("totalCost", 0),
-            )
-            if cost
-            else None,
+            usage=(YieldedOutputTokenUsage.dict_to_class(usage) if usage else None),
+            cost=(YieldedOutputCost.dict_to_class(cost) if cost else None),
         )
 
     @classmethod
@@ -145,21 +142,8 @@ class YieldedOutputMeta:
         usage = data.get("usage")
         cost = data.get("cost")
         return cls(
-            usage=YieldedOutputTokenUsage(
-                completion_tokens=usage.get("completionTokens", 0),
-                prompt_tokens=usage.get("promptTokens", 0),
-                total_tokens=usage.get("totalTokens", 0),
-                latency=usage.get("latency", 0),
-            )
-            if usage
-            else None,
-            cost=YieldedOutputCost(
-                input_cost=cost.get("inputCost", 0),
-                output_cost=cost.get("outputCost", 0),
-                total_cost=cost.get("totalCost", 0),
-            )
-            if cost
-            else None,
+            usage=(YieldedOutputTokenUsage.dict_to_class(usage) if usage else None),
+            cost=(YieldedOutputCost.dict_to_class(cost) if cost else None),
         )
 
 
@@ -176,6 +160,10 @@ class YieldedOutput:
 
 @dataclass
 class EvaluatorArgs:
+    """
+    This class represents the arguments of an evaluator.
+    """
+
     output: str
     input: Optional[str] = None
     expectedOutput: Optional[str] = None
@@ -224,6 +212,10 @@ class RunType(str, Enum):
 
 @dataclass
 class EvaluatorConfig:
+    """
+    This class represents the config of an evaluator.
+    """
+
     id: str
     name: str
     type: EvaluatorType
@@ -258,6 +250,10 @@ class EvaluatorConfig:
 
 @dataclass
 class TestRun:
+    """
+    This class represents a test run.
+    """
+
     id: str
     workspace_id: str
     eval_config: Dict[str, Any]
@@ -326,7 +322,11 @@ class TestRun:
 
 @dataclass
 class TestRunEntry:
-    data_entry: Dict[str, Union[str, List[str], None]]
+    """
+    This class represents an entry of a test run.
+    """
+
+    variables: Dict[str, Variable]
     output: Optional[str] = None
     input: Optional[str] = None
     expected_output: Optional[str] = None
@@ -352,8 +352,10 @@ class TestRunEntry:
                 if self.local_evaluation_results
                 else None
             )
-        if self.data_entry is not None:
-            result["dataEntry"] = self.data_entry
+        if self.variables is not None:
+            result["dataEntry"] = {
+                key: variable.to_json() for key, variable in self.variables.items()
+            }
 
         # Keeping only non None entries in result
         return {key: value for key, value in result.items() if value is not None}
@@ -366,13 +368,22 @@ class TestRunEntry:
                 "input": self.input,
                 "expectedOutput": self.expected_output,
                 "contextToEvaluate": self.context_to_evaluate,
-                "localEvaluationResults": [
-                    local_evaluation_result.to_dict()
-                    for local_evaluation_result in self.local_evaluation_results
-                ]
-                if self.local_evaluation_results
-                else None,
-                "dataEntry": self.data_entry,
+                "localEvaluationResults": (
+                    [
+                        local_evaluation_result.to_dict()
+                        for local_evaluation_result in self.local_evaluation_results
+                    ]
+                    if self.local_evaluation_results
+                    else None
+                ),
+                "dataEntry": (
+                    {
+                        key: variable.to_json()
+                        for key, variable in self.variables.items()
+                    }
+                    if self.variables
+                    else None
+                ),
             }.items()
             if value is not None
         }
@@ -385,23 +396,35 @@ class TestRunEntry:
     @classmethod
     def dict_to_class(cls, data: Dict[str, Any]) -> "TestRunEntry":
         local_evaluation_results = data.get("localEvaluationResults")
+        data_entry = data.get("dataEntry", {})
+        variables = {}
+        for key, value in data_entry.items():
+            if value is not None:
+                variables[key] = Variable.from_json(value)
+
         return cls(
             output=data.get("output", None),
             input=data.get("input", None),
             expected_output=data.get("expectedOutput", None),
             context_to_evaluate=data.get("contextToEvaluate", None),
-            data_entry=data.get("dataEntry", None),
-            local_evaluation_results=[
-                LocalEvaluationResultWithId.dict_to_class(local_evaluation_result)
-                for local_evaluation_result in local_evaluation_results
-            ]
-            if local_evaluation_results
-            else None,
+            variables=variables,
+            local_evaluation_results=(
+                [
+                    LocalEvaluationResultWithId.dict_to_class(local_evaluation_result)
+                    for local_evaluation_result in local_evaluation_results
+                ]
+                if local_evaluation_results
+                else None
+            ),
         )
 
 
 @dataclass
 class TestRunWithDatasetEntry(TestRun):
+    """
+    This class represents a test run with a dataset entry.
+    """
+
     def __init__(self, test_run: TestRun, dataset_entry_id: str, dataset_id: str):
         super().__init__(
             id=test_run.id,
@@ -466,6 +489,10 @@ class RunStatus(str, Enum):
 
 @dataclass
 class TestRunStatus:
+    """
+    This class represents the status of a test run.
+    """
+
     total_entries: int
     running_entries: int
     queued_entries: int
@@ -505,6 +532,10 @@ class TestRunStatus:
 
 @dataclass
 class EvaluatorMeanScore:
+    """
+    This class represents the mean score of an evaluator. This helps users to specify the score of an custom evaluator.
+    """
+
     score: Union[float, bool, str]
     out_of: Optional[float] = None
     is_pass: Optional[bool] = None
@@ -526,6 +557,10 @@ class EvaluatorMeanScore:
 
 @dataclass
 class TestRunTokenUsage:
+    """
+    This class represents the token usage of a test run.
+    """
+
     total: int
     input: int
     completion: int
@@ -553,6 +588,10 @@ class TestRunTokenUsage:
 
 @dataclass
 class TestRunCost:
+    """
+    This class represents the cost of a test run.
+    """
+
     total: float
     input: float
     completion: float
@@ -580,6 +619,10 @@ class TestRunCost:
 
 @dataclass
 class TestRunLatency:
+    """
+    This class represents the latency of a test run.
+    """
+
     min: float
     max: float
     p50: float
@@ -677,6 +720,10 @@ class TestRunResultObj:
 
 @dataclass
 class TestRunResult:
+    """
+    This class represents the result of a test run.
+    """
+
     link: str
     result: List[TestRunResultObj]
 
@@ -698,6 +745,10 @@ class TestRunResult:
 
 @dataclass
 class RunResult:
+    """
+    This class represents the result of a comparison test run.
+    """
+
     test_run_result: TestRunResult
     failed_entry_indices: List[int]
 
@@ -731,6 +782,7 @@ class ConsoleLogger(TestRunLogger):
     def error(self, message: str, e: Optional[Exception] = None) -> None:
         print(message, e)
 
+
 @dataclass
 class WorkflowConfig:
     id: str
@@ -754,6 +806,7 @@ class WorkflowConfig:
             context_to_evaluate=data.get("contextToEvaluate"),
         )
 
+
 @dataclass
 class PromptVersionConfig:
     id: str
@@ -776,6 +829,7 @@ class PromptVersionConfig:
             id=data["id"],
             context_to_evaluate=data.get("contextToEvaluate"),
         )
+
 
 @dataclass
 class PromptChainVersionConfig:
@@ -902,6 +956,7 @@ class ExecutePromptForDataResponse:
                 else None
             ),
         )
+
 
 @dataclass
 class ExecutePromptChainForDataResponse:

@@ -58,6 +58,45 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.9.2
+
+-improvement: Improves the network connection error handling for connection pool.
+
+### 3.9.1
+
+- fix: Fixes `enable_prompt_management` method bug. 
+
+### 3.9.0
+
+- fix: Some minor fixes in Maxim log repo checks, Anthropic client and Gemini client
+- feat: Improved memory management and better interrupt detection for LiveKit + Gemini.
+- feat: LiveKit + Tool call support is live.
+- feat: LiveKit support is now in beta (up from Alpha).
+
+### 3.8.5
+
+- chore: Adds session_id and room_id 
+
+### 3.8.4
+
+- fix: Fixes gemini + langchain integration to capture None finish_reason and usage_metadata
+
+### 3.8.3
+
+- fix: Fixes chunk and chat auto-tracing for gemini client
+
+### 3.8.2
+
+- feat: Adds one line integration for Portkey AI
+- fix: Fixes tool call parsing for OpenAI one line integration.
+- feat: Adds auto attachment parsing for vision models
+- fix: Exposes YieldedOutputTokens and YieldedOutputCost classes
+
+### 3.8.1
+
+- feat: Adds files support for test_runs
+- feat: Adds mistral tracing support
+
 ### 3.8.0
 
 - breaking change: We have renamed a few entities used in test runs.

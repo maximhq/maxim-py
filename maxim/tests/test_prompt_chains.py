@@ -7,19 +7,24 @@ from maxim.models import QueryBuilder, VariableType
 
 # reading testConfig.json and setting the values
 
-with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
+with open(str(f"{os.getcwd()}/maxim/tests/testConfig.json")) as f:
     data = json.load(f)
 
-# local config
-apiKey = data["dev"]["apiKey"]
-promptId = data["dev"]["promptId"]
-baseUrl = data["dev"]["baseUrl"]
-folderID = data["dev"]["folderId"]
-promptChainId = data["dev"]["promptChainId"]
+# local config using prod environment
+env = "prod"
+apiKey = data[env]["apiKey"]
+promptId = data[env]["promptId"]
+baseUrl = data[env]["baseUrl"]
+folderID = data[env]["folderId"]
+promptChainId = data[env]["promptChainVersionId"]
 
 
 class TestPromptChains(unittest.TestCase):
     def setUp(self):
+        # Clear singleton instance if it exists
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+
         self.maxim = Maxim(
             Config(api_key=apiKey, base_url=baseUrl, debug=True, prompt_management=True)
         )
@@ -29,6 +34,15 @@ class TestPromptChains(unittest.TestCase):
                 "payload": "Hello",
             },
         }
+
+    def tearDown(self):
+        # Clean up the Maxim instance
+        if hasattr(self, "maxim"):
+            self.maxim.cleanup()
+
+        # Clear singleton instance
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
 
     def test_getPromptChain_with_deployment_variables(self):
         promptChain = self.maxim.get_prompt_chain(

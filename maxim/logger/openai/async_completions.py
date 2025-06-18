@@ -1,13 +1,73 @@
-from typing import Optional
+from typing import AsyncIterator, List, Optional
 from uuid import uuid4
 
 from openai import AsyncOpenAI
 from openai.resources.chat import AsyncCompletions
+from openai.types.chat import ChatCompletionChunk
 from typing_extensions import override
 
 from ...scribe import scribe
-from ..logger import Generation, GenerationConfig, Logger, Trace, TraceConfig
+from ..logger import Generation, Logger, Trace
 from .utils import OpenAIUtils
+
+
+class AsyncStreamWrapper:
+    """
+    Async wrapper for OpenAI streaming chat completions that handles Maxim logging.
+
+    This class wraps an async OpenAI stream to automatically log generation results
+    and trace information when the stream is fully consumed. It accumulates chunks
+    as they are yielded and processes the complete response for logging when the
+    stream ends.
+    """
+
+    def __init__(
+        self,
+        stream: AsyncIterator[ChatCompletionChunk],
+        generation: Optional[Generation],
+        trace: Optional[Trace],
+        is_local_trace: bool,
+    ) -> None:
+        self._stream = stream
+        self._generation = generation
+        self._trace = trace
+        self._is_local_trace = is_local_trace
+        self._chunks: List[ChatCompletionChunk] = []
+        self._consumed = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            chunk = await self._stream.__anext__()
+            self._chunks.append(chunk)
+            return chunk
+        except StopAsyncIteration:
+            if not self._consumed:
+                self._consumed = True
+                try:
+                    if self._generation is not None and self._chunks:
+                        # Create a combined response from all chunks
+                        combined_response = OpenAIUtils.parse_completion_from_chunks(
+                            self._chunks
+                        )
+                        self._generation.result(combined_response)
+                    if self._is_local_trace and self._trace is not None:
+                        # Extract combined text from chunks
+                        combined_text = "".join(
+                            choice.delta.content or ""
+                            for chunk in self._chunks
+                            for choice in chunk.choices
+                            if hasattr(choice.delta, "content")
+                        )
+                        self._trace.set_output(combined_text)
+                        self._trace.end()
+                except Exception as e:
+                    scribe().warning(
+                        f"[MaximSDK][MaximAsyncOpenAIChatCompletions] Error in logging stream completion: {str(e)}"
+                    )
+            raise
 
 
 class MaximAsyncOpenAIChatCompletions(AsyncCompletions):
@@ -32,16 +92,18 @@ class MaximAsyncOpenAIChatCompletions(AsyncCompletions):
         generation: Optional[Generation] = None
         trace: Optional[Trace] = None
         messages = kwargs.get("messages", None)
+        is_streaming = kwargs.get("stream", False)
+
         try:
-            trace = self._logger.trace(TraceConfig(id=final_trace_id))
-            gen_config = GenerationConfig(
-                id=str(uuid4()),
-                model=model,
-                provider="openai",
-                name=generation_name,
-                model_parameters=OpenAIUtils.get_model_params(**kwargs),
-                messages=OpenAIUtils.parse_message_param(messages),
-            )
+            trace = self._logger.trace({"id": final_trace_id})
+            gen_config = {
+                "id": str(uuid4()),
+                "model": model,
+                "provider": "openai",
+                "name": generation_name,
+                "model_parameters": OpenAIUtils.get_model_params(**kwargs),
+                "messages": OpenAIUtils.parse_message_param(messages),
+            }
             generation = trace.generation(gen_config)
         except Exception as e:
             scribe().warning(
@@ -50,6 +112,11 @@ class MaximAsyncOpenAIChatCompletions(AsyncCompletions):
 
         response = await super().create(*args, **kwargs)
 
+        if is_streaming:
+            # For streaming responses, return a wrapped stream that handles logging
+            return AsyncStreamWrapper(response, generation, trace, is_local_trace)
+
+            # For non-streaming responses, log immediately
         try:
             if generation is not None:
                 generation.result(OpenAIUtils.parse_completion(response))

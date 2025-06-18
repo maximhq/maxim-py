@@ -17,6 +17,7 @@ _tool_call_ctx_var: ContextVar[Optional[ToolCall]] = ContextVar(
 
 
 def current_tool_call() -> Optional[ToolCall]:
+    """Get the current tool call from the context variable."""
     return _tool_call_ctx_var.get()
 
 
@@ -30,8 +31,22 @@ def tool_call(
     evaluators: Optional[List[str]] = None,
     evaluator_variables: Optional[Dict[str, str]] = None,
 ):
+    """Decorator for tracking tool calls.
+
+    This decorator wraps functions to automatically create and manage ToolCall
+    objects for tracking tool calls, including inputs, outputs, and metadata.
+    The decorated function must be called within a @trace or @span decorated context.
+    """
 
     def decorator(func):
+        """Decorator for tracking tool calls.
+
+        Args:
+            logger (Optional[Logger]): Maxim logger instance. If None, uses the current
+                logger from context.
+            id (Optional[str] or Optional[Callable], optional): The ID for the tool call. If callable, it will be called to generate the ID. Defaults to None.
+            name (Optional[str], optional): The name of the tool call. Defaults to None.
+        """
         if asyncio.iscoroutinefunction(func):
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
@@ -100,12 +115,21 @@ def tool_call(
 
             @wraps(func)
             def sync_wrapper(*args, **kwargs):
+                """Synchronous wrapper for tool call tracking.
+
+                Args:
+                    args (Any): The positional arguments passed to the decorated function.
+                    kwargs (Dict[str, Any]): The keyword arguments passed to the decorated function.
+
+                Returns:
+                    Any: The result of the decorated function.
+                """
                 # First check if the logger is available
                 maxim_logger = logger or current_logger()
                 if maxim_logger is None:
-                        raise ValueError(
-                            "[MaximSDK]: no logger found. either call this function from a @trace decorated function or pass a logger"
-                        )
+                    raise ValueError(
+                        "[MaximSDK]: no logger found. either call this function from a @trace decorated function or pass a logger"
+                    )
                 # Here there should be an active span or active trace
                 # If none of this is the case then we raise an error
                 if current_span() is None and current_trace() is None:

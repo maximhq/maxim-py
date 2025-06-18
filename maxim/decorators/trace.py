@@ -17,6 +17,7 @@ _maxim_ctx_var_logger: ContextVar[Optional[Logger]] = ContextVar(
 
 
 def current_logger() -> Optional[Logger]:
+    """Get the current logger from the context variable."""
     try:
         return _maxim_ctx_var_logger.get()
     except LookupError:
@@ -24,6 +25,7 @@ def current_logger() -> Optional[Logger]:
 
 
 def current_trace() -> Optional[Trace]:
+    """Get the current trace from the context variable."""
     try:
         return _maxim_ctx_var_trace.get()
     except LookupError:
@@ -39,7 +41,21 @@ def trace(
     evaluators: Optional[List[str]] = None,
     evaluator_variables: Optional[Dict[str, str]] = None,
 ):
+    """Decorator for tracking traces.
+
+    This decorator wraps functions to automatically create and manage Trace
+    objects for tracking trace operations, including inputs, outputs, and metadata.
+    The decorated function must be called within a @trace or @span decorated context.
+    """
+
     def decorator(func):
+        """Decorator for tracking traces.
+
+        Args:
+            logger (Logger): The logger to use for tracking the trace.
+            id (Optional[str] or Optional[Callable], optional): The ID for the trace. If callable, it will be called to generate the ID. Defaults to None.
+            sessionId (Optional[str] or Optional[Callable], optional): The session ID for the trace. If callable, it will be called to generate the session ID. Defaults to None.
+        """
         if asyncio.iscoroutinefunction(func):
 
             @wraps(func)

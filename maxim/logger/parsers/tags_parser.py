@@ -2,6 +2,16 @@ from typing import Union
 
 
 def parse_tags(data: dict) -> Union[None, dict]:
+    """
+    Parse tags from a dictionary.
+
+    Args:
+        data: The dictionary to parse.
+
+    Returns:
+        The parsed tags.
+    """
+
     if data is None:
         return None
     if not isinstance(data, dict):

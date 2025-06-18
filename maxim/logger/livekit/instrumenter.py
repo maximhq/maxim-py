@@ -1,7 +1,6 @@
-from livekit.agents import Agent, AgentSession, JobContext, Worker
-from livekit.agents.llm import RealtimeModel, RealtimeSession
+from livekit.agents import AgentSession, JobContext, Worker
+from livekit.agents.llm import RealtimeSession
 from livekit.agents.voice.agent_activity import AgentActivity
-from livekit.rtc import Room
 
 from ...logger import Logger
 from .agent_activity import instrument_agent_activity
@@ -26,7 +25,7 @@ def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
     3. Wraps all LLM methods (except special methods)
     """
     print(
-        "[MaximSDK] Warning: LiveKit instrumentation is in alpha state. Please report any issues here: https://github.com/maximhq/maxim-py/issues"
+        "[MaximSDK] Warning: LiveKit instrumentation is in beta phase. Please report any issues here: https://github.com/maximhq/maxim-py/issues"
     )
     set_maxim_logger(logger)
     set_livekit_callback(callback)

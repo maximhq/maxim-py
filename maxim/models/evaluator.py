@@ -15,6 +15,10 @@ class EvaluatorType(str, Enum):
 
 @dataclass
 class Evaluator:
+    """
+    This class represents an evaluator.
+    """
+
     id: str
     name: str
     type: EvaluatorType
@@ -63,10 +67,21 @@ OperatorType = Literal[">=", "<", "<=", ">", "=", "!="]
 
 @dataclass
 class LocalEvaluatorReturn:
+    """
+    This class represents the return value of a local evaluator.
+    """
+
     score: Union[int, bool, str]
     reasoning: Optional[str] = None
 
     def __init__(self, score: Union[int, bool, str], reasoning: Optional[str] = None):
+        """
+        This class represents the return value of a local evaluator.
+
+        Args:
+            score: The score of the evaluator.
+            reasoning: The reasoning of the evaluator.
+        """
         self.score = score
         self.reasoning = reasoning
 
@@ -105,10 +120,23 @@ class LocalEvaluatorReturn:
 
 @dataclass
 class PassFailCriteriaOnEachEntry:
-    score_should_be: OperatorType
-    value: Union[bool, int]
+    """
+    This class represents the pass fail criteria on each entry.
+    """
 
-    def __init__(self, score_should_be: OperatorType, value: Union[bool, int]):
+    score_should_be: OperatorType
+    value: Union[bool, int, float, None]
+
+    def __init__(
+        self, score_should_be: OperatorType, value: Union[bool, int, float, None]
+    ):
+        """
+        This class represents the pass fail criteria on each entry.
+
+        Args:
+            score_should_be: The score should be.
+            value: The value of the pass fail criteria.
+        """
         self.score_should_be = score_should_be
         self.value = value
 
@@ -147,6 +175,10 @@ class PassFailCriteriaOnEachEntry:
 
 @dataclass
 class PassFailCriteriaForTestrunOverall:
+    """
+    This class represents the pass fail criteria for the overall testrun.
+    """
+
     overall_should_be: OperatorType
     value: int
     for_result: Literal["average", "percentageOfPassedResults"]
@@ -157,6 +189,14 @@ class PassFailCriteriaForTestrunOverall:
         value: int,
         for_result: Literal["average", "percentageOfPassedResults"],
     ):
+        """
+        This class represents the pass fail criteria for the overall testrun.
+
+        Args:
+            overall_should_be: The overall should be.
+            value: The value of the pass fail criteria.
+            for_result: The for result.
+        """
         if isinstance(value, bool):
             raise ValueError("overall_should_be is required to be an int")
         self.overall_should_be = overall_should_be
@@ -201,6 +241,10 @@ class PassFailCriteriaForTestrunOverall:
 
 @dataclass
 class PassFailCriteria:
+    """
+    This class represents the pass fail criteria.
+    """
+
     on_each_entry: PassFailCriteriaOnEachEntry
     for_testrun_overall: PassFailCriteriaForTestrunOverall
 
@@ -209,6 +253,13 @@ class PassFailCriteria:
         on_each_entry_pass_if: PassFailCriteriaOnEachEntry,
         for_testrun_overall_pass_if: PassFailCriteriaForTestrunOverall,
     ):
+        """
+        This class represents the pass fail criteria.
+
+        Args:
+            on_each_entry_pass_if: The pass fail criteria on each entry.
+            for_testrun_overall_pass_if: The pass fail criteria for the overall testrun.
+        """
         self.on_each_entry = on_each_entry_pass_if
         self.for_testrun_overall = for_testrun_overall_pass_if
 
@@ -251,12 +302,23 @@ class PassFailCriteria:
 
 @dataclass
 class LocalEvaluatorResultParameter:
+    """
+    This class represents the result parameter of a local evaluator.
+    """
+
     output: str
     context_to_evaluate: Optional[Union[str, List[str]]]
 
     def __init__(
         self, output: str, context_to_evaluate: Optional[Union[str, List[str]]]
     ):
+        """
+        This class represents the result parameter of a local evaluator.
+
+        Args:
+            output: The output of the local evaluator.
+            context_to_evaluate: The context to evaluate.
+        """
         self.output = output
         self.context_to_evaluate = context_to_evaluate
 
@@ -295,6 +357,10 @@ class LocalEvaluatorResultParameter:
 
 @dataclass
 class LocalEvaluationResult:
+    """
+    This class represents the result of a local evaluation.
+    """
+
     result: LocalEvaluatorReturn
     name: str
     pass_fail_criteria: PassFailCriteria
@@ -305,6 +371,14 @@ class LocalEvaluationResult:
         name: str,
         pass_fail_criteria: PassFailCriteria,
     ):
+        """
+        This class represents the result of a local evaluation.
+
+        Args:
+            result: The result of the local evaluation.
+            name: The name of the local evaluation.
+            pass_fail_criteria: The pass fail criteria of the local evaluation.
+        """
         self.result = result
         self.name = name
         self.pass_fail_criteria = pass_fail_criteria
@@ -347,6 +421,10 @@ class LocalEvaluationResult:
 
 @dataclass
 class LocalEvaluationResultWithId(LocalEvaluationResult):
+    """
+    This class represents the result of a local evaluation with an id.
+    """
+
     id: str
 
     def __init__(
@@ -356,6 +434,15 @@ class LocalEvaluationResultWithId(LocalEvaluationResult):
         pass_fail_criteria: PassFailCriteria,
         id: str,
     ):
+        """
+        This class represents the result of a local evaluation with an id.
+
+        Args:
+            result: The result of the local evaluation.
+            name: The name of the local evaluation.
+            pass_fail_criteria: The pass fail criteria of the local evaluation.
+            id: The id of the local evaluation.
+        """
         super().__init__(result, name, pass_fail_criteria)
         self.id = id
 

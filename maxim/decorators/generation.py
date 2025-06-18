@@ -16,6 +16,12 @@ _generation_ctx_var: ContextVar[Optional[Generation]] = ContextVar(
 
 
 def current_generation() -> Optional[Generation]:
+    """Get the current generation from the context variable.
+
+    Returns:
+        Optional[Generation]: The current generation instance if one exists,
+            otherwise None.
+    """
     return _generation_ctx_var.get()
 
 
@@ -28,11 +34,59 @@ def generation(
     evaluators: Optional[List[str]] = None,
     evaluator_variables: Optional[Dict[str, str]] = None,
 ):
+    """Decorator for tracking AI model generations with Maxim logging.
+
+    This decorator wraps functions to automatically create and manage Generation
+    objects for tracking AI model calls, including inputs, outputs, and metadata.
+    The decorated function must be called within a @trace or @span decorated context.
+
+    Args:
+        logger (Optional[Logger]): Maxim logger instance. If None, uses the current
+            logger from context.
+        id (Optional[Union[Callable, str]]): Generation ID. Can be a string or a
+            callable that returns a string. If None, generates a UUID.
+        name (Optional[str]): Human-readable name for the generation.
+        maxim_prompt_id (Optional[str]): ID of the Maxim prompt template used.
+        tags (Optional[Dict[str, str]]): Key-value pairs for tagging the generation.
+        evaluators (Optional[List[str]]): List of evaluator names to run on this
+            generation.
+        evaluator_variables (Optional[Dict[str, str]]): Variables to pass to
+            evaluators.
+
+    Returns:
+        Callable: The decorator function that wraps the target function.
+
+    Raises:
+        ValueError: If no logger is found or if called outside of a trace/span context
+            when raise_exceptions is True.
+
+    Example:
+        ```python
+        import maxim
+
+        logger = maxim.Logger(api_key="your-api-key")
+
+        @logger.trace()
+        def my_ai_workflow():
+            result = generate_text("Hello world")
+            return result
+
+        @generation(
+            name="text_generation",
+            tags={"model": "gpt-4", "temperature": "0.7"},
+            evaluators=["coherence", "relevance"]
+        )
+        def generate_text(prompt: str) -> str:
+            # Your AI generation logic here
+            return "Generated response"
+        ```
+    """
     def decorator(func):
         if asyncio.iscoroutinefunction(func):
 
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
+                """Async wrapper for generation tracking."""
                 # First check if the logger is available
                 maxim_logger = logger
                 if maxim_logger is None:
@@ -90,6 +144,7 @@ def generation(
         else:
             @wraps(func)
             def sync_wrapper(*args, **kwargs):
+                """Synchronous wrapper for generation tracking."""
                 # First check if the logger is available
                 maxim_logger = logger or current_logger()
                 if maxim_logger is None:

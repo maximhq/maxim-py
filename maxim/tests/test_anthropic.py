@@ -1,128 +1,222 @@
-import json
-import logging
+import dotenv
 import os
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
-from anthropic import Anthropic
+from anthropic import Anthropic, MessageStreamManager
 from anthropic.types import Message, MessageParam
 
-from maxim import Config, Maxim
-from maxim.logger import (
-    GenerationConfig,
-    GenerationRequestMessage,
-    LoggerConfig,
-    TraceConfig,
-)
-from maxim.logger.anthropic import MaximAnthropicAsyncClient, MaximAnthropicClient
-
-# Load test config
-with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
-
-logging.basicConfig(level=logging.DEBUG)
-env = "dev"
-
-anthropicApiKey = data["anthropicApiKey"]
-apiKey = data[env]["apiKey"]
-baseUrl = data[env]["baseUrl"]
-repoId = data[env]["repoId"]
+from maxim import Maxim
+from maxim.logger.anthropic import MaximAnthropicClient
+from maxim.tests.mock_writer import inject_mock_writer
 
 
-class TestAsyncAnthropic(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.logger = Maxim(Config(api_key=apiKey, base_url=baseUrl)).logger(
-            LoggerConfig(id=repoId)
-        )
-
-    async def test_async_messages(self):
-        client = MaximAnthropicClient(
-            Anthropic(api_key=anthropicApiKey), logger=self.logger
-        ).aio
-        response = await client.messages(
-            messages=[{"role": "user", "content": "Explain how AI works"}],
-            model="claude-3-sonnet-20240229",
-            max_tokens=1000,
-        )
-        print(response)
-
-    async def test_async_messages_stream(self):
-        client = MaximAnthropicClient(
-            Anthropic(api_key=anthropicApiKey), logger=self.logger
-        ).aio
-        response = client.messages_stream(
-            messages=[{"role": "user", "content": "Explain how AI works"}],
-            model="claude-3-sonnet-20240229",
-            max_tokens=1000,
-        )
-        async for chunk in response:
-            print(chunk or "", end="")
-
-    async def asyncTearDown(self) -> None:
-        self.logger.flush()
+dotenv.load_dotenv()
 
 
-class TestAnthropic(unittest.TestCase):
+anthropicApiKey = os.getenv("ANTHROPIC_API_KEY")
+apiKey = os.getenv("MAXIM_API_KEY")
+baseUrl = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
+repoId = os.getenv("MAXIM_LOG_REPO_ID")
+
+
+class TestAnthropicWithMockWriter(unittest.TestCase):
+    """Test class demonstrating how to use MockLogWriter for verification."""
+
     def setUp(self):
-        self.logger = Maxim(Config(api_key=apiKey, base_url=baseUrl)).logger(
-            LoggerConfig(id=repoId)
-        )
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        # Create logger and patch its writer
+        self.logger = Maxim().logger()
+        self.mock_writer = inject_mock_writer(self.logger)
 
-    def test_messages(self):
-        client = Anthropic(api_key=anthropicApiKey)
-        trace = self.logger.trace(TraceConfig(id=str(uuid4())))
-        config = GenerationConfig(
-            id=str(uuid4()),
-            model="claude-3-5-sonnet-latest",
-            provider="anthropic",
-            model_parameters={"max_tokens": 1000},
-            messages=[
-                GenerationRequestMessage(role="user", content="Explain how AI works")
-            ],
+    def test_messages_with_mock_writer_verification(self):
+        """Test that demonstrates verifying logged commands with mock writer."""
+        client = MaximAnthropicClient(
+            Anthropic(api_key=anthropicApiKey), logger=self.logger
         )
-        generation = trace.generation(config)
+        # Make the API call
         response = client.messages.create(
             messages=[{"role": "user", "content": "Explain how AI works"}],
             model="claude-3-sonnet-20240229",
             max_tokens=1000,
         )
-        generation.result(response)        
+
+        # Flush the logger to ensure all logs are processed
+        self.logger.flush()
+
+        # Print logs summary for debugging
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have at least one log
+        all_logs = self.mock_writer.get_all_logs()
+        self.assertGreater(len(all_logs), 0, "Expected at least one log to be captured")
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
+        # Verify that flush was called
+        self.assertGreater(
+            self.mock_writer.flush_count, 0, "Expected flush to be called"
+        )
+
+    def test_stream_with_mock_writer_verification(self):
+        """Test streaming with mock writer verification."""
+        client = MaximAnthropicClient(
+            Anthropic(api_key=anthropicApiKey), logger=self.logger
+        )
+
+        # Clear any existing logs
+        self.mock_writer.clear_logs()
+
+        # Make the streaming API call and exhaust the stream
+        response = client.messages.create_stream(
+            messages=[{"role": "user", "content": "Explain how AI works"}],
+            model="claude-3-sonnet-20240229",
+            max_tokens=1000,
+        )
+
+        self.assertIsInstance(response, MessageStreamManager)
+        with response as stream:
+            for event in stream:
+                pass
+
+        # Flush the logger
+        self.logger.flush()
+
+        # Print logs summary for debugging
+        self.mock_writer.print_logs_summary()
+
+        # Assert that we have exactly 1 add-generation log
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+
+        # Assert that we have exactly 1 result log on generation
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+
+        # Assert that we have exactly 1 trace create log
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+
+        # Assert that we have exactly 1 trace end log
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
+    def tearDown(self) -> None:
+        # Print final summary for debugging
+        self.mock_writer.print_logs_summary()
+
+        # Cleanup the mock writer
+        self.mock_writer.cleanup()
+        return super().tearDown()
+
+
+class TestAnthropic(unittest.TestCase):
+    def setUp(self):
+        # This is a hack to ensure that the Maxim instance is not cached
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        self.logger = Maxim().logger()
+        self.mock_writer = inject_mock_writer(self.logger)
 
     def test_messages_using_wrapper(self):
         client = MaximAnthropicClient(
             Anthropic(api_key=anthropicApiKey), logger=self.logger
         )
-        response = client.messages(
+        response = client.messages.create(
             messages=[{"role": "user", "content": "Explain how AI works"}],
             model="claude-3-sonnet-20240229",
             max_tokens=1000,
-        )        
+        )
+        self.assertIsNotNone(response)
+        self.assertTrue(hasattr(response, "content"))
+        self.assertTrue(isinstance(response.content, list))
+        self.assertTrue(len(response.content) > 0)
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
 
     def test_messages_stream_using_wrapper(self):
         client = MaximAnthropicClient(
             Anthropic(api_key=anthropicApiKey), logger=self.logger
         )
-        response = client.messages_stream(
+        response = client.messages.create_stream(
             messages=[{"role": "user", "content": "Explain how AI works"}],
             model="claude-3-sonnet-20240229",
             max_tokens=1000,
         )
+
+        # Verify response is a MessageStreamManager
+        self.assertIsInstance(response, MessageStreamManager)
+
+        # Consume the stream
+        event_count = 0
         for event in response:
-            pass
+            event_count += 1
+
+        # Verify we received events
+        self.assertGreater(event_count, 0, "Expected to receive streaming events")
+
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+
     def test_messages_with_system_prompt(self):
         client = MaximAnthropicClient(
             Anthropic(api_key=anthropicApiKey), logger=self.logger
         )
-        response = client.messages(
+        response = client.messages.create(
             system="You are a helpful coding assistant",
             messages=[
-                {"role": "user", "content": "Write a simple Python function to calculate factorial"},
+                {
+                    "role": "user",
+                    "content": "Write a simple Python function to calculate factorial",
+                },
             ],
             model="claude-3-sonnet-20240229",
             max_tokens=1000,
         )
-        print(response)
+
+        # Verify the response structure
+        self.assertIsInstance(response, Message)
+        self.assertTrue(hasattr(response, "content"))
+        self.assertTrue(isinstance(response.content, list))
+        self.assertTrue(len(response.content) > 0)
+
+        # Verify the response contains code (since we asked for a function)
+        response_text = ""
+        for content_block in response.content:
+            if hasattr(content_block, "text"):
+                response_text += content_block.text
+
+        self.assertIn(
+            "def",
+            response_text.lower(),
+            "Expected response to contain a function definition",
+        )
+        self.assertIn(
+            "factorial", response_text.lower(), "Expected response to mention factorial"
+        )
+
+        # Flush the logger and verify logging
+        self.logger.flush()
+        self.mock_writer.print_logs_summary()
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
 
     def tearDown(self) -> None:
-        self.logger.flush()
         return super().tearDown()

@@ -9,7 +9,7 @@ from typing import Union
 
 from crewai import LLM, Agent, Crew, Flow, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
-from crewai.tools.base_tool import BaseTool
+from crewai.tools.agent_tools import BaseTool
 
 from ...logger import (
     Generation,
@@ -50,10 +50,24 @@ def get_log_level(debug: bool) -> int:
 
 
 class MaximUsageCallback:
+    """Maxim usage callback.
+
+    This class represents a usage callback.
+    """
+
     def __init__(self, generation_id: str):
+        """Initialize a usage callback."""
         self.generation_id = generation_id
 
     def log_success_event(self, kwargs, response_obj, start_time, end_time):
+        """Log a success event.
+
+        Args:
+            kwargs: The kwargs.
+            response_obj: The response object.
+            start_time: The start time.
+            end_time: The end time.
+        """
         global _last_llm_usages
         usage_info = response_obj.get("usage")
         if usage_info:
@@ -79,6 +93,11 @@ class MaximUsageCallback:
 
 # --- Wrapper Factory for _handle_non_streaming_response ---
 def make_handle_non_streaming_wrapper(original_method):
+    """Make a handle non streaming wrapper.
+
+    This function wraps the original method to capture usage.
+    """
+
     @functools.wraps(original_method)
     def handle_non_streaming_wrapper(
         self,
@@ -134,9 +153,6 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
         debug (bool): If True, show INFO and DEBUG logs. If False, show only WARNING and ERROR logs.
     """
     global logger
-
-    # Set the logging level based on debug parameter
-    scribe().setLevel(get_log_level(debug))
 
     def make_maxim_wrapper(
         original_method,

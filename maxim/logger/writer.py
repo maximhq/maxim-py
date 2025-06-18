@@ -12,10 +12,21 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from http.client import RemoteDisconnected
 from queue import Queue
 from typing import Optional
 
 import filetype
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    ConnectTimeout,
+    ReadTimeout,
+)
+from urllib3.exceptions import (
+    ConnectTimeoutError,
+    NewConnectionError,
+    ReadTimeoutError,
+)
 
 from ..apis import MaximAPI
 from ..scribe import scribe
@@ -118,7 +129,7 @@ class LogWriter:
                 raise ValueError(
                     "flush_interval is set to None.flush_interval has to be a number"
                 )
-    
+
     @property
     def repository_id(self):
         """
@@ -155,7 +166,7 @@ class LogWriter:
             return
         try:
             if "data" not in attachment:
-                scribe().error(
+                scribe().warning(
                     "[MaximSDK] Data is not set for file attachment. Skipping upload"
                 )
                 return
@@ -207,7 +218,7 @@ class LogWriter:
             return
         try:
             if "path" not in attachment:
-                scribe().error(
+                scribe().warning(
                     "[MaximSDK] Path is not set for file data attachment. Skipping upload"
                 )
                 return
@@ -291,7 +302,7 @@ class LogWriter:
             self.upload_file_data(add_attachment_log)
         elif type == "url":
             if "url" not in add_attachment_log.data:
-                scribe().error(
+                scribe().warning(
                     f"[MaximSDK] URL is not set for attachment. Skipping upload. Attachment: {add_attachment_log.serialize()}"
                 )
                 return
@@ -339,7 +350,7 @@ class LogWriter:
                     file.write(log.serialize() + "\n")
             return filepath
         except Exception as e:
-            scribe().info(
+            scribe().warning(
                 f"[MaximSDK] Failed to write logs to file. We will keep it in memory. Error: {e}"
             )
             if self.raise_exceptions:
@@ -425,31 +436,52 @@ class LogWriter:
                 batch_content = "\n".join(current_batch)
                 self.maxim_api.push_logs(self.config.repository_id, batch_content)
             scribe().debug("[MaximSDK] Flush complete")
+        except (
+            RemoteDisconnected,
+            RequestsConnectionError,
+            ConnectTimeout,
+            ReadTimeout,
+            ConnectTimeoutError,
+            NewConnectionError,
+            ReadTimeoutError,
+        ) as e:
+            # Handle specific connection interruption exceptions
+            scribe().warning(
+                f"[MaximSDK] Connection to server was interrupted. This issue has been improved with better retry logic. Error: {e}. Storing logs locally and will retry."
+            )
+            self._handle_flush_failure(logs, e)
         except Exception as e:
-            scribe().error(
+            # Handle all other exceptions
+            scribe().warning(
                 f"[MaximSDK] Failed to push logs to server. Error: {e}. We are trying to store logs in a file and push it later."
             )
-            if self.is_running_on_lambda():
-                scribe().debug(
-                    "[MaximSDK] As we are running on lambda - we will keep logs in memory for next attempt"
+            self._handle_flush_failure(logs, e)
+
+    def _handle_flush_failure(self, logs: list[CommitLog], error: Exception):
+        """
+        Handle failure to flush logs by storing them locally or keeping in memory.
+
+        Args:
+            logs: List of CommitLog objects that failed to flush.
+            error: The exception that caused the failure.
+        """
+        if self.is_running_on_lambda():
+            scribe().debug(
+                "[MaximSDK] As we are running on lambda - we will keep logs in memory for next attempt"
+            )
+            for log in logs:
+                self.queue.put(log)
+            scribe().debug("[MaximSDK] Logs added back to queue for next attempt")
+        else:
+            if self.can_access_filesystem():
+                self.write_to_file(logs)
+                scribe().warning(
+                    f"[MaximSDK] Failed to push logs to server. Writing logs to file. Error: {error}"
                 )
+            else:
                 for log in logs:
                     self.queue.put(log)
-                    scribe().debug(
-                        "[MaximSDK] Logs added back to queue for next attempt"
-                    )
-            else:
-                if self.can_access_filesystem():
-                    self.write_to_file(logs)
-                    scribe().warning(
-                        f"[MaximSDK] Failed to push logs to server. Writing logs to file. Error: {e}"
-                    )
-                else:
-                    for log in logs:
-                        self.queue.put(log)
-                        scribe().debug(
-                            "[MaximSDK] Logs added back to queue for next attempt"
-                        )
+                scribe().debug("[MaximSDK] Logs added back to queue for next attempt")
 
     def commit(self, log: CommitLog):
         """
@@ -473,7 +505,7 @@ class LogWriter:
         if log.action == "upload-attachment":
             if log.data is None:
                 # We can't upload the attachment
-                scribe().error(
+                scribe().warning(
                     f"[MaximSDK] Attachment data is not set for log. Skipping upload. Log: {log.serialize()}"
                 )
                 return
@@ -517,7 +549,7 @@ class LogWriter:
             try:
                 self.upload_executor.submit(self.upload_attachments, items)
             except Exception as e:
-                scribe().error(
+                scribe().warning(
                     f"[MaximSDK] Error while flushing attachments from worker. Error: {e}.\nFlushing synchronously"
                 )
                 self.upload_attachments(items)
@@ -550,7 +582,7 @@ class LogWriter:
             try:
                 self.executor.submit(self.flush_logs, items)
             except Exception as e:
-                scribe().error(
+                scribe().warning(
                     f"[MaximSDK] Error while flushing logs from worker. Error: {e}.\nFlushing synchronously"
                 )
                 self.flush_logs(items)

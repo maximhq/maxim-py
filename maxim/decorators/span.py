@@ -14,15 +14,19 @@ from .trace import current_logger, current_trace
 
 @dataclass
 class _SpanStack:
+    """Stack of spans."""
     _stack: List[Span] = field(default_factory=list)
 
     def push(self, span: Span) -> None:
+        """Push a span onto the stack."""
         self._stack.append(span)
 
     def pop(self) -> Optional[Span]:
+        """Pop a span from the stack."""
         return self._stack.pop() if self._stack else None
 
     def current(self) -> Optional[Span]:
+        """Get the current span from the stack."""
         return self._stack[-1] if self._stack else None
 
 
@@ -32,16 +36,19 @@ _span_ctx_var: ContextVar[_SpanStack] = ContextVar(
 
 
 def current_span() -> Optional[Span]:
+    """Get the current span from the stack."""
     return _span_ctx_var.get().current()
 
 
 @contextmanager
 def _push_span(span: Span):
+    """Push a span onto the stack."""
     stack = _span_ctx_var.get()
     token = _span_ctx_var.set(_SpanStack([*stack._stack, span]))
     try:
         yield span
     finally:
+        """Reset the span stack."""
         _span_ctx_var.reset(token)
 
 
@@ -117,7 +124,7 @@ def span(
                         evaluator_variables if evaluator_variables is not None else {}
                     )
                 # If actual_trace_id is None, we will try to get the current trace id
-                try:
+                try:                    
                     with _push_span(span):
                         return await func(*args, **kwargs)
                 finally:
