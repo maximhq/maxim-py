@@ -10,6 +10,17 @@ from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
 
+def clean_title_text(text: str) -> str:
+    """Clean title text by removing markdown links and other unwanted formatting."""
+    # Remove markdown links [text](url) and keep just the text
+    import re
+
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    # Remove any remaining markdown formatting
+    text = text.replace("**", "").replace("*", "").replace("`", "")
+    return text.strip()
+
+
 def clean_content(
     content: str, all_definitions: Dict[str, Dict[str, str]] = None
 ) -> str:
@@ -21,6 +32,15 @@ def clean_content(
     content = re.sub(
         r"^## ([A-Za-z_][A-Za-z0-9_]*) Objects$", r"## \1", content, flags=re.MULTILINE
     )
+
+    # Clean up ALL headers to remove unwanted markdown links
+    lines = content.split("\n")
+    for i, line in enumerate(lines):
+        if line.startswith("#"):
+            # Extract just the text content from ANY header, removing all markdown links
+            title_text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
+            lines[i] = title_text
+    content = "\n".join(lines)
 
     # Remove empty lines at the beginning
     content = content.lstrip("\n")
@@ -245,9 +265,38 @@ def convert_attributes_to_table(
     result_lines = []
     i = 0
     in_code_block = False
+    in_frontmatter = False
+    frontmatter_start_seen = False
 
     while i < len(lines):
         line = lines[i]
+
+        # Track if we're inside frontmatter
+        if line.strip() == "---":
+            if not frontmatter_start_seen:
+                # First --- marks start of frontmatter
+                frontmatter_start_seen = True
+                in_frontmatter = True
+                result_lines.append(line)
+                i += 1
+                continue
+            elif in_frontmatter:
+                # Second --- marks end of frontmatter
+                in_frontmatter = False
+                result_lines.append(line)
+                i += 1
+                continue
+            else:
+                # Standalone --- (not frontmatter)
+                result_lines.append(line)
+                i += 1
+                continue
+
+        # Skip processing if we're in frontmatter
+        if in_frontmatter:
+            result_lines.append(line)
+            i += 1
+            continue
 
         # Track if we're inside a code block
         if line.strip().startswith("```"):
@@ -374,8 +423,10 @@ def convert_attributes_to_table(
             continue
         else:
             # Add internal links to any line that might contain type references
-            # Skip if we're in a code block or the line contains backticks
-            if not (in_code_block or "`" in line):
+            # Skip if we're in a code block, frontmatter, the line contains backticks, or it's a main title
+            if not (
+                in_code_block or in_frontmatter or "`" in line or line.startswith("# ")
+            ):
                 modified_line = add_type_links(line, in_code_block)
                 result_lines.append(modified_line)
             else:
@@ -392,15 +443,29 @@ def is_content_meaningful(content: str) -> bool:
     # Remove extra whitespace and split into lines
     lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
 
-    # Filter out just headings and empty content
+    # Filter out just headings, empty content, and GitHub links
     meaningful_lines = [
         line
         for line in lines
-        if not line.startswith("#") and not line.startswith("**") and len(line) > 10
+        if not line.startswith("#")
+        and not line.startswith("**")
+        and not line.startswith("[View")
+        and len(line) > 10
+        and not line.strip() == ""
     ]
 
-    # Must have at least 3 meaningful lines or 50+ characters of content
-    return len(meaningful_lines) >= 2 or len(cleaned) >= 50
+    # Must have substantial content - at least one class or function definition
+    has_class_or_function = any(
+        line.startswith("```python")
+        or line.startswith("class ")
+        or line.startswith("def ")
+        or line.startswith("#### ")  # Function headers
+        or line.startswith("## ")  # Class headers
+        for line in lines
+    )
+
+    # Must have meaningful lines AND actual definitions
+    return len(meaningful_lines) >= 3 and has_class_or_function and len(cleaned) >= 100
 
 
 def parse_toc_structure(content: str) -> Dict[str, List[str]]:
@@ -411,18 +476,22 @@ def parse_toc_structure(content: str) -> Dict[str, List[str]]:
 
     for line in lines:
         if line.startswith("* [maxim."):
-            # Extract module name
+            # Extract module name and clean any markdown links
             match = re.search(r"\[([^]]+)\]", line)
             if match:
                 module_name = match.group(1)
+                # Clean any nested markdown links from the module name
+                module_name = clean_title_text(module_name)
                 if module_name not in modules:
                     modules[module_name] = []
                 current_module = module_name
         elif line.startswith("  * [") and current_module:
-            # Extract submodule name
+            # Extract submodule name and clean any markdown links
             match = re.search(r"\[([^]]+)\]", line)
             if match:
                 submodule_name = match.group(1)
+                # Clean any nested markdown links from the submodule name
+                submodule_name = clean_title_text(submodule_name)
                 modules[current_module].append(submodule_name)
 
     return modules
@@ -457,6 +526,94 @@ def create_docs_json_path(module_name: str) -> str:
     return f"sdk/python/references/{sanitized}"
 
 
+def generate_descriptive_title(
+    module_name: str, title_registry: Dict[str, List[str]] = None
+) -> str:
+    """Generate a basic descriptive title for a module."""
+    # Remove 'maxim.' prefix
+    clean_name = module_name
+    if clean_name.startswith("maxim."):
+        clean_name = clean_name[6:]
+
+    # Split into parts
+    parts = clean_name.split(".")
+
+    def clean_part(part: str) -> str:
+        """Clean a module part by removing backslashes and converting underscores to spaces."""
+        return part.replace("\\_", "_").replace("_", " ")
+
+    if len(parts) == 1:
+        # Top-level module, just capitalize and clean underscores
+        title = clean_part(parts[0]).title()
+        return clean_title_text(title)
+
+    # For nested modules, create a descriptive title
+    last_part = parts[-1]
+    parent_parts = parts[:-1]
+
+    # Clean underscores from all parts
+    clean_last_part = clean_part(last_part)
+
+    if last_part == "__init__":
+        # For __init__ modules, use the parent name
+        clean_parent_parts = [clean_part(part) for part in parent_parts]
+        title = " ".join(part.title() for part in clean_parent_parts)
+        return clean_title_text(title)
+    else:
+        # For all other modules, convert underscores to camel case
+        raw_last_part = parts[-1].replace("\\_", "_")
+        camel_case_part = "".join(
+            word.capitalize() for word in raw_last_part.split("_")
+        )
+        return clean_title_text(camel_case_part)
+
+
+def resolve_title_collisions(module_titles: Dict[str, str]) -> Dict[str, str]:
+    """Resolve title collisions by adding parent context to duplicate titles."""
+    # Group modules by their generated titles
+    title_groups = {}
+    for module_name, title in module_titles.items():
+        if title not in title_groups:
+            title_groups[title] = []
+        title_groups[title].append(module_name)
+
+    # Resolve collisions
+    resolved_titles = {}
+    for title, modules in title_groups.items():
+        if len(modules) == 1:
+            # No collision, keep original title
+            resolved_titles[modules[0]] = title
+        else:
+            # Collision detected, add parent context to all conflicting modules
+            for module_name in modules:
+                clean_name = module_name
+                if clean_name.startswith("maxim."):
+                    clean_name = clean_name[6:]
+
+                parts = clean_name.split(".")
+
+                def clean_part(part: str) -> str:
+                    return part.replace("\\_", "_").replace("_", " ")
+
+                if len(parts) >= 2:
+                    # Add one level of parent context using dot notation
+                    parent_part = parts[-2].replace(
+                        "\\_", "_"
+                    )  # Keep original case for parent
+                    last_part = parts[-1].replace("\\_", "_")
+                    # Convert underscores to camel case for the entity
+                    camel_case_part = "".join(
+                        word.capitalize() for word in last_part.split("_")
+                    )
+                    title = f"{parent_part}.{camel_case_part}"
+                    resolved_titles[module_name] = clean_title_text(title)
+                elif len(parts) == 1:
+                    # Fallback to original title if no parent available
+                    resolved_titles[module_name] = clean_title_text(title)
+
+    return resolved_titles
+
+
 def extract_module_content(content: str, module_name: str) -> str:
     """Extract content for a specific module."""
     lines = content.split("\n")
@@ -479,6 +636,28 @@ def extract_module_content(content: str, module_name: str) -> str:
             break
 
     module_content = "\n".join(lines[start_idx:end_idx])
+
+    # Generate descriptive title for frontmatter
+    descriptive_title = generate_descriptive_title(module_name)
+
+    # Remove the original H1 title and replace with MDX frontmatter
+    module_content = module_content.replace(f"# {module_name}", "", 1)
+
+    # Add module-level GitHub source link
+    module_github_link = get_github_source_link(module_name)
+
+    # Create MDX frontmatter and content
+    frontmatter = f"""---
+title: {descriptive_title}
+---
+
+[View module source on GitHub]({module_github_link})
+
+"""
+
+    # Combine frontmatter with cleaned content
+    module_content = frontmatter + module_content.lstrip()
+
     return module_content
 
 
@@ -558,8 +737,10 @@ def main():
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
-    # Process each module
-    created_files = []
+    # First pass: generate initial titles and check for collisions
+    module_titles = {}
+    meaningful_modules = []
+
     for module_name in modules:
         # Skip the top-level 'maxim' module
         if module_name == "maxim":
@@ -572,6 +753,58 @@ def main():
         if not is_content_meaningful(module_content):
             print(f"Skipping {module_name} (empty/minimal content)")
             continue
+
+        meaningful_modules.append(module_name)
+        module_titles[module_name] = generate_descriptive_title(module_name)
+
+    # Resolve title collisions
+    resolved_titles = resolve_title_collisions(module_titles)
+
+    # Second pass: create files with resolved titles
+    created_files = []
+    for module_name in meaningful_modules:
+        # Get the resolved title
+        resolved_title = resolved_titles[module_name]
+
+        # Extract module content with custom title
+        lines = content.split("\n")
+        start_idx = None
+        end_idx = len(lines)
+
+        # Find the start of this module's content - look for # heading
+        for i, line in enumerate(lines):
+            if line.strip() == f"# {module_name}":
+                start_idx = i
+                break
+
+        if start_idx is None:
+            continue
+
+        # Find the end (next # heading at the same level)
+        for i in range(start_idx + 1, len(lines)):
+            if lines[i].startswith("# ") and not lines[i].startswith("## "):
+                end_idx = i
+                break
+
+        module_content = "\n".join(lines[start_idx:end_idx])
+
+        # Remove the original H1 title
+        module_content = module_content.replace(f"# {module_name}", "", 1)
+
+        # Add module-level GitHub source link
+        module_github_link = get_github_source_link(module_name)
+
+        # Create MDX frontmatter with resolved title
+        frontmatter = f"""---
+title: {resolved_title}
+---
+
+[View module source on GitHub]({module_github_link})
+
+"""
+
+        # Combine frontmatter with cleaned content
+        module_content = frontmatter + module_content.lstrip()
 
         # Add GitHub source links
         enhanced_content = add_github_source_links(module_content, all_definitions)
@@ -589,7 +822,7 @@ def main():
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(cleaned_content)
 
-        print(f"Created: {file_path}")
+        print(f"Created: {file_path} (title: {resolved_title})")
         created_files.append(module_name)
 
     # Create hierarchical docs.json for Mintlify

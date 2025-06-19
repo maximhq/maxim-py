@@ -12,6 +12,7 @@ from .store import (
     get_maxim_logger,
     get_session_store,
 )
+from ...scribe import scribe
 
 
 class SameThreadExecutor(Executor):
@@ -97,7 +98,12 @@ def start_new_turn(session_info: SessionStoreEntry):
         trace.end()
         callback = get_livekit_callback()
         if callback is not None:
-            callback("maxim.trace.ended", {"trace_id": trace.id, "trace": trace})
+            try:
+                callback("maxim.trace.ended", {"trace_id": trace.id, "trace": trace})
+            except Exception as e:
+                scribe().warning(
+                    f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}"
+                )
     next_turn_sequence = 1
     if turn is not None and turn.turn_sequence is not None:
         next_turn_sequence = turn.turn_sequence + 1
@@ -137,5 +143,10 @@ def start_new_turn(session_info: SessionStoreEntry):
     get_session_store().set_session(session_info)
     callback = get_livekit_callback()
     if callback is not None:
-        callback("maxim.trace.started", {"trace_id": trace_id, "trace": trace})
+        try:
+            callback("maxim.trace.started", {"trace_id": trace_id, "trace": trace})
+        except Exception as e:
+            scribe().warning(
+                f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}"
+            )
     return current_turn

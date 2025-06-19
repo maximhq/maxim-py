@@ -59,9 +59,14 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     # If callback is set, emit the session started event
     callback = get_livekit_callback()
     if callback is not None:
-        callback(
-            "maxim.session.started", {"session_id": session_id, "session": session}
-        )
+        try:
+            callback(
+                "maxim.session.started", {"session_id": session_id, "session": session}
+            )
+        except Exception as e:
+            scribe().warning(
+                f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}"
+            )
     trace_id = str(uuid.uuid4())
     tags: dict[str, str] = {}
     if room_id is not None:
@@ -82,7 +87,12 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     )
     callback = get_livekit_callback()
     if callback is not None:
-        callback("maxim.trace.started", {"trace_id": trace_id, "trace": trace})
+        try:
+            callback("maxim.trace.started", {"trace_id": trace_id, "trace": trace})
+        except Exception as e:
+            scribe().warning(
+                f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}"
+            )
     current_turn = Turn(
         turn_id=str(uuid.uuid4()),
         turn_sequence=0,
