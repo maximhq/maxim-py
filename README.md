@@ -58,9 +58,13 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.9.3
+
+- improvement: Adds try except for all LiveKit callbacks call and gracefully moves forward with tracing.
+
 ### 3.9.2
 
--improvement: Improves the network connection error handling for connection pool.
+- improvement: Improves the network connection error handling for connection pool.
 
 ### 3.9.1
 
