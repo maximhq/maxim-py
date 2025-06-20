@@ -321,14 +321,15 @@ def convert_attributes_to_table(
                 else "Returns" if "Returns" in line else "Attributes"
             )
             result_lines.append(line)
+            result_lines.append("")  # Add empty line after header
             i += 1
 
             # Skip any empty lines
             while i < len(lines) and lines[i].strip() == "":
-                result_lines.append(lines[i])
                 i += 1
 
-            # Look for the start of the list and add internal links
+            # Collect all list items first
+            table_rows = []
             while i < len(lines):
                 current_line = lines[i].strip()
 
@@ -350,8 +351,12 @@ def convert_attributes_to_table(
                         linked_type = add_type_links(param_type, in_code_block)
                         linked_desc = add_type_links(param_desc, in_code_block)
 
-                        result_lines.append(
-                            f"- `{param_name}` _{linked_type}_ - {linked_desc}"
+                        table_rows.append(
+                            {
+                                "name": f"`{param_name}`",
+                                "type": f"_{linked_type}_",
+                                "description": linked_desc,
+                            }
                         )
                 elif re.match(r"^-\s+`([^`]+)`\s+-\s+(.*)", current_line):
                     # Format 2/3: Simple format (both Arguments and Returns use this)
@@ -377,8 +382,6 @@ def convert_attributes_to_table(
                                 for name, info in all_definitions.items()
                                 if name not in linked_classes
                             }
-                            # Temporarily modify the function's closure to use filtered definitions
-                            original_definitions = all_definitions
 
                             def add_type_links_filtered(
                                 text: str, in_code_context: bool = False
@@ -412,14 +415,55 @@ def convert_attributes_to_table(
                         else:
                             linked_desc = add_type_links(item_desc, in_code_block)
 
-                        result_lines.append(f"- `{linked_name}` - {linked_desc}")
+                        # For simple format, check if it looks like a type (for Returns section)
+                        if section_type == "Returns" and re.match(
+                            r"^[A-Z][a-zA-Z0-9_]*$", item_name
+                        ):
+                            table_rows.append(
+                                {
+                                    "name": f"`{linked_name}`",
+                                    "type": "",
+                                    "description": linked_desc,
+                                }
+                            )
+                        else:
+                            table_rows.append(
+                                {
+                                    "name": f"`{linked_name}`",
+                                    "type": "",
+                                    "description": linked_desc,
+                                }
+                            )
                 elif current_line == "" or not current_line:
-                    # Empty line, add it and continue
-                    result_lines.append(lines[i])
+                    # Empty line, add it and continue but don't break
+                    pass
                 else:
                     # Not a list item, break out of parsing this section
                     break
                 i += 1
+
+            # Generate markdown table if we have rows
+            if table_rows:
+                # Determine if we need a Type column
+                has_types = any(row["type"] for row in table_rows)
+
+                if has_types:
+                    # Three-column table: Name | Type | Description
+                    result_lines.append("| Name | Type | Description |")
+                    result_lines.append("|------|------|-------------|")
+                    for row in table_rows:
+                        result_lines.append(
+                            f"| {row['name']} | {row['type']} | {row['description']} |"
+                        )
+                else:
+                    # Two-column table: Name | Description
+                    result_lines.append("| Name | Description |")
+                    result_lines.append("|------|-------------|")
+                    for row in table_rows:
+                        result_lines.append(f"| {row['name']} | {row['description']} |")
+
+                result_lines.append("")  # Add empty line after table
+
             continue
         else:
             # Add internal links to any line that might contain type references
@@ -568,6 +612,75 @@ def generate_descriptive_title(
         return clean_title_text(camel_case_part)
 
 
+def generate_module_description(module_name: str) -> str:
+    """Generate a descriptive description for a module."""
+    # Remove 'maxim.' prefix
+    clean_name = module_name
+    if clean_name.startswith("maxim."):
+        clean_name = clean_name[6:]
+
+    # Split into parts
+    parts = clean_name.split(".")
+
+    # Module-specific descriptions
+    module_descriptions = {
+        "maxim": "Core Maxim Python SDK functionality and main entry point.",
+        "logger": "Logging and instrumentation utilities for tracking AI model interactions.",
+        "decorators": "Decorators for automatic logging and instrumentation of functions and methods.",
+        "models": "Data models and type definitions used throughout the Maxim SDK.",
+        "apis": "API client utilities for interacting with Maxim services.",
+        "cache": "Caching mechanisms and utilities for optimizing performance.",
+        "dataset": "Dataset management and manipulation utilities.",
+        "evaluators": "Evaluation tools and utilities for assessing model performance.",
+        "runnable": "Runnable interfaces and execution utilities.",
+        "test_runs": "Test execution and management utilities.",
+        "utils": "Common utility functions and helpers.",
+        "types": "Type definitions and data structures.",
+        "anthropic": "Anthropic AI model integration and logging utilities.",
+        "openai": "OpenAI model integration and logging utilities.",
+        "gemini": "Google Gemini model integration and logging utilities.",
+        "langchain": "LangChain framework integration utilities.",
+        "litellm": "LiteLLM integration for multi-provider AI model access.",
+        "bedrock": "AWS Bedrock integration utilities.",
+        "mistral": "Mistral AI model integration utilities.",
+        "portkey": "Portkey integration utilities.",
+        "crewai": "CrewAI framework integration utilities.",
+        "livekit": "LiveKit real-time communication integration utilities.",
+    }
+
+    if len(parts) == 1:
+        # Top-level module
+        base_name = parts[0].replace("\\_", "_")
+        return module_descriptions.get(
+            base_name, f"{parts[0].title()} module utilities and functionality."
+        )
+
+    # For nested modules, create contextual descriptions
+    parent_part = parts[-2].replace("\\_", "_") if len(parts) > 1 else ""
+    last_part = parts[-1].replace("\\_", "_")
+
+    # Special handling for common patterns
+    if last_part == "client":
+        provider = parent_part.title() if parent_part else "Service"
+        return f"{provider} client implementation for API interactions and model integration."
+    elif last_part == "utils":
+        provider = parent_part.title() if parent_part else "Module"
+        return f"Utility functions and helpers for {provider} integration."
+    elif last_part == "tracer":
+        provider = parent_part.title() if parent_part else "Service"
+        return f"Tracing and instrumentation utilities for {provider} integration."
+    elif parent_part in module_descriptions:
+        base_desc = module_descriptions[parent_part]
+        return f"{last_part.title()} utilities for {base_desc.lower()}"
+    else:
+        # Generic description
+        clean_last = last_part.replace("_", " ").title()
+        clean_parent = (
+            parent_part.replace("_", " ").title() if parent_part else "Maxim SDK"
+        )
+        return f"{clean_last} functionality for {clean_parent} integration."
+
+
 def resolve_title_collisions(module_titles: Dict[str, str]) -> Dict[str, str]:
     """Resolve title collisions by adding parent context to duplicate titles."""
     # Group modules by their generated titles
@@ -713,6 +826,137 @@ def create_hierarchical_docs_structure(created_files: List[str]) -> Dict:
     }
 
 
+def create_custom_title_script(output_dir: str) -> None:
+    """Create a custom JavaScript file to update page titles with '| Maxim Python SDK'."""
+    script_content = """// Custom script to update page titles with Maxim Python SDK suffix
+(function() {
+    function isPythonSDKPage() {
+        // Check if current page is a Python SDK reference page
+        const currentPath = window.location.pathname;
+        
+        // Check if the path matches Python SDK reference patterns
+        return currentPath.includes('/sdk/python/references/') || 
+               currentPath.includes('/sdk/python/reference/') ||
+               currentPath.includes('/python/references/') ||
+               currentPath.includes('/python/reference/') ||
+               // Also check for specific patterns in the URL that indicate Python SDK pages
+               (currentPath.includes('/python') && (
+                   currentPath.includes('/maxim') || 
+                   currentPath.includes('/decorators') || 
+                   currentPath.includes('/logger') || 
+                   currentPath.includes('/models') ||
+                   currentPath.includes('/apis') ||
+                   currentPath.includes('/cache') ||
+                   currentPath.includes('/dataset') ||
+                   currentPath.includes('/evaluators') ||
+                   currentPath.includes('/runnable') ||
+                   currentPath.includes('/test_runs') ||
+                   currentPath.includes('/utils')
+               ));
+    }
+    
+    function updatePageTitle() {
+        // Only update title if this is a Python SDK page
+        if (!isPythonSDKPage()) {
+            return;
+        }
+        
+        // Get the current page title from the frontmatter or h1
+        const titleElement = document.querySelector('h1') || document.querySelector('[data-title]');
+        let pageTitle = '';
+        
+        // Try to get title from various sources
+        if (titleElement) {
+            pageTitle = titleElement.textContent || titleElement.innerText || '';
+        }
+        
+        // Fallback to document title if no h1 found
+        if (!pageTitle) {
+            pageTitle = document.title;
+        }
+        
+        // Clean up the title (remove extra whitespace)
+        pageTitle = pageTitle.trim();
+        
+        // Only update if we have a meaningful title and it doesn't already include our suffix
+        if (pageTitle && !pageTitle.includes('| Maxim Python SDK')) {
+            // Remove any existing suffixes that might be there
+            pageTitle = pageTitle.replace(/\\s*\\|.*$/, '');
+            
+            // Add our custom suffix
+            document.title = pageTitle + ' | Maxim Python SDK';
+        }
+    }
+    
+    // Update title when page loads
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', updatePageTitle);
+    } else {
+        updatePageTitle();
+    }
+    
+    // Also update when navigating (for SPAs)
+    if (window.history && window.history.pushState) {
+        const originalPushState = window.history.pushState;
+        window.history.pushState = function() {
+            originalPushState.apply(window.history, arguments);
+            setTimeout(updatePageTitle, 100); // Small delay to ensure DOM is updated
+        };
+        
+        const originalReplaceState = window.history.replaceState;
+        window.history.replaceState = function() {
+            originalReplaceState.apply(window.history, arguments);
+            setTimeout(updatePageTitle, 100);
+        };
+        
+        window.addEventListener('popstate', function() {
+            setTimeout(updatePageTitle, 100);
+        });
+    }
+    
+    // Watch for title changes using MutationObserver
+    if (typeof MutationObserver !== 'undefined') {
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'childList' || mutation.type === 'characterData') {
+                    // Check if title-related elements changed
+                    const titleChanged = Array.from(mutation.addedNodes).some(node => 
+                        node.nodeType === Node.ELEMENT_NODE && 
+                        (node.tagName === 'H1' || node.querySelector && node.querySelector('h1'))
+                    );
+                    
+                    if (titleChanged || mutation.target.tagName === 'TITLE') {
+                        setTimeout(updatePageTitle, 50);
+                    }
+                }
+            });
+        });
+        
+        observer.observe(document, {
+            childList: true,
+            subtree: true,
+            characterData: true
+        });
+        
+        // Also observe the title element specifically
+        const titleElement = document.querySelector('title');
+        if (titleElement) {
+            observer.observe(titleElement, {
+                childList: true,
+                characterData: true
+            });
+        }
+    }
+})();"""
+
+    # Write the JavaScript file
+    script_path = os.path.join(output_dir, "title-updater.js")
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(script_content)
+
+    print(f"Created custom title script: {script_path}")
+
+
 def main():
     if len(sys.argv) != 3:
         print("Usage: python split_docs.py <input_file> <output_dir>")
@@ -736,6 +980,9 @@ def main():
 
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
+
+    # Create custom JavaScript file for title updates
+    create_custom_title_script(output_dir)
 
     # First pass: generate initial titles and check for collisions
     module_titles = {}
@@ -794,9 +1041,13 @@ def main():
         # Add module-level GitHub source link
         module_github_link = get_github_source_link(module_name)
 
-        # Create MDX frontmatter with resolved title
+        # Generate description for this module
+        module_description = generate_module_description(module_name)
+
+        # Create MDX frontmatter with resolved title and description
         frontmatter = f"""---
 title: {resolved_title}
+description: {module_description}
 ---
 
 [View module source on GitHub]({module_github_link})
