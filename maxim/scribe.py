@@ -133,7 +133,7 @@ def scribe():
             print(
                 "\033[32m[MaximSDK] For debug logs, set global logging level to debug logging.basicConfig(level=logging.DEBUG).\033[0m"
             )
-            _scribe_instance.set_level(logging.ERROR)
+            _scribe_instance.set_level(logging.WARNING)
         else:
             print(
                 f"\033[32m[MaximSDK] Log level set to {logging.getLevelName(_scribe_instance.get_level())}.\nYou can change it by calling logging.getLogger('maxim').setLevel(newLevel)\033[0m"

@@ -58,6 +58,10 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.9.4
+
+- chore: Changed scribe (Maxim Logger) default level to warning.
+
 ### 3.9.3
 
 - improvement: Adds try except for all LiveKit callbacks call and gracefully moves forward with tracing.

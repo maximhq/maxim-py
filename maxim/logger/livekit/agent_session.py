@@ -49,11 +49,11 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     session = maxim_logger.session({"id": session_id, "name": "livekit-session"})
     # adding tags to the session
     if room_id is not None:
-        session.add_tag("room_id", room_id)
+        session.add_tag("room_id", str(room_id))
     if room_name is not None:
-        session.add_tag("room_name", room_name)
+        session.add_tag("room_name", str(room_name))
     if session_id is not None:
-        session.add_tag("session_id", session_id)
+        session.add_tag("session_id", str(session_id))
     if agent is not None:
         session.add_tag("agent_id", str(id(agent)))
     # If callback is set, emit the session started event
@@ -188,8 +188,11 @@ def handle_tool_call_executed(self, event: FunctionToolsExecutedEvent):
                 "id": function_call.call_id,
                 "name": function_call.name,
                 "description": "",
-                "type": function_call.type,
-                "args": function_call.arguments,
+                "args": (
+                    str(function_call.arguments)
+                    if function_call.arguments is not None
+                    else ""
+                ),
             }
         )
         tool_output = ""

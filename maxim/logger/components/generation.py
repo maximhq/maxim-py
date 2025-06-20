@@ -548,10 +548,14 @@ class Generation(BaseContainer):
                 {
                     "index": choice.get("index", 0),
                     "message": {
-                        "role": choice.get("message").get("role", "assistant"),
-                        "content": choice.get("message").get("content", ""),
-                        "tool_calls": choice.get("message").get("tool_calls", None),
-                        "function_calls": choice.get("message").get(
+                        "role": (choice.get("message", {}) or {}).get(
+                            "role", "assistant"
+                        ),
+                        "content": (choice.get("message", {}) or {}).get("content", ""),
+                        "tool_calls": (choice.get("message", {}) or {}).get(
+                            "tool_calls", None
+                        ),
+                        "function_calls": (choice.get("message", {}) or {}).get(
                             "function_calls", None
                         ),
                     },

@@ -266,7 +266,11 @@ def condition_met(field_rule: RuleType, field_incoming_rule: RuleType) -> bool:
         elif isinstance(field_rule.value, bool):
             field_incoming_rule.value = bool(field_incoming_rule.value)
         elif isinstance(field_rule.value, str):
-            field_incoming_rule.value = str(field_incoming_rule.value)
+            field_incoming_rule.value = (
+                str(field_incoming_rule.value)
+                if field_incoming_rule.value is not None
+                else ""
+            )
 
     match = check_operator_match(field_rule, field_incoming_rule)
     return match
