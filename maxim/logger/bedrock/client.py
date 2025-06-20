@@ -273,7 +273,16 @@ class MaximBedrockClient:
                 generation.result(changed_response)
                 if is_local_trace and trace is not None:
                     if changed_response is not None:
-                        content = changed_response.get("choices", [])[0].get("message", {}).get("content", "")
+                        choices = changed_response.get("choices", [])
+                        if choices:
+                            message = choices[0].get("message", {})
+                            content = (
+                                message.get("content", "")
+                                if isinstance(message, dict)
+                                else ""
+                            )
+                        else:
+                            content = ""
                         trace.set_output(content)
                     generation.end()
                     trace.end()

@@ -240,7 +240,13 @@ class MaximAPI:
                 if e.response is not None:
                     try:
                         error_data = e.response.json()
-                        if "error" in error_data and "message" in error_data["error"]:
+                        if (
+                            error_data
+                            and isinstance(error_data, dict)
+                            and "error" in error_data
+                            and isinstance(error_data["error"], dict)
+                            and "message" in error_data["error"]
+                        ):
                             raise Exception(error_data["error"]["message"]) from e
                     except (ValueError, KeyError):
                         pass
@@ -319,9 +325,19 @@ class MaximAPI:
             data = json.loads(res.decode())["data"]
             return VersionAndRulesWithPromptId.from_dict(data)
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -343,9 +359,19 @@ class MaximAPI:
                 for data in json.loads(res)["data"]
             ]
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -370,9 +396,19 @@ class MaximAPI:
             json_response = json.loads(res.decode())
             return VersionAndRulesWithPromptChainId.from_dict(obj=json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -397,9 +433,19 @@ class MaximAPI:
                 for elem in json_response["data"]
             ]
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -448,9 +494,19 @@ class MaximAPI:
                 raise Exception(json_response["error"]["message"])
             return PromptResponse.from_dict(json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -496,9 +552,19 @@ class MaximAPI:
                 raise Exception(json_response["error"]["message"])
             return PromptResponse.from_dict(json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -540,9 +606,19 @@ class MaximAPI:
                 raise Exception(json_response["error"]["message"])
             return AgentResponse.from_dict(json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -569,9 +645,19 @@ class MaximAPI:
                 json_response["tags"] = {}
             return Folder.from_dict(json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -594,9 +680,19 @@ class MaximAPI:
                     elem["tags"] = {}
             return [Folder.from_dict(elem) for elem in json_response["data"]]
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -630,9 +726,19 @@ class MaximAPI:
             )
             return json.loads(res.decode())
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -660,9 +766,19 @@ class MaximAPI:
                 raise Exception(json_response["error"])
             return json_response["data"]
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -719,9 +835,19 @@ class MaximAPI:
                 raise Exception(json_response["error"]["message"])
             return json_response["data"]
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -769,9 +895,19 @@ class MaximAPI:
             if "error" in json_response:
                 raise Exception(json_response["error"]["message"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -800,9 +936,19 @@ class MaximAPI:
                 raise Exception(json_response["error"])
             return Evaluator.dict_to_class(json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -882,9 +1028,19 @@ class MaximAPI:
                 raise Exception(json_response["error"])
             return TestRun.dict_to_class(json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -911,9 +1067,19 @@ class MaximAPI:
             if "error" in json_response:
                 raise Exception(json_response["error"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -955,9 +1121,19 @@ class MaximAPI:
             if "error" in json_response:
                 raise Exception(json_response["error"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -983,9 +1159,19 @@ class MaximAPI:
             if "error" in json_response:
                 raise Exception(json_response["error"]["message"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -1011,9 +1197,19 @@ class MaximAPI:
             if "error" in json_response:
                 raise Exception(json_response["error"]["message"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -1044,9 +1240,19 @@ class MaximAPI:
             status["testRunStatus"] = json_response["data"]["testRunStatus"]
             return TestRunStatus.dict_to_class(status)
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -1074,9 +1280,19 @@ class MaximAPI:
                 raise Exception(json_response["error"])
             return TestRunResult.dict_to_class(json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -1108,9 +1324,19 @@ class MaximAPI:
                 raise Exception(json_response["error"])
             return ExecuteWorkflowForDataResponse.dict_to_class(json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -1147,9 +1373,19 @@ class MaximAPI:
                 raise Exception(json_response["error"])
             return ExecutePromptForDataResponse.dict_to_class(json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -1186,9 +1422,19 @@ class MaximAPI:
                 raise Exception(json_response["error"])
             return ExecutePromptForDataResponse.dict_to_class(json_response["data"])
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
@@ -1218,9 +1464,19 @@ class MaximAPI:
                 raise Exception(json_response["error"])
             return {"url": json_response["data"]["url"]}
         except requests.HTTPError as e:
-            if e.response is not None and e.response.json() is not None:
-                error = e.response.json()
-                raise Exception(error["error"]["message"]) from e
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
             raise Exception(e) from e
 
     def upload_to_signed_url(self, url: str, data: bytes, mime_type: str) -> bool:

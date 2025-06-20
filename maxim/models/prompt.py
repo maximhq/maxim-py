@@ -93,7 +93,13 @@ class PromptResponse:
         provider = obj['provider']
         model = obj['model']
         choices = [Choice(index=c['index'], message=Message.from_dict(c['message']), finish_reason=c.get('finish_reason', "stop")) for c in obj['choices']]
-        usage = Usage(prompt_tokens=obj['usage']['prompt_tokens'], completion_tokens=obj['usage']['completion_tokens'], total_tokens=obj['usage']['total_tokens'], latency=obj['usage'].get('latency', 0.0))
+        usage_dict = obj.get("usage", {})
+        usage = Usage(
+            prompt_tokens=usage_dict.get("prompt_tokens", 0),
+            completion_tokens=usage_dict.get("completion_tokens", 0),
+            total_tokens=usage_dict.get("total_tokens", 0),
+            latency=usage_dict.get("latency", 0.0),
+        )
         model_params = obj.get('modelParams', {})
         return PromptResponse(id=id, provider=provider, model=model, choices=choices, usage=usage, model_params=model_params)
 

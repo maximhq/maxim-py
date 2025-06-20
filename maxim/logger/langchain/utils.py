@@ -377,9 +377,9 @@ def parse_token_usage_for_result(result: LLMResult):
                     continue
                 usage_data = None
                 if "message" in gen.__dict__:
-                    usage_data = gen.__dict__.get("message").__dict__.get(
-                        "usage_metadata"
-                    )
+                    message_obj = gen.__dict__.get("message")
+                    if message_obj and hasattr(message_obj, "__dict__"):
+                        usage_data = message_obj.__dict__.get("usage_metadata")
                 elif (
                     "generation_info" in gen.__dict__
                     and gen.__dict__.get("generation_info", None) is not None
@@ -409,9 +409,10 @@ def parse_token_usage_for_result(result: LLMResult):
                             "prompt_token_count", 0
                         ) + usage_data.get("completion_token_count", 0)
                         continue
-                resp_metadata = gen.__dict__.get("message").__dict__.get(
-                    "response_metadata"
-                )
+                message_obj = gen.__dict__.get("message")
+                resp_metadata = None
+                if message_obj and hasattr(message_obj, "__dict__"):
+                    resp_metadata = message_obj.__dict__.get("response_metadata")
                 if resp_metadata is not None:
                     usage_data = resp_metadata.get("usage") or None
                     if usage_data is not None:
