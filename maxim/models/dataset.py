@@ -101,6 +101,16 @@ class DatasetEntry:
         return return_dict
 
 
+# Column name constants used throughout the dataset utilities.
+INPUT_COLUMN: str = "INPUT"
+EXPECTED_OUTPUT_COLUMN: str = "EXPECTED_OUTPUT"
+CONTEXT_TO_EVALUATE_COLUMN: str = "CONTEXT_TO_EVALUATE"
+VARIABLE_COLUMN: str = "VARIABLE"
+NULLABLE_VARIABLE_COLUMN: str = "NULLABLE_VARIABLE"
+OUTPUT_COLUMN: str = "OUTPUT"
+
+# Type aliases for column names.  These are used for type checking but also
+# need to be concrete values at runtime for equality comparisons.
 InputColumn = Literal["INPUT"]
 ExpectedOutputColumn = Literal["EXPECTED_OUTPUT"]
 ContextToEvaluateColumn = Literal["CONTEXT_TO_EVALUATE"]
