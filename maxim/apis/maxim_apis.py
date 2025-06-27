@@ -21,6 +21,7 @@ from urllib3.exceptions import (
     ReadTimeoutError,
 )
 from urllib3.util import Retry
+from http.client import RemoteDisconnected
 
 
 from ..models import (
@@ -67,12 +68,12 @@ class ConnectionPool:
 
         # Set up retry configuration for the session
         retries = Retry(
-            total=5,
-            connect=3,
+            total=10,  # Increased total retries
+            connect=5,  # More connection retries
             read=3,
             redirect=1,
             status=3,
-            backoff_factor=0.5,
+            backoff_factor=0.3,  # Faster initial backoff
             status_forcelist=frozenset({413, 429, 500, 502, 503, 504}),
             allowed_methods=frozenset(
                 {"HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"}
@@ -81,9 +82,19 @@ class ConnectionPool:
             raise_on_status=False,
         )
 
-        adapter = HTTPAdapter(max_retries=retries, pool_connections=5, pool_maxsize=10)
+        adapter = HTTPAdapter(
+            max_retries=retries,
+            pool_connections=10,  # Increased pool connections
+            pool_maxsize=20,  # Increased pool size
+            pool_block=True,  # Block when pool is full
+        )
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
+
+        # Additional session configuration for better connection handling
+        self.session.headers.update(
+            {"Connection": "keep-alive", "Keep-Alive": "timeout=60, max=100"}
+        )
 
     @contextlib.contextmanager
     def get_session(self):
@@ -126,8 +137,8 @@ class MaximAPI:
         endpoint: str,
         body: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
-        max_retries: int = 3,
-        max_pool_retries: int = 8,
+        max_retries: int = 10,
+        max_pool_retries: int = 20,
     ) -> bytes:
         """
         Make a network request with comprehensive retry logic for connection errors.
@@ -198,13 +209,11 @@ class MaximAPI:
                 ReadTimeoutError,
                 ProtocolError,
                 MaxRetryError,
+                RemoteDisconnected,
             ) as e:
                 last_exception = e
                 if attempt < max_retries:
                     delay = self.base_delay * (2**attempt)  # Exponential backoff
-                    scribe().warning(
-                        f"[MaximSDK] Connection error on attempt {attempt + 1}/{max_retries + 1}: {e}. Retrying in {delay:.1f}s..."
-                    )
                     time.sleep(delay)
                     continue
                 else:
@@ -222,7 +231,7 @@ class MaximAPI:
                 if pool_retry_count <= max_pool_retries:
                     # Shorter delay for pool exhaustion - just waiting for connections to free up
                     delay = 0.1 * (1.5**pool_retry_count)  # Shorter exponential backoff
-                    scribe().warning(
+                    scribe().debug(
                         f"[MaximSDK] Connection pool exhausted on attempt {pool_retry_count}/{max_pool_retries}: {e}. Retrying in {delay:.1f}s..."
                     )
                     time.sleep(delay)
@@ -256,7 +265,7 @@ class MaximAPI:
                 last_exception = e
                 if attempt < max_retries:
                     delay = self.base_delay * (2**attempt)
-                    scribe().warning(
+                    scribe().debug(
                         f"[MaximSDK] Request error on attempt {attempt + 1}/{max_retries + 1}: {e}. Retrying in {delay:.1f}s..."
                     )
                     time.sleep(delay)
@@ -1515,11 +1524,12 @@ class MaximAPI:
                 ReadTimeoutError,
                 ProtocolError,
                 MaxRetryError,
+                RemoteDisconnected,
             ) as e:
                 last_exception = e
                 if attempt < max_retries:
                     delay = self.base_delay * (2**attempt)
-                    scribe().warning(
+                    scribe().debug(
                         f"[MaximSDK] File upload connection error on attempt {attempt + 1}/{max_retries + 1}: {e}. Retrying in {delay:.1f}s..."
                     )
                     time.sleep(delay)
@@ -1543,7 +1553,7 @@ class MaximAPI:
                 last_exception = e
                 if attempt < max_retries:
                     delay = self.base_delay * (2**attempt)
-                    scribe().warning(
+                    scribe().debug(
                         f"[MaximSDK] File upload request error on attempt {attempt + 1}/{max_retries + 1}: {e}. Retrying in {delay:.1f}s..."
                     )
                     time.sleep(delay)
