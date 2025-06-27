@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
 """
-Test case to simulate RemoteDisconnected connection errors and verify retry logic.
+Test case to simulate various connection errors and verify retry logic.
 
 This test demonstrates how the improved connection pool and retry logic in maxim_apis.py
-handles connection issues that users were experiencing.
+handles connection issues that users were experiencing, including:
+- ConnectError and connection-related errors
+- SSL/TLS errors
+- Pool exhaustion errors
+- General connection timeout errors
 """
 
-import json
-import time
 import unittest
 from unittest.mock import Mock, patch, MagicMock, call
-from urllib3.exceptions import ProtocolError, MaxRetryError, PoolError
-from requests.exceptions import (
-    ConnectionError,
-    RequestException,
+from httpx import (
+    ConnectError,
     ConnectTimeout,
+    HTTPStatusError,
+    PoolTimeout,
+    ProtocolError,
     ReadTimeout,
-    HTTPError,
+    RequestError,
+    TimeoutException,
 )
-from http.client import RemoteDisconnected
 
 # Add the maxim package to the path
 import sys
@@ -43,20 +46,22 @@ class TestConnectionRetryLogic(unittest.TestCase):
         pool = ConnectionPool()
 
         # Verify pool is created (basic check)
-        self.assertIsNotNone(pool.session)
+        self.assertIsNotNone(pool.client)
 
-        # Verify session has adapters mounted for retry functionality
-        self.assertIn("https://", pool.session.adapters)
-        self.assertIn("http://", pool.session.adapters)
+        # Verify client has basic httpx.Client functionality
+        self.assertTrue(hasattr(pool.client, "request"))
+        self.assertTrue(hasattr(pool.client, "timeout"))
 
-        # Verify adapter configuration
-        https_adapter = pool.session.adapters["https://"]
-        self.assertIsNotNone(https_adapter)
+        # Verify timeout configuration exists (values are set in the constructor)
+        timeout = getattr(pool.client, "timeout", None)
+        if timeout:
+            self.assertEqual(timeout.connect, 15.0)
+            self.assertEqual(timeout.read, 30.0)
 
     @patch("maxim.apis.maxim_apis.scribe")
     @patch("time.sleep")  # Mock sleep to speed up tests
-    def test_remote_disconnected_retry_success(self, mock_sleep, mock_scribe):
-        """Test that RemoteDisconnected errors are retried and eventually succeed."""
+    def test_connect_error_retry_success(self, mock_sleep, mock_scribe):
+        """Test that ConnectError errors are retried and eventually succeed."""
 
         # Create a mock response that succeeds on the third attempt
         mock_response = Mock()
@@ -66,22 +71,19 @@ class TestConnectionRetryLogic(unittest.TestCase):
         mock_response.headers = {}
         mock_response.raise_for_status.return_value = None
 
-        # Create side effects: fail twice with RemoteDisconnected, then succeed
-        connection_error = ConnectionError(
-            "Connection aborted",
-            RemoteDisconnected("Remote end closed connection without response"),
-        )
+        # Create side effects: fail twice with ConnectError, then succeed
+        connect_error = ConnectError("Connection failed")
 
         with patch.object(
-            self.maxim_api.connection_pool, "get_session"
-        ) as mock_session_context:
-            mock_session = Mock()
-            mock_session_context.return_value.__enter__.return_value = mock_session
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
 
             # First two calls fail, third succeeds
-            mock_session.request.side_effect = [
-                connection_error,  # First attempt fails
-                connection_error,  # Second attempt fails
+            mock_client.request.side_effect = [
+                connect_error,  # First attempt fails
+                connect_error,  # Second attempt fails
                 mock_response,  # Third attempt succeeds
             ]
 
@@ -93,15 +95,12 @@ class TestConnectionRetryLogic(unittest.TestCase):
             self.assertEqual(result.promptId, "test-prompt-id")
 
             # Verify retries happened (3 total calls: 2 failures + 1 success)
-            self.assertEqual(mock_session.request.call_count, 3)
-
-            # Verify warning logs were called for retries
-            self.assertTrue(mock_scribe.return_value.warning.called)
+            self.assertEqual(mock_client.request.call_count, 3)
 
     @patch("maxim.apis.maxim_apis.scribe")
     @patch("time.sleep")
-    def test_pool_error_retry_logic(self, mock_sleep, mock_scribe):
-        """Test that PoolError has separate retry logic with different parameters."""
+    def test_pool_timeout_retry_logic(self, mock_sleep, mock_scribe):
+        """Test that PoolTimeout has separate retry logic with different parameters."""
         # Create mock response for eventual success
         mock_response = Mock()
         mock_response.content = (
@@ -110,70 +109,72 @@ class TestConnectionRetryLogic(unittest.TestCase):
         mock_response.headers = {}
         mock_response.raise_for_status.return_value = None
 
-        pool_error = PoolError(None, "Connection pool is full")
+        pool_timeout_error = PoolTimeout("Connection pool is full")
 
         with patch.object(
-            self.maxim_api.connection_pool, "get_session"
-        ) as mock_session_context:
-            mock_session = Mock()
-            mock_session_context.return_value.__enter__.return_value = mock_session
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
 
-            # First call fails with PoolError, second succeeds
-            mock_session.request.side_effect = [pool_error, mock_response]
+            # First call fails with PoolTimeout, second succeeds
+            mock_client.request.side_effect = [pool_timeout_error, mock_response]
 
             result = self.maxim_api.get_prompt("test-prompt-id")
 
             # Verify eventual success
             self.assertIsNotNone(result)
 
-            # Verify pool error specific warning was logged
-            warning_calls = mock_scribe.return_value.warning.call_args_list
-            pool_warning_found = any(
+            # Verify pool timeout specific debug was logged
+            debug_calls = mock_scribe.return_value.debug.call_args_list
+            pool_debug_found = any(
                 "Connection pool exhausted" in str(call_args)
-                for call_args in warning_calls
+                for call_args in debug_calls
             )
-            self.assertTrue(pool_warning_found)
+            self.assertTrue(pool_debug_found)
 
     @patch("maxim.apis.maxim_apis.scribe")
     @patch("time.sleep")
-    def test_http_error_no_retry(self, mock_sleep, mock_scribe):
-        """Test that HTTP errors are not retried (permanent failures)."""
-        # Create mock HTTP error response
+    def test_http_status_error_no_retry(self, mock_sleep, mock_scribe):
+        """Test that HTTP status errors are not retried (permanent failures)."""
+        # Create mock HTTP status error response
         mock_response = Mock()
         mock_response.status_code = 404
         mock_response.json.return_value = {"error": {"message": "Not found"}}
 
-        http_error = HTTPError(response=mock_response)
+        http_status_error = HTTPStatusError(
+            "Not Found", request=Mock(), response=mock_response
+        )
 
         with patch.object(
-            self.maxim_api.connection_pool, "get_session"
-        ) as mock_session_context:
-            mock_session = Mock()
-            mock_session_context.return_value.__enter__.return_value = mock_session
-            mock_session.request.side_effect = http_error
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
+            mock_client.request.side_effect = http_status_error
 
             # HTTP errors should not be retried and should raise immediately
             with self.assertRaises(Exception) as context:
                 self.maxim_api.get_prompt("test-prompt-id")
 
             # Verify only one attempt was made (no retries)
-            self.assertEqual(mock_session.request.call_count, 1)
+            self.assertEqual(mock_client.request.call_count, 1)
 
-            # Verify the error message is properly formatted
+            # Verify the error message is properly formatted (JSON error message is extracted)
             self.assertIn("Not found", str(context.exception))
 
     @patch("maxim.apis.maxim_apis.scribe")
     @patch("time.sleep")
     def test_max_retries_exhausted(self, mock_sleep, mock_scribe):
         """Test behavior when max retries are exhausted."""
-        connection_error = ConnectionError("Persistent connection issue")
+        connect_error = ConnectError("Persistent connection issue")
 
         with patch.object(
-            self.maxim_api.connection_pool, "get_session"
-        ) as mock_session_context:
-            mock_session = Mock()
-            mock_session_context.return_value.__enter__.return_value = mock_session
-            mock_session.request.side_effect = connection_error
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
+            mock_client.request.side_effect = connect_error
 
             # Should fail after max retries
             with self.assertRaises(Exception) as context:
@@ -181,7 +182,7 @@ class TestConnectionRetryLogic(unittest.TestCase):
 
             # Verify max retries + 1 attempts were made (default is 3 retries + initial)
             expected_attempts = self.maxim_api.max_retries + 1
-            self.assertEqual(mock_session.request.call_count, expected_attempts)
+            self.assertEqual(mock_client.request.call_count, expected_attempts)
 
             # Verify error log was called
             self.assertTrue(mock_scribe.return_value.error.called)
@@ -191,14 +192,14 @@ class TestConnectionRetryLogic(unittest.TestCase):
     @patch("time.sleep")
     def test_exponential_backoff_timing(self, mock_sleep, mock_scribe):
         """Test that exponential backoff timing is correct."""
-        connection_error = ConnectionError("Connection issue")
+        connect_error = ConnectError("Connection issue")
 
         with patch.object(
-            self.maxim_api.connection_pool, "get_session"
-        ) as mock_session_context:
-            mock_session = Mock()
-            mock_session_context.return_value.__enter__.return_value = mock_session
-            mock_session.request.side_effect = connection_error
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
+            mock_client.request.side_effect = connect_error
 
             # Attempt the request (will fail after retries)
             with self.assertRaises(Exception):
@@ -216,26 +217,21 @@ class TestConnectionRetryLogic(unittest.TestCase):
 
     @patch("maxim.apis.maxim_apis.scribe")
     @patch("time.sleep")
-    @patch("requests.put")
-    def test_file_upload_remote_disconnected_retry(
-        self, mock_put, mock_sleep, mock_scribe
-    ):
-        """Test that file upload handles RemoteDisconnected errors with retry logic."""
+    @patch("httpx.put")
+    def test_file_upload_connect_error_retry(self, mock_put, mock_sleep, mock_scribe):
+        """Test that file upload handles ConnectError errors with retry logic."""
 
         # Create mock response for successful upload
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
 
         # Create connection error
-        connection_error = ConnectionError(
-            "Connection aborted",
-            RemoteDisconnected("Remote end closed connection without response"),
-        )
+        connect_error = ConnectError("Connection failed")
 
         # First two uploads fail, third succeeds
         mock_put.side_effect = [
-            connection_error,  # First attempt fails
-            connection_error,  # Second attempt fails
+            connect_error,  # First attempt fails
+            connect_error,  # Second attempt fails
             mock_response,  # Third attempt succeeds
         ]
 
@@ -252,20 +248,24 @@ class TestConnectionRetryLogic(unittest.TestCase):
         # Verify retries happened
         self.assertEqual(mock_put.call_count, 3)
 
-        # Verify warning logs for retries
-        self.assertTrue(mock_scribe.return_value.warning.called)
+        # Verify debug logs for retries (file upload connection errors log debug messages)
+        self.assertTrue(mock_scribe.return_value.debug.called)
 
     @patch("maxim.apis.maxim_apis.scribe")
     @patch("time.sleep")
-    @patch("requests.put")
-    def test_file_upload_http_error_no_retry(self, mock_put, mock_sleep, mock_scribe):
-        """Test that file upload HTTP errors are not retried."""
-        # Create mock HTTP error
+    @patch("httpx.put")
+    def test_file_upload_http_status_error_no_retry(
+        self, mock_put, mock_sleep, mock_scribe
+    ):
+        """Test that file upload HTTP status errors are not retried."""
+        # Create mock HTTP status error
         mock_response = Mock()
         mock_response.status_code = 403
-        http_error = HTTPError(response=mock_response)
+        http_status_error = HTTPStatusError(
+            "Forbidden", request=Mock(), response=mock_response
+        )
 
-        mock_put.side_effect = http_error
+        mock_put.side_effect = http_status_error
 
         url = "https://signed-upload-url.amazonaws.com/test"
         data = b"test file content"
@@ -284,12 +284,9 @@ class TestConnectionRetryLogic(unittest.TestCase):
         """Test that actual API methods handle connection errors properly."""
 
         # Create connection error that will be retried
-        connection_error = ConnectionError(
-            "Connection aborted",
-            RemoteDisconnected("Remote end closed connection without response"),
-        )
+        connect_error = ConnectError("Connection failed")
 
-        # Mock the session to return connection error first, then success
+        # Mock the client to return connection error first, then success
         success_response = Mock()
         success_response.content = (
             b'{"data": {"promptId": "test-prompt", "rules": {}, "versions": []}}'
@@ -298,13 +295,13 @@ class TestConnectionRetryLogic(unittest.TestCase):
         success_response.raise_for_status.return_value = None
 
         with patch.object(
-            self.maxim_api.connection_pool, "get_session"
-        ) as mock_session_context:
-            mock_session = Mock()
-            mock_session_context.return_value.__enter__.return_value = mock_session
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
 
             # First call fails, second succeeds
-            mock_session.request.side_effect = [connection_error, success_response]
+            mock_client.request.side_effect = [connect_error, success_response]
 
             # Test that get_prompt method works despite connection error
             result = self.maxim_api.get_prompt("test-prompt-id")
@@ -318,23 +315,24 @@ class TestConnectionRetryLogic(unittest.TestCase):
 
         # List of connection errors that should be retried
         connection_errors = [
-            ConnectionError("Connection failed"),
+            ConnectError("Connection failed"),
             ConnectTimeout("Connection timeout"),
             ReadTimeout("Read timeout"),
             ProtocolError("Protocol error"),
-            MaxRetryError(None, None, "Max retries exceeded"),
+            TimeoutException("Timeout occurred"),
+            RequestError("Request error"),
         ]
 
         for error in connection_errors:
             with self.subTest(error=type(error).__name__):
                 with patch.object(
-                    self.maxim_api.connection_pool, "get_session"
-                ) as mock_session_context:
-                    mock_session = Mock()
-                    mock_session_context.return_value.__enter__.return_value = (
-                        mock_session
+                    self.maxim_api.connection_pool, "get_client"
+                ) as mock_client_context:
+                    mock_client = Mock()
+                    mock_client_context.return_value.__enter__.return_value = (
+                        mock_client
                     )
-                    mock_session.request.side_effect = error
+                    mock_client.request.side_effect = error
 
                     # Test that each error type is caught and handled
                     with self.assertRaises(Exception):
@@ -346,28 +344,30 @@ class TestConnectionRetryLogic(unittest.TestCase):
         unexpected_error = ValueError("Unexpected error")
 
         with patch.object(
-            self.maxim_api.connection_pool, "get_session"
-        ) as mock_session_context:
-            mock_session = Mock()
-            mock_session_context.return_value.__enter__.return_value = mock_session
-            mock_session.request.side_effect = unexpected_error
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
+            mock_client.request.side_effect = unexpected_error
 
-            # Should re-raise unexpected exceptions immediately
+            # Should re-raise unexpected exceptions after retrying
             with self.assertRaises(Exception) as context:
                 self.maxim_api.get_prompt("test-prompt-id")
 
-            # Verify only one attempt was made (no retries for unexpected errors)
-            self.assertEqual(mock_session.request.call_count, 1)
+            # Verify retries were attempted (max_retries + 1 attempts)
+            expected_attempts = self.maxim_api.max_retries + 1
+            self.assertEqual(mock_client.request.call_count, expected_attempts)
 
-            # Verify error was logged
+            # Verify debug logs during retries and error log at the end
+            self.assertTrue(mock_scribe.return_value.debug.called)
             self.assertTrue(mock_scribe.return_value.error.called)
             self.assertIn("Unexpected error", str(context.exception))
 
     @patch("maxim.apis.maxim_apis.scribe")
     @patch("time.sleep")
-    def test_request_exception_retry_logic(self, mock_sleep, mock_scribe):
-        """Test that general RequestException errors are retried."""
-        request_error = RequestException("General request error")
+    def test_request_error_retry_logic(self, mock_sleep, mock_scribe):
+        """Test that general RequestError errors are retried."""
+        request_error = RequestError("General request error")
 
         # Success response for eventual success
         mock_response = Mock()
@@ -378,60 +378,60 @@ class TestConnectionRetryLogic(unittest.TestCase):
         mock_response.raise_for_status.return_value = None
 
         with patch.object(
-            self.maxim_api.connection_pool, "get_session"
-        ) as mock_session_context:
-            mock_session = Mock()
-            mock_session_context.return_value.__enter__.return_value = mock_session
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
 
-            # First call fails with RequestException, second succeeds
-            mock_session.request.side_effect = [request_error, mock_response]
+            # First call fails with RequestError, second succeeds
+            mock_client.request.side_effect = [request_error, mock_response]
 
             result = self.maxim_api.get_prompt("test-prompt-id")
 
             # Verify eventual success
             self.assertIsNotNone(result)
 
-            # Verify retry warning was logged
-            self.assertTrue(mock_scribe.return_value.warning.called)
+            # Verify retry debug was logged
+            self.assertTrue(mock_scribe.return_value.debug.called)
 
     @patch("maxim.apis.maxim_apis.scribe")
     @patch("time.sleep")
     def test_custom_retry_parameters(self, mock_sleep, mock_scribe):
         """Test retry logic with custom parameters."""
-        connection_error = ConnectionError("Connection issue")
+        connect_error = ConnectError("Connection issue")
 
         # Create custom API instance with different retry count
         custom_api = MaximAPI(self.base_url, self.api_key)
         custom_api.max_retries = 1
 
         with patch.object(
-            custom_api.connection_pool, "get_session"
-        ) as mock_session_context:
-            mock_session = Mock()
-            mock_session_context.return_value.__enter__.return_value = mock_session
-            mock_session.request.side_effect = connection_error
+            custom_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
+            mock_client.request.side_effect = connect_error
 
             with self.assertRaises(Exception):
                 custom_api.get_prompt("test-prompt-id")
 
             # Verify only 2 attempts were made (1 retry + initial)
-            self.assertEqual(mock_session.request.call_count, 2)
+            self.assertEqual(mock_client.request.call_count, 2)
 
-    def test_connection_pool_session_context_manager(self):
+    def test_connection_pool_client_context_manager(self):
         """Test that the connection pool context manager works correctly."""
         pool = ConnectionPool()
 
         # Test context manager functionality
-        with pool.get_session() as session:
-            self.assertIsNotNone(session)
-            self.assertEqual(session, pool.session)
+        with pool.get_client() as client:
+            self.assertIsNotNone(client)
+            self.assertEqual(client, pool.client)
 
     @patch("maxim.apis.maxim_apis.scribe")
     @patch("time.sleep")
     def test_version_check_during_retry(self, mock_sleep, mock_scribe):
         """Test that version checking works correctly during retry scenarios."""
         # Create connection error for first attempt
-        connection_error = ConnectionError("Connection failed")
+        connect_error = ConnectError("Connection failed")
 
         # Success response with version header
         mock_response = Mock()
@@ -442,13 +442,13 @@ class TestConnectionRetryLogic(unittest.TestCase):
         mock_response.raise_for_status.return_value = None
 
         with patch.object(
-            self.maxim_api.connection_pool, "get_session"
-        ) as mock_session_context:
-            mock_session = Mock()
-            mock_session_context.return_value.__enter__.return_value = mock_session
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
 
             # First call fails, second succeeds with version header
-            mock_session.request.side_effect = [connection_error, mock_response]
+            mock_client.request.side_effect = [connect_error, mock_response]
 
             with patch("maxim.apis.maxim_apis.current_version", "1.0.0"):
                 result = self.maxim_api.get_prompt("test-prompt-id")
@@ -464,6 +464,189 @@ class TestConnectionRetryLogic(unittest.TestCase):
             )
             self.assertTrue(version_warning_found)
 
+    @patch("maxim.apis.maxim_apis.scribe")
+    @patch("time.sleep")
+    def test_timeout_error_retry_success(self, mock_sleep, mock_scribe):
+        """Test that TimeoutException errors are retried and eventually succeed."""
+        # Create a mock response that succeeds on the third attempt
+        mock_response = Mock()
+        mock_response.content = (
+            b'{"data": {"promptId": "test-prompt-id", "rules": {}, "versions": []}}'
+        )
+        mock_response.headers = {}
+        mock_response.raise_for_status.return_value = None
+
+        # Create TimeoutException - this simulates timeout errors
+        timeout_error = TimeoutException("Request timed out")
+
+        with patch.object(
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
+
+            # First two calls fail with TimeoutException, third succeeds
+            mock_client.request.side_effect = [
+                timeout_error,  # First attempt fails
+                timeout_error,  # Second attempt fails
+                mock_response,  # Third attempt succeeds
+            ]
+
+            # Test the retry functionality
+            result = self.maxim_api.get_prompt("test-prompt-id")
+
+            # Verify the call eventually succeeded
+            self.assertIsNotNone(result)
+            self.assertEqual(result.promptId, "test-prompt-id")
+
+            # Verify retries happened (3 total calls: 2 failures + 1 success)
+            self.assertEqual(mock_client.request.call_count, 3)
+
+    @patch("maxim.apis.maxim_apis.scribe")
+    @patch("time.sleep")
+    def test_timeout_error_retry_exhaustion(self, mock_sleep, mock_scribe):
+        """Test TimeoutException behavior when max retries are exhausted."""
+        timeout_error = TimeoutException("Request timed out")
+
+        with patch.object(
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
+            mock_client.request.side_effect = timeout_error
+
+            # Should fail after max retries
+            with self.assertRaises(Exception) as context:
+                self.maxim_api.get_prompt("test-prompt-id")
+
+            # Verify max retries + 1 attempts were made
+            expected_attempts = self.maxim_api.max_retries + 1
+            self.assertEqual(mock_client.request.call_count, expected_attempts)
+
+            # Verify error log was called and contains timeout information
+            self.assertTrue(mock_scribe.return_value.error.called)
+            self.assertIn("Connection failed after", str(context.exception))
+
+    @patch("maxim.apis.maxim_apis.scribe")
+    @patch("time.sleep")
+    def test_read_timeout_retry_logic(self, mock_sleep, mock_scribe):
+        """Test that ReadTimeout errors are retried."""
+        # Create mock response for eventual success
+        mock_response = Mock()
+        mock_response.content = (
+            b'{"data": {"promptId": "test-prompt", "rules": {}, "versions": []}}'
+        )
+        mock_response.headers = {}
+        mock_response.raise_for_status.return_value = None
+
+        # Test ReadTimeout
+        read_timeout_error = ReadTimeout("Read timeout occurred")
+
+        with patch.object(
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
+
+            # First call fails with ReadTimeout, second succeeds
+            mock_client.request.side_effect = [read_timeout_error, mock_response]
+
+            result = self.maxim_api.get_prompt("test-prompt-id")
+
+            # Verify eventual success
+            self.assertIsNotNone(result)
+            self.assertEqual(mock_client.request.call_count, 2)
+
+    @patch("maxim.apis.maxim_apis.scribe")
+    @patch("time.sleep")
+    @patch("httpx.put")
+    def test_file_upload_timeout_error_retry(self, mock_put, mock_sleep, mock_scribe):
+        """Test that file upload handles TimeoutException with retry logic."""
+        # Create mock response for successful upload
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+
+        # Create TimeoutException for upload
+        timeout_error = TimeoutException("Request timed out")
+
+        # First two uploads fail with timeout error, third succeeds
+        mock_put.side_effect = [
+            timeout_error,  # First attempt fails
+            timeout_error,  # Second attempt fails
+            mock_response,  # Third attempt succeeds
+        ]
+
+        # Test file upload
+        url = "https://signed-upload-url.amazonaws.com/test"
+        data = b"test file content"
+        mime_type = "text/plain"
+
+        result = self.maxim_api.upload_to_signed_url(url, data, mime_type)
+
+        # Verify upload eventually succeeded
+        self.assertTrue(result)
+
+        # Verify retries happened
+        self.assertEqual(mock_put.call_count, 3)
+
+        # For file upload timeout errors, the retry logic logs debug messages during retries
+        # Verify that debug logs were called for retries
+        self.assertTrue(mock_scribe.return_value.debug.called)
+
+    def test_httpx_errors_in_connection_error_list(self):
+        """Test that httpx errors are properly caught in our exception handling."""
+        # List of httpx errors that should be retried
+        httpx_errors = [
+            ConnectError("Connection failed"),
+            ConnectTimeout("Connection timeout"),
+            ReadTimeout("Read timeout"),
+            ProtocolError("Protocol error"),
+            TimeoutException("Timeout occurred"),
+            RequestError("Request error"),
+        ]
+
+        for error in httpx_errors:
+            with self.subTest(error=type(error).__name__):
+                with patch.object(
+                    self.maxim_api.connection_pool, "get_client"
+                ) as mock_client_context:
+                    mock_client = Mock()
+                    mock_client_context.return_value.__enter__.return_value = (
+                        mock_client
+                    )
+                    mock_client.request.side_effect = error
+
+                    # Test that each httpx error type is caught and handled
+                    with self.assertRaises(Exception):
+                        self.maxim_api.get_prompt("test-prompt-id")
+
+    @patch("maxim.apis.maxim_apis.scribe")
+    @patch("time.sleep")
+    def test_connect_timeout_with_exponential_backoff(self, mock_sleep, mock_scribe):
+        """Test that ConnectTimeout errors use the same exponential backoff as other connection errors."""
+        connect_timeout_error = ConnectTimeout("Connection timeout")
+
+        with patch.object(
+            self.maxim_api.connection_pool, "get_client"
+        ) as mock_client_context:
+            mock_client = Mock()
+            mock_client_context.return_value.__enter__.return_value = mock_client
+            mock_client.request.side_effect = connect_timeout_error
+
+            # Attempt the request (will fail after retries)
+            with self.assertRaises(Exception):
+                self.maxim_api.get_prompt("test-prompt-id")
+
+            # Verify exponential backoff is used for timeout errors too
+            expected_delays = [
+                self.maxim_api.base_delay * (2**0),  # 1.0
+                self.maxim_api.base_delay * (2**1),  # 2.0
+                self.maxim_api.base_delay * (2**2),  # 4.0
+            ]
+
+            actual_delays = [call_args[0][0] for call_args in mock_sleep.call_args_list]
+            self.assertEqual(actual_delays, expected_delays)
+
 
 class TestFileUploadRetryLogic(unittest.TestCase):
     """Separate test class for file upload specific retry logic."""
@@ -472,7 +655,7 @@ class TestFileUploadRetryLogic(unittest.TestCase):
         """Set up test fixtures."""
         self.maxim_api = MaximAPI("https://app.getmaxim.ai", "test-api-key")
 
-    @patch("requests.put")
+    @patch("httpx.put")
     @patch("time.sleep")
     @patch("maxim.apis.maxim_apis.scribe")
     def test_file_upload_extended_timeout(self, mock_scribe, mock_sleep, mock_put):
@@ -493,15 +676,19 @@ class TestFileUploadRetryLogic(unittest.TestCase):
         # Verify extended timeout was used
         mock_put.assert_called_once()
         call_kwargs = mock_put.call_args[1]
-        self.assertEqual(call_kwargs["timeout"], (15, 60))
+        self.assertIsNotNone(call_kwargs["timeout"])
+        # Check that timeout values are correctly set
+        timeout = call_kwargs["timeout"]
+        self.assertEqual(timeout.connect, 15.0)
+        self.assertEqual(timeout.read, 60.0)
 
-    @patch("requests.put")
+    @patch("httpx.put")
     @patch("time.sleep")
     @patch("maxim.apis.maxim_apis.scribe")
     def test_file_upload_retry_exhaustion(self, mock_scribe, mock_sleep, mock_put):
         """Test file upload behavior when all retries are exhausted."""
-        connection_error = ConnectionError("Persistent upload failure")
-        mock_put.side_effect = connection_error
+        connect_error = ConnectError("Persistent upload failure")
+        mock_put.side_effect = connect_error
 
         url = "https://signed-upload-url.amazonaws.com/test"
         data = b"test file content"

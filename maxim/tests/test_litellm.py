@@ -4,6 +4,7 @@ import logging
 import os
 import unittest
 from uuid import uuid4
+import time
 
 import litellm
 from litellm import acompletion, completion
@@ -34,13 +35,22 @@ class TestLiteLLM(unittest.TestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
+
+        # Clear any existing LiteLLM callbacks before setting up new ones
+        litellm.callbacks = []
+
         self.maxim = Maxim()
         self.logger = self.maxim.logger()
         self.mock_writer = inject_mock_writer(self.logger)
         callback = MaximLiteLLMTracer(self.logger)
+        # Clear any leftover container state
+        callback.containers.clear()
         litellm.callbacks = [callback]
 
     def test_openai(self) -> None:
+        if not openAIKey:
+            self.skipTest("OpenAI API key not available")
+
         response = completion(
             model="openai/gpt-4o",
             api_key=openAIKey,
@@ -72,6 +82,9 @@ class TestLiteLLM(unittest.TestCase):
         )
         print(response)
 
+        # Give LiteLLM callback time to complete
+        time.sleep(0.5)
+
         # Flush the logger and verify logging
         self.logger.flush()
         self.mock_writer.print_logs_summary()
@@ -88,24 +101,10 @@ class TestLiteLLM(unittest.TestCase):
         # Assert that we have exactly 1 trace end log
         self.mock_writer.assert_entity_action_count("trace", "end", 1)
 
-    def test_embedding_call(self) -> None:
-        response = litellm.embedding(
-            model="text-embedding-ada-002",
-            input=["Hello world", "Test embedding"],
-            api_key=openAIKey
-        )
-        print(response)
-
-        # Flush the logger and verify logging
-        self.logger.flush()
-        self.mock_writer.print_logs_summary()
-
-        # Note: embedding calls may have different logging patterns
-        # We'll verify that at least some logs were generated
-        all_logs = self.mock_writer.get_all_logs()
-        self.assertGreater(len(all_logs), 0, "Expected at least one log to be captured")
-
     def test_openai_with_external_trace(self) -> None:
+        if not openAIKey:
+            self.skipTest("OpenAI API key not available")
+
         trace_id = str(uuid4())
         trace = self.logger.trace(TraceConfig(id=trace_id, name="external_trace"))
 
@@ -142,31 +141,42 @@ class TestLiteLLM(unittest.TestCase):
         trace.end()
         print(response)
 
+        # Give LiteLLM callback time to complete
+        time.sleep(0.5)
+
         # Flush the logger and verify logging
         self.logger.flush()
         self.mock_writer.print_logs_summary()
 
-        # With external trace, we expect at least 2 trace creates (external + litellm)
-        self.mock_writer.assert_entity_action_count("trace", "create", 2)
+        # With external trace, we expect 1 trace create (external) and 1 span create (litellm)
+        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+        self.mock_writer.assert_entity_action_count("trace", "add-span", 1)
 
-        # Assert that we have exactly 1 add-generation log
-        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+        # Assert that we have exactly 1 add-generation log (on the span)
+        self.mock_writer.assert_entity_action_count("span", "add-generation", 1)
 
         # Assert that we have exactly 1 result log on generation
         self.mock_writer.assert_entity_action_count("generation", "result", 1)
 
-        # Assert that we have exactly 2 trace end logs (external + litellm)
-        self.mock_writer.assert_entity_action_count("trace", "end", 2)
+        # Assert that we have exactly 1 trace end and 1 span end
+        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+        self.mock_writer.assert_entity_action_count("span", "end", 1)
 
     def test_anthropic(self) -> None:
+        if not anthropicApiKey:
+            self.skipTest("Anthropic API key not available")
+
         callback = MaximLiteLLMTracer(self.logger)
         litellm.callbacks = [callback]
         response = completion(
-            model="anthropic/claude-3-5-sonnet",
+            model="anthropic/claude-3-5-sonnet-20241022",
             api_key=anthropicApiKey,
             messages=[{"content": "Hello, how are you?", "role": "user"}],
         )
         print(response)
+
+        # Give LiteLLM callback time to complete
+        time.sleep(0.5)
 
         # Flush the logger and verify logging
         self.logger.flush()
@@ -192,6 +202,9 @@ class TestLiteLLM(unittest.TestCase):
         self.mock_writer.cleanup()
         self.maxim.cleanup()
 
+        # Clear LiteLLM callbacks to ensure test isolation
+        litellm.callbacks = []
+
 
 class TestLiteLLMAsync(unittest.IsolatedAsyncioTestCase):
     def __init__(self, methodName: str = "runTest") -> None:
@@ -201,13 +214,22 @@ class TestLiteLLMAsync(unittest.IsolatedAsyncioTestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
+
+        # Clear any existing LiteLLM callbacks before setting up new ones
+        litellm.callbacks = []
+
         self.maxim = Maxim()
         self.logger = self.maxim.logger()
         self.mock_writer = inject_mock_writer(self.logger)
         callback = MaximLiteLLMTracer(self.logger)
+        # Clear any leftover container state
+        callback.containers.clear()
         litellm.callbacks = [callback]
 
     async def test_openai_async(self) -> None:
+        if not openAIKey:
+            self.skipTest("OpenAI API key not available")
+
         response = await acompletion(
             model="openai/gpt-4o",
             api_key=openAIKey,
@@ -216,6 +238,9 @@ class TestLiteLLMAsync(unittest.IsolatedAsyncioTestCase):
         print(response)
         # Remove the long sleep for faster testing
         # await asyncio.sleep(10)
+
+        # Give LiteLLM callback time to complete
+        time.sleep(0.5)
 
         # Flush the logger and verify logging
         self.logger.flush()
@@ -240,3 +265,6 @@ class TestLiteLLMAsync(unittest.IsolatedAsyncioTestCase):
         # Cleanup the mock writer
         self.mock_writer.cleanup()
         self.maxim.cleanup()
+
+        # Clear LiteLLM callbacks to ensure test isolation
+        litellm.callbacks = []

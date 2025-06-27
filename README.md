@@ -58,6 +58,11 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.9.6
+
+- improvement: Increased connection pool max size to 20 for more connections at high throughput. 
+- improvement: Moves network stack from requests to httpx for better stability
+
 ### 3.9.5
 
 - feat: Adds new query type for querying prompts, prompt chains and folders called mutli-select. [Learn more](https://www.getmaxim.ai/docs/offline-evals/via-sdk/prompts/querying-prompts#querying-a-single-prompt).

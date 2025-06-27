@@ -4,6 +4,7 @@ import json
 
 from .models import RuleGroupType, RuleType
 
+
 class IncomingQuery:
     """
     Represents an incoming query with its components.
@@ -57,7 +58,7 @@ def parse_incoming_query(incoming_query: str) -> List[RuleType]:
     operators = ["!=", ">=", "<=", ">", "<", "includes", "does not include", "="]
     result = []
     # Only considers commas that are not inside square brackets
-    split_query = re.split(r',(?![^\[\]]*\])', incoming_query)
+    split_query = re.split(r",(?![^\[\]]*\])", incoming_query)
     for condition in split_query:
         no_operator_found = True
         for op in operators:
@@ -68,22 +69,30 @@ def parse_incoming_query(incoming_query: str) -> List[RuleType]:
                 if field.startswith("!!"):
                     exact_match = True
                     field = field[2:]
+                parsed = False
                 # converting 'True'/'False':str to True/False:bool
                 if value == "True" or value == "False":
                     value = bool(value)
-                try:
-                    value = int(value)
-                except ValueError:
-                    pass
-                # Checks value for string array
-                try:
-                    parsed_value = json.loads(value)
-                    if isinstance(parsed_value, list) and \
-                    len(parsed_value) > 0 and \
-                    isinstance(parsed_value[0], str):
-                        value = parsed_value
-                except (json.JSONDecodeError, ValueError):
-                    pass
+                    parsed = True
+                if not parsed:
+                    if type(value) == bool:
+                        value = bool(value)
+                        parsed = True
+                    elif type(value) is int:
+                        value = int(value)
+                        parsed = True
+                if not parsed:
+                    # Checks value for string array
+                    try:
+                        parsed_value = json.loads(value)
+                        if (
+                            isinstance(parsed_value, list)
+                            and len(parsed_value) > 0
+                            and isinstance(parsed_value[0], str)
+                        ):
+                            value = parsed_value
+                    except (json.JSONDecodeError, ValueError):
+                        pass
                 result.append(
                     RuleType(
                         field=field, value=value, operator=op, exactMatch=exact_match
@@ -285,6 +294,8 @@ def condition_met(field_rule: RuleType, field_incoming_rule: RuleType) -> bool:
                 if field_incoming_rule.value is not None
                 else ""
             )
+        elif type(field_incoming_rule.value) == int:
+            field_incoming_rule.value = str(field_incoming_rule.value)
         elif isinstance(field_rule.value, list):
             try:
                 parsed_value = json.loads(field_incoming_rule.value)

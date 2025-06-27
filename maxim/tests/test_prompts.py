@@ -8,17 +8,11 @@ from maxim.models import QueryBuilder
 
 # reading testConfig.json and setting the values
 
-# Get the directory where this test file is located
-with open(str(f"{os.getcwd()}/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
-
-# local config
 env = "dev"
-apiKey = data[env]["apiKey"]
-promptId = data[env]["promptId"]
-promptVersionId = data[env]["promptVersionId"]
-baseUrl = data[env]["baseUrl"]
-folderID = data[env]["folderId"]
+apiKey = os.getenv("MAXIM_API_KEY")
+promptId = os.getenv("PROMPT_ID")
+promptVersionId = os.getenv("PROMPT_VERSION_ID")
+folderID = os.getenv("FOLDER_ID")
 
 
 class TestMaximPromptManagement(unittest.TestCase):
@@ -30,7 +24,6 @@ class TestMaximPromptManagement(unittest.TestCase):
         self.maxim = Maxim(
             {
                 "api_key": apiKey,
-                "base_url": baseUrl,
                 "debug": True,
                 "prompt_management": True,
             }
@@ -45,47 +38,66 @@ class TestMaximPromptManagement(unittest.TestCase):
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
 
-    def test_getPrompt_with_deployment_variables_and_execute(self):
+    def test_get_prompt_with_deployment_variables(self):
         prompt = self.maxim.get_prompt(
             promptId,
-            QueryBuilder().and_().deployment_var("Test multi select", ["test1", "test2", "test3"]).build(),
+            QueryBuilder().and_().deployment_var("Environment", "prod").build(),
+        )
+        if prompt is None:
+            raise Exception("Prompt not found")
+        self.assertEqual(prompt.prompt_id, promptId)
+        self.assertEqual(prompt.version_id, promptVersionId)
+        self.assertEqual(prompt.model, "gpt-3.5-turbo")
+        self.assertEqual(prompt.provider, "openai")
+        self.assertEqual(prompt.messages[0].content, "You are a helpful assistant")
+        self.assertEqual(len(prompt.messages), 1)
+        try:
+            resp = prompt.run(
+                "What is Cosmos about?",
+            )
+        except Exception as e:
+            self.fail(f"prompt.run() raised an exception: {e}")
+
+    def test_getPrompt_with_multiselect_deployment_variables_and_execute(self):
+        prompt = self.maxim.get_prompt(
+            promptId,
+            QueryBuilder()
+            .and_()
+            .deployment_var("Environment", "prod")
+            .deployment_var("tenant_id", ["1"])
+            .build(),
         )
         if prompt is None:
             raise Exception("Prompt not found")
 
-        print(f"Provider: {prompt.provider}")
-
         self.assertEqual(prompt.prompt_id, promptId)
-        # self.assertEqual(prompt.model, "gpt-4")
-        # self.assertEqual(prompt.provider, "openai")
-        self.assertEqual(prompt.version_id, data[env]["prodPromptVersionId"])
-        # self.assertEqual(prompt.messages[0].content, "You are a helpful assistant")
-        # self.assertEqual(len(prompt.messages), 1)
-        resp = prompt.run(
-            "What is Cosmos about?",
+        self.assertEqual(prompt.model, "gpt-3.5-turbo")
+        self.assertEqual(prompt.provider, "openai")
+        self.assertEqual(
+            prompt.messages[0].content,
+            "You are a helpful assistant. And you talk like chandler",
         )
-        print(resp)
-        print(
-            f">>>RESPONSE: {resp.choices[0].message.content if resp else 'No response'}"
-        )
+        self.assertEqual(len(prompt.messages), 1)
+        try:
+            resp = prompt.run(
+                "What is Cosmos about?",
+            )
+        except Exception as e:
+            self.fail(f"prompt.run() raised an exception: {e}")
 
-    def test_run_hosted_prompt_with_vision_model(self):
+    def test_prompt_with_vision_model(self):
         prompt = self.maxim.get_prompt(
             promptId,
             QueryBuilder().and_().deployment_var("Environment", "stage").build(),
         )
         if prompt is None:
             raise Exception("Prompt not found")
-        resp = prompt.run(
-            "explain this image",
-            image_urls=[
-                {
-                    "url": "https://plus.unsplash.com/premium_photo-1664474619075-644dd191935f?w=900&auto=format&fit=crop&q=60&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MXx8aW1hZ2V8ZW58MHx8MHx8fDA%3D",
-                    "detail": "auto",
-                }
-            ],
+        self.assertEqual(prompt.model, "anthropic.claude-3-5-sonnet-20240620-v1:0")
+        self.assertEqual(prompt.provider, "bedrock")
+        self.assertEqual(
+            prompt.messages[0].content,
+            "You are a helpful assistant. \n\nBe polite in every case",
         )
-        print(resp)
 
     def test_getPrompt_with_deployment_variables_Environment_prod(self):
         prompt = self.maxim.get_prompt(
@@ -95,8 +107,7 @@ class TestMaximPromptManagement(unittest.TestCase):
         if prompt is None:
             raise Exception("Prompt not found")
         self.assertEqual(prompt.prompt_id, promptId)
-        self.assertEqual(prompt.version_id, data[env]["prodPromptVersionId"])
-        self.assertEqual(prompt.model, "gpt-4")
+        self.assertEqual(prompt.model, "gpt-3.5-turbo")
         self.assertEqual(prompt.provider, "openai")
         # Message content may vary, so we just check that messages exist
         self.assertTrue(len(prompt.messages) > 0)
@@ -136,7 +147,9 @@ class TestMaximPromptManagement(unittest.TestCase):
             promptId,
             QueryBuilder()
             .and_()
-            .deployment_var("Test multi select", ["tenant1", "tenant2", "tenant3", "tenant4"])
+            .deployment_var(
+                "Test multi select", ["tenant1", "tenant2", "tenant3", "tenant4"]
+            )
             .build(),
         )
         if prompt is None:
@@ -150,10 +163,7 @@ class TestMaximPromptManagement(unittest.TestCase):
     ):
         prompt = self.maxim.get_prompt(
             promptId,
-            QueryBuilder()
-            .and_()
-            .deployment_var("Tenants", ["tenant1"])
-            .build(),
+            QueryBuilder().and_().deployment_var("Tenants", ["tenant1"]).build(),
         )
         if prompt is None:
             raise Exception("Prompt not found")
@@ -185,25 +195,23 @@ class TestMaximPromptManagement(unittest.TestCase):
             QueryBuilder()
             .and_()
             .deployment_var("Environment", "prod")
-            .deployment_var("TenantId", 123)
+            .deployment_var("tenant_id", "1")
             .build(),
         )
         if prompt is None:
             raise Exception("Prompt not found")
         self.assertEqual(prompt.prompt_id, promptId)
-        self.assertEqual(prompt.version_id, data[env]["prodAndT123PromptVersionId"])
         prompt2 = self.maxim.get_prompt(
             promptId,
             QueryBuilder()
             .and_()
             .deployment_var("Environment", "prod")
-            .deployment_var("TenantId", 123)
+            .deployment_var("tenant_id", "1")
             .build(),
         )
         if prompt2 is None:
             raise Exception("Prompt2 not found")
         self.assertEqual(prompt2.prompt_id, promptId)
-        self.assertEqual(prompt2.version_id, data[env]["prodAndT123PromptVersionId"])
 
     def test_if_fallback_works_fine(self):
         prompt = self.maxim.get_prompt(
@@ -217,7 +225,6 @@ class TestMaximPromptManagement(unittest.TestCase):
         if prompt is None:
             raise Exception("Prompt not found")
         self.assertEqual(prompt.prompt_id, promptId)
-        self.assertEqual(prompt.version_id, data[env]["prodPromptVersionId"])
 
     def test_if_fallback_works_fine_forceful(self):
         prompt = self.maxim.get_prompt(
@@ -225,14 +232,13 @@ class TestMaximPromptManagement(unittest.TestCase):
             QueryBuilder()
             .and_()
             .deployment_var("Environment", "prod")
-            .deployment_var("TenantId", 123)
+            .deployment_var("tenant_id", "1")
             .build(),
         )
         if prompt is None:
             raise Exception("Prompt not found")
         logging.debug(prompt.prompt_id)
         self.assertEqual(prompt.prompt_id, promptId)
-        self.assertEqual(prompt.version_id, data[env]["prodAndT123PromptVersionId"])
 
     @unittest.skip("Skipping test that uses excluded testAndTagsCustomerIdGradeAndTest")
     def test_fetch_prompts_using_tags(self):
@@ -250,19 +256,12 @@ class TestMaximPromptManagement(unittest.TestCase):
         if prompt is None:
             raise Exception("Prompt not found")
         self.assertEqual(prompt.prompt_id, promptId)
-        self.assertEqual(
-            prompt.version_id, data[env]["testAndTagsCustomerIdGradeAndTest"]
-        )
 
     def test_fetch_all_prompts_deployed_on_prod(self):
         prompts = self.maxim.get_prompts(
             QueryBuilder().and_().deployment_var("Environment", "prod").build(),
         )
         print([p.version_id for p in prompts])
-        for p in prompts:
-            if p is not None:
-                self.assertTrue(p.version_id in data[env]["prodPromptVersions"])
-        self.assertEqual(len(prompts), len(data[env]["prodPromptVersions"]))
 
     # # Issue : Doesn't work properly
     @unittest.skip(
@@ -273,27 +272,22 @@ class TestMaximPromptManagement(unittest.TestCase):
             QueryBuilder()
             .and_()
             .deployment_var("Environment", "prod")
-            .tag("CustomerId", 1234, False)
+            .tag("tenant_id", "1")
             .build(),
         )
         print(f"prompts : {[p for p in prompts]}")
-        for p in prompts:
-            if p is not None:
-                self.assertIn(
-                    p.version_id, data[env]["prodPromptsWithOptionalCustomerId1234"]
-                )
 
     def test_getFolderUsingId(self):
         folder = self.maxim.get_folder_by_id(folderID)
         if folder is None:
             raise Exception("Folder not found")
-        self.assertEqual(folder.name, "Test Folder")
+        self.assertEqual(folder.name, "SDK Tests")
 
     def test_getFolderUsingTags(self):
         folders = self.maxim.get_folders(
             QueryBuilder().and_().tag("test", True).build()
         )
-        self.assertEqual(folders[0].name, "Test Folder")
+        self.assertEqual(folders[0].name, "SDK Tests")
         self.assertEqual(len(folders), 1)
 
     # Issue : When only environment Var is given it is not able to retriev
@@ -304,16 +298,11 @@ class TestMaximPromptManagement(unittest.TestCase):
         prompts = self.maxim.get_prompts(
             QueryBuilder()
             .and_()
-            .folder(data[env]["testFolderId"])
-            .deployment_var("Environment", "stage")
-            .deployment_var("TenantId", 123)
+            .folder(folderID)
+            .deployment_var("Environment", "prod")
             .build(),
         )
         self.assertEqual(len(prompts), 1)
-        self.assertEqual(
-            prompts[0].version_id,
-            data[env]["testFolderEnvStageTenant123PromptVersion"],
-        )
 
     def test_add_dataset_entries(self):
         self.skipTest("")

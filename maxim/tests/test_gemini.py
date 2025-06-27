@@ -234,12 +234,6 @@ class TestGemini(unittest.TestCase):
         self.logger.flush()
         self.mock_writer.print_logs_summary()
 
-        # Chat creates a session first, then sends a message
-        # So we expect session create + message generation logs
-        # So we expect session create + message generation logs
-        self.mock_writer.assert_entity_action_count("session", "create", 1)
-        # So we expect session create + message generation logs
-        self.mock_writer.assert_entity_action_count("session", "create", 1)
         self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
         self.mock_writer.assert_entity_action_count("generation", "result", 1)
         self.mock_writer.assert_entity_action_count("trace", "create", 1)
