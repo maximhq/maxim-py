@@ -297,7 +297,7 @@ class Maxim:
                     if self.raise_exceptions:
                         raise err
         except Exception as err:
-            scribe().error(f"[MaximSDK] Error while syncing prompts: {err}")
+            scribe().error(f"[MaximSDK] Error while syncing prompts chains: {err}")
             if self.raise_exceptions:
                 raise err
 

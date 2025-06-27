@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Dict, Literal, Union
-
+import json
 
 class QueryRuleType(str):
     DeploymentVar = "deploymentVar"
@@ -69,7 +69,7 @@ class QueryBuilder:
         self.is_exact_match = True
         return self
 
-    def deployment_var(self, key: str, value: Union[str, int, bool], enforce: bool = True) -> 'QueryBuilder':
+    def deployment_var(self, key: str, value: Union[str, int, bool, list], enforce: bool = True) -> 'QueryBuilder':
         """
         Adds a deployment variable rule to the query.
 
@@ -82,9 +82,9 @@ class QueryBuilder:
             QueryBuilder: The current QueryBuilder instance for method chaining.
         """
 
-        if len(self.query)>0:
+        if len(self.query) > 0:
             self.query += ","
-        self.query += f"{'!!' if enforce else ''}{key}={value}"
+        self.query += f"{'!!' if enforce else ''}{key}={json.dumps(value) if isinstance(value, list) else value}"
         return self
 
     def tag(self, key: str, value: Union[str, int, bool], enforce: bool = False) -> 'QueryBuilder':

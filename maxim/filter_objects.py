@@ -1,7 +1,8 @@
 from typing import List, Optional
+import re
+import json
 
 from .models import RuleGroupType, RuleType
-
 
 class IncomingQuery:
     """
@@ -55,7 +56,8 @@ def parse_incoming_query(incoming_query: str) -> List[RuleType]:
         return []
     operators = ["!=", ">=", "<=", ">", "<", "includes", "does not include", "="]
     result = []
-    for condition in incoming_query.split(","):
+    split_query = re.split(r',(?![^\[\]]*\])', incoming_query)
+    for condition in split_query:
         no_operator_found = True
         for op in operators:
             if op in condition:
@@ -71,6 +73,14 @@ def parse_incoming_query(incoming_query: str) -> List[RuleType]:
                 try:
                     value = int(value)
                 except ValueError:
+                    pass
+                try:
+                    parsed_value = json.loads(value)
+                    if isinstance(parsed_value, list) and \
+                    len(parsed_value) > 0 and \
+                    isinstance(parsed_value[0], str):
+                        value = parsed_value
+                except (json.JSONDecodeError, ValueError):
                     pass
                 result.append(
                     RuleType(
@@ -140,6 +150,8 @@ def check_operator_match(field_rule: RuleType, field_incoming_rule: RuleType) ->
     operator = field_rule.operator
 
     if operator == "=":
+        if isinstance(field_rule.value, list):
+            return json.dumps(field_rule.value) == json.dumps(field_incoming_rule.value)
         return field_rule.value == field_incoming_rule.value
 
     if operator == "!=":
@@ -207,7 +219,7 @@ def check_operator_match(field_rule: RuleType, field_incoming_rule: RuleType) ->
         if isinstance(field_rule.value, list) and isinstance(
             field_incoming_rule.value, list
         ):
-            return field_incoming_rule.value in field_rule.value
+            return all(el in field_rule.value for el in field_incoming_rule.value)
         if isinstance(field_rule.value, list) and isinstance(
             field_incoming_rule.value, str
         ):
@@ -271,6 +283,13 @@ def condition_met(field_rule: RuleType, field_incoming_rule: RuleType) -> bool:
                 if field_incoming_rule.value is not None
                 else ""
             )
+        elif isinstance(field_rule.value, list):
+            try:
+                parsed_value = json.loads(field_incoming_rule.value)
+                if isinstance(parsed_value, list):
+                    field_incoming_rule.value = parsed_value
+            except (json.JSONDecodeError, ValueError):
+                pass
 
     match = check_operator_match(field_rule, field_incoming_rule)
     return match
