@@ -75,7 +75,7 @@ class QueryBuilder:
 
         Args:
             key (str): The key of the deployment variable.
-            value (Union[str, int, bool]): The value of the deployment variable.
+            value (Union[str, int, bool, list]): The value of the deployment variable.
             enforce (bool, optional): Whether to enforce the deployment variable. Defaults to True.
 
         Returns:
@@ -99,7 +99,7 @@ class QueryBuilder:
         Returns:
             QueryBuilder: The current QueryBuilder instance for method chaining.
         """
-        if len(self.query)>0:
+        if len(self.query) > 0:
             self.query += ","
         self.query += f"{'!!' if enforce else ''}{key}={value}"
         return self
@@ -114,7 +114,7 @@ class QueryBuilder:
         Returns:
             QueryRule: A QueryRule instance with the built query.
         """
-        if len(self.query.strip())==0:
+        if len(self.query.strip()) == 0:
             raise ValueError("Cannot build an empty query. Please add at least one rule (deploymentVar or tag).")
         return QueryRule(
             query=self.query,
