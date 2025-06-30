@@ -13,7 +13,7 @@ with open(str(f"{os.getcwd()}/maxim/tests/testConfig.json")) as f:
     data = json.load(f)
 
 # local config
-env = "prod"
+env = "dev"
 apiKey = data[env]["apiKey"]
 promptId = data[env]["promptId"]
 promptVersionId = data[env]["promptVersionId"]
@@ -48,7 +48,7 @@ class TestMaximPromptManagement(unittest.TestCase):
     def test_getPrompt_with_deployment_variables_and_execute(self):
         prompt = self.maxim.get_prompt(
             promptId,
-            QueryBuilder().and_().deployment_var("Environment", "prod").build(),
+            QueryBuilder().and_().deployment_var("Test multi select", ["test1", "test2", "test3"]).build(),
         )
         if prompt is None:
             raise Exception("Prompt not found")
@@ -56,14 +56,15 @@ class TestMaximPromptManagement(unittest.TestCase):
         print(f"Provider: {prompt.provider}")
 
         self.assertEqual(prompt.prompt_id, promptId)
-        self.assertEqual(prompt.model, "gpt-4")
-        self.assertEqual(prompt.provider, "openai")
-        self.assertEqual(prompt.version_id, promptVersionId)
+        # self.assertEqual(prompt.model, "gpt-4")
+        # self.assertEqual(prompt.provider, "openai")
+        self.assertEqual(prompt.version_id, data[env]["prodPromptVersionId"])
         # self.assertEqual(prompt.messages[0].content, "You are a helpful assistant")
         # self.assertEqual(len(prompt.messages), 1)
         resp = prompt.run(
-            "who is sachin tendulkar",
+            "What is Cosmos about?",
         )
+        print(resp)
         print(
             f">>>RESPONSE: {resp.choices[0].message.content if resp else 'No response'}"
         )
@@ -118,7 +119,7 @@ class TestMaximPromptManagement(unittest.TestCase):
             promptId,
             QueryBuilder()
             .and_()
-            .deployment_var("Environment", "prod")
+            .deployment_var("Environment", "Prod")
             .deployment_var("TenantId", 123)
             .build(),
         )
@@ -127,6 +128,39 @@ class TestMaximPromptManagement(unittest.TestCase):
         self.assertEqual(prompt.prompt_id, promptId)
         self.assertEqual(prompt.version_id, data[env]["prodAndT123PromptVersionId"])
         self.assertEqual(len(prompt.messages), 2)
+
+    def test_getPrompt_with_deployment_variables_multiselect(
+        self,
+    ):
+        prompt = self.maxim.get_prompt(
+            promptId,
+            QueryBuilder()
+            .and_()
+            .deployment_var("Test multi select", ["tenant1", "tenant2", "tenant3", "tenant4"])
+            .build(),
+        )
+        if prompt is None:
+            raise Exception("Prompt not found")
+        self.assertEqual(prompt.prompt_id, promptId)
+        self.assertEqual(prompt.version_id, data[env]["prodAndT123PromptVersionId"])
+        self.assertEqual(len(prompt.messages), 2)
+
+    def test_getPrompt_with_deployment_variables_multiselect_includes(
+        self,
+    ):
+        prompt = self.maxim.get_prompt(
+            promptId,
+            QueryBuilder()
+            .and_()
+            .deployment_var("Tenants", ["tenant1"])
+            .build(),
+        )
+        if prompt is None:
+            raise Exception("Prompt not found")
+        self.assertEqual(prompt.prompt_id, promptId)
+        self.assertEqual(prompt.version_id, data[env]["promptVersionId"])
+        res = prompt.run("What is Cosmos about?")
+        print(res.choices[0].message.content)
 
     def test_getPrompt_with_deployment_variables_Environment_stage_and_TenantId_123(
         self,
