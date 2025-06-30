@@ -56,6 +56,7 @@ def parse_incoming_query(incoming_query: str) -> List[RuleType]:
         return []
     operators = ["!=", ">=", "<=", ">", "<", "includes", "does not include", "="]
     result = []
+    # Only considers commas that are not inside square brackets
     split_query = re.split(r',(?![^\[\]]*\])', incoming_query)
     for condition in split_query:
         no_operator_found = True
@@ -74,6 +75,7 @@ def parse_incoming_query(incoming_query: str) -> List[RuleType]:
                     value = int(value)
                 except ValueError:
                     pass
+                # Checks value for string array
                 try:
                     parsed_value = json.loads(value)
                     if isinstance(parsed_value, list) and \
