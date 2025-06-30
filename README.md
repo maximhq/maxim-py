@@ -58,6 +58,10 @@ You can find detailed documentation and available integrations [here](https://ww
 
 ## Version changelog
 
+### 3.9.5
+
+- feat: Adds new query type for querying prompts, prompt chains and folders called mutli-select. [Learn more](https://www.getmaxim.ai/docs/offline-evals/via-sdk/prompts/querying-prompts#querying-a-single-prompt).
+
 ### 3.9.4
 
 - chore: Changed scribe (Maxim Logger) default level to warning.
