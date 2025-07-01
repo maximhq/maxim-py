@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional, TypedDict, Union
 
 from typing_extensions import deprecated
 
+from .models.prompt_chain import PromptChainRuleGroupType
+
 from .apis import MaximAPI
 from .cache import MaximCache, MaximInMemoryCache
 from .filter_objects import (
@@ -644,7 +646,7 @@ class Maxim:
                         continue
                     if version_rule.rules.query is not None:
                         query = version_rule.rules.query
-                        if isinstance(query, RuleGroupType):
+                        if isinstance(query, (RuleGroupType, PromptChainRuleGroupType)):
                             objects.append(QueryObject(query=query, id=version_id))
 
             deployed_version_object = find_best_match(objects, incoming_query)
