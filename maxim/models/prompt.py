@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, TypedDict, Union
 
 
 @dataclass
-class FunctionCall():
+class FunctionCall:
     """
     This class represents a function call.
     """
@@ -15,29 +15,31 @@ class FunctionCall():
 
     @staticmethod
     def from_dict(obj: Dict[str, Any]):
-        name = obj['name']
-        arguments = obj['arguments']
+        name = obj["name"]
+        arguments = obj["arguments"]
         return FunctionCall(name=name, arguments=arguments)
 
+
 @dataclass
-class ToolCall():
+class ToolCall:
     """
     This class represents a tool call.
     """
 
-    id:str
-    type:str
-    function:FunctionCall
+    id: str
+    type: str
+    function: FunctionCall
 
     @staticmethod
     def from_dict(obj: Dict[str, Any]):
-        id = obj['id']
-        type = obj['type']
-        function = FunctionCall.from_dict(obj['function'])
+        id = obj["id"]
+        type = obj["type"]
+        function = FunctionCall.from_dict(obj["function"])
         return ToolCall(id=id, type=type, function=function)
 
+
 @dataclass
-class Message():
+class Message:
     """
     This class represents a message of a LLM response choice.
     """
@@ -48,10 +50,15 @@ class Message():
 
     @staticmethod
     def from_dict(obj: Dict[str, Any]):
-        role = obj['role']
-        content = obj['content']
-        tool_calls = [ToolCall.from_dict(t) for t in obj['toolCalls']] if 'toolCalls' in obj else None
+        role = obj["role"]
+        content = obj["content"]
+        tool_calls = (
+            [ToolCall.from_dict(t) for t in obj["toolCalls"]]
+            if "toolCalls" in obj
+            else None
+        )
         return Message(role=role, content=content, tool_calls=tool_calls)
+
 
 @dataclass
 class Choice:
@@ -62,6 +69,7 @@ class Choice:
     index: int
     message: Message
     finish_reason: str
+
 
 @dataclass
 class Usage:
@@ -74,6 +82,7 @@ class Usage:
     total_tokens: int
     latency: float
 
+
 @dataclass
 class PromptResponse:
     """
@@ -81,18 +90,27 @@ class PromptResponse:
     """
 
     id: str
-    provider:str
-    model:str
+    provider: str
+    model: str
     choices: List[Choice]
     usage: Usage
-    model_params: Dict[str, Union[str, int, bool, Dict, None]] = field(default_factory=dict)
+    model_params: Dict[str, Union[str, int, bool, Dict, None]] = field(
+        default_factory=dict
+    )
 
     @staticmethod
     def from_dict(obj: Dict[str, Any]):
-        id = obj['id']
-        provider = obj['provider']
-        model = obj['model']
-        choices = [Choice(index=c['index'], message=Message.from_dict(c['message']), finish_reason=c.get('finish_reason', "stop")) for c in obj['choices']]
+        id = obj["id"]
+        provider = obj["provider"]
+        model = obj["model"]
+        choices = [
+            Choice(
+                index=c["index"],
+                message=Message.from_dict(c["message"]),
+                finish_reason=c.get("finish_reason", "stop"),
+            )
+            for c in obj["choices"]
+        ]
         usage_dict = obj.get("usage", {})
         usage = Usage(
             prompt_tokens=usage_dict.get("prompt_tokens", 0),
@@ -100,8 +118,15 @@ class PromptResponse:
             total_tokens=usage_dict.get("total_tokens", 0),
             latency=usage_dict.get("latency", 0.0),
         )
-        model_params = obj.get('modelParams', {})
-        return PromptResponse(id=id, provider=provider, model=model, choices=choices, usage=usage, model_params=model_params)
+        model_params = obj.get("modelParams", {})
+        return PromptResponse(
+            id=id,
+            provider=provider,
+            model=model,
+            choices=choices,
+            usage=usage,
+            model_params=model_params,
+        )
 
 
 class ImageURL(TypedDict):
@@ -130,13 +155,19 @@ class ChatCompletionMessageTextContent(TypedDict):
     type: str
     text: str
 
+
 class ChatCompletionMessage(TypedDict):
     """
     This class represents a chat completion message.
     """
 
     role: str
-    content: Union[str,List[Union[ChatCompletionMessageImageContent,ChatCompletionMessageTextContent]]]
+    content: Union[
+        str,
+        List[
+            Union[ChatCompletionMessageImageContent, ChatCompletionMessageTextContent]
+        ],
+    ]
 
 
 class Function(TypedDict):
@@ -144,9 +175,9 @@ class Function(TypedDict):
     This class represents a function.
     """
 
-    name:str
-    description:str
-    parameters:Dict[str,Any]
+    name: str
+    description: str
+    parameters: Dict[str, Any]
 
 
 class Tool(TypedDict):
@@ -186,19 +217,19 @@ class Prompt:
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> "Prompt":
         return Prompt(
-            prompt_id=data['promptId'],
-            version=data['version'],
-            version_id=data['versionId'],
-            messages=[Message.from_dict(m) for m in data['messages']],
-            model_parameters=data['modelParameters'],
-            model=data['model'],
-            provider=data['provider'],
-            tags=data['tags']
+            prompt_id=data["promptId"],
+            version=data["version"],
+            version_id=data["versionId"],
+            messages=[Message.from_dict(m) for m in data["messages"]],
+            model_parameters=data["modelParameters"],
+            model=data["model"],
+            provider=data["provider"],
+            tags=data["tags"],
         )
 
 
 @dataclass
-class RuleType():
+class RuleType:
     """
     This class represents a rule type.
     """
@@ -211,31 +242,37 @@ class RuleType():
 
     @staticmethod
     def from_dict(obj: Dict):
-        return RuleType(field=obj['field'], value=obj['value'], operator=obj['operator'], valueSource=obj.get('valueSource', None), exactMatch=obj.get('exactMatch', None))
+        return RuleType(
+            field=obj["field"],
+            value=obj["value"],
+            operator=obj["operator"],
+            valueSource=obj.get("valueSource", None),
+            exactMatch=obj.get("exactMatch", None),
+        )
 
 
 @dataclass
-class RuleGroupType():
+class RuleGroupType:
     """
     This class represents a rule group type.
     """
 
-    rules: List[Union['RuleType', 'RuleGroupType']]
+    rules: List[Union["RuleType", "RuleGroupType"]]
     combinator: str
 
     @staticmethod
     def from_dict(obj: Dict):
         rules = []
-        for rule in obj['rules']:
-            if 'rules' in rule:
+        for rule in obj["rules"]:
+            if "rules" in rule:
                 rules.append(RuleGroupType.from_dict(rule))
             else:
                 rules.append(RuleType(**rule))
-        return RuleGroupType(rules=rules, combinator=obj['combinator'])
+        return RuleGroupType(rules=rules, combinator=obj["combinator"])
 
 
 @dataclass
-class PromptDeploymentRules():
+class PromptDeploymentRules:
     """
     This class represents the deployment rules of a prompt.
     """
@@ -245,14 +282,14 @@ class PromptDeploymentRules():
 
     @staticmethod
     def from_dict(obj: Dict):
-        query = obj.get('query', None)
+        query = obj.get("query", None)
         if query is not None:
             query = RuleGroupType.from_dict(query)
-        return PromptDeploymentRules(version=obj['version'], query=query)
+        return PromptDeploymentRules(version=obj["version"], query=query)
 
 
 @dataclass
-class VersionSpecificDeploymentConfig():
+class VersionSpecificDeploymentConfig:
     """
     This class represents the deployment rules of a prompt version.
     """
@@ -264,12 +301,17 @@ class VersionSpecificDeploymentConfig():
 
     @staticmethod
     def from_dict(obj: Dict):
-        rules = PromptDeploymentRules.from_dict(obj['rules'])
-        return VersionSpecificDeploymentConfig(id=obj['id'], timestamp=obj['timestamp'], rules=rules, isFallback=obj.get('isFallback', False))
+        rules = PromptDeploymentRules.from_dict(obj["rules"])
+        return VersionSpecificDeploymentConfig(
+            id=obj["id"],
+            timestamp=obj["timestamp"],
+            rules=rules,
+            isFallback=obj.get("isFallback", False),
+        )
 
 
 @dataclass
-class PromptVersionConfig():
+class PromptVersionConfig:
     """
     This class represents the config of a prompt version.
     """
@@ -282,18 +324,18 @@ class PromptVersionConfig():
 
     @staticmethod
     def from_dict(obj: Dict):
-        messages = [Message.from_dict(message) for message in obj['messages']]
+        messages = [Message.from_dict(message) for message in obj["messages"]]
         return PromptVersionConfig(
             messages=messages,
-            modelParameters=obj['modelParameters'],
-            model=obj['model'],
-            provider=obj['provider'],
-            tags=obj.get('tags', None)
+            modelParameters=obj["modelParameters"],
+            model=obj["model"],
+            provider=obj["provider"],
+            tags=obj.get("tags", None),
         )
 
 
 @dataclass
-class PromptVersion():
+class PromptVersion:
     """
     This class represents a prompt version.
     """
@@ -309,14 +351,23 @@ class PromptVersion():
 
     @staticmethod
     def from_dict(obj: Dict):
-        config = obj.get('config', None)
+        config = obj.get("config", None)
         if config:
             config = PromptVersionConfig.from_dict(config)
-        return PromptVersion(id=obj['id'], version=obj['version'], promptId=obj['promptId'], createdAt=obj['createdAt'], updatedAt=obj['updatedAt'], deletedAt=obj.get('deletedAt', None), description=obj.get('description', None), config=config)
+        return PromptVersion(
+            id=obj["id"],
+            version=obj["version"],
+            promptId=obj["promptId"],
+            createdAt=obj["createdAt"],
+            updatedAt=obj["updatedAt"],
+            deletedAt=obj.get("deletedAt", None),
+            description=obj.get("description", None),
+            config=config,
+        )
 
 
 @dataclass
-class VersionsAndRules():
+class VersionsAndRules:
     """
     This class represents the versions and rules of a prompt.
     """
@@ -328,23 +379,28 @@ class VersionsAndRules():
 
     @staticmethod
     def from_dict(obj: Dict):
-        rules = obj['rules']
+        rules = obj["rules"]
         # Decoding each rule
         for key in rules:
-            rules[key] = [VersionSpecificDeploymentConfig.from_dict(
-                rule) for rule in rules[key]]
-        versions = [PromptVersion.from_dict(version)
-                    for version in obj['versions']]
-        fallbackVersion = obj.get('fallbackVersion', None)
+            rules[key] = [
+                VersionSpecificDeploymentConfig.from_dict(rule) for rule in rules[key]
+            ]
+        versions = [PromptVersion.from_dict(version) for version in obj["versions"]]
+        fallbackVersion = obj.get("fallbackVersion", None)
         if fallbackVersion:
             fallbackVersion = PromptVersion.from_dict(fallbackVersion)
-        return VersionsAndRules(rules=rules, versions=versions,  folderId=obj.get('folderId', None), fallbackVersion=fallbackVersion)
+        return VersionsAndRules(
+            rules=rules,
+            versions=versions,
+            folderId=obj.get("folderId", None),
+            fallbackVersion=fallbackVersion,
+        )
 
     def to_json(self):
         return asdict(self)
 
 
-@ dataclass
+@dataclass
 class VersionAndRulesWithPromptId(VersionsAndRules):
     """
     This class represents the versions and rules of a prompt with a prompt id.
@@ -354,10 +410,16 @@ class VersionAndRulesWithPromptId(VersionsAndRules):
 
     @staticmethod
     def from_dict(obj: Dict):
-        promptId = obj['promptId']
-        del obj['promptId']
+        promptId = obj["promptId"]
+        del obj["promptId"]
         versionAndRules = VersionsAndRules.from_dict(obj)
-        return VersionAndRulesWithPromptId(rules=versionAndRules.rules, versions=versionAndRules.versions, promptId=promptId, folderId=versionAndRules.folderId, fallbackVersion=versionAndRules.fallbackVersion)
+        return VersionAndRulesWithPromptId(
+            rules=versionAndRules.rules,
+            versions=versionAndRules.versions,
+            promptId=promptId,
+            folderId=versionAndRules.folderId,
+            fallbackVersion=versionAndRules.fallbackVersion,
+        )
 
 
 class VersionAndRulesWithPromptIdEncoder(json.JSONEncoder):
@@ -371,8 +433,8 @@ class VersionAndRulesWithPromptIdEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-@ dataclass
-class Error():
+@dataclass
+class Error:
     """
     This class represents an error from Prompt.
     """
@@ -380,8 +442,8 @@ class Error():
     message: str
 
 
-@ dataclass
-class PromptData():
+@dataclass
+class PromptData:
     """
     This class represents the data of a prompt.
     """
@@ -393,8 +455,8 @@ class PromptData():
     fallbackVersion: Optional[PromptVersion] = None
 
 
-@ dataclass
-class MaximApiPromptResponse():
+@dataclass
+class MaximApiPromptResponse:
     """
     This class represents the response of a prompt.
     """
@@ -403,8 +465,8 @@ class MaximApiPromptResponse():
     error: Optional[Error] = None
 
 
-@ dataclass
-class MaximApiPromptsResponse():
+@dataclass
+class MaximApiPromptsResponse:
     """
     This class represents the response of a prompts.
     """
@@ -413,8 +475,8 @@ class MaximApiPromptsResponse():
     error: Optional[Error] = None
 
 
-@ dataclass
-class MaximAPIResponse():
+@dataclass
+class MaximAPIResponse:
     """
     This class represents the response of a Maxim API.
     """

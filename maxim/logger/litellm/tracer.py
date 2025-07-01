@@ -39,14 +39,14 @@ class MaximLiteLLMTracer(CustomLogger):
         Returns:
             The container.
         """
-        if metadata is not None and metadata["trace_id"] is not None:
-            trace_id = metadata["trace_id"] if "trace_id" in metadata else None
-            span_name = metadata["span_name"] if "span_name" in metadata else None
-            tags = metadata["span_tags"] if "span_tags" in metadata else None
+        if metadata is not None and metadata.get("trace_id") is not None:
+            trace_id = metadata.get("trace_id")
+            span_name = metadata.get("span_name")
+            tags = metadata.get("span_tags")
             if trace_id is not None:
                 # Here we will create a new span and send back that as container
                 container = SpanContainer(
-                    span_id=str(str(uuid4())),
+                    span_id=str(uuid4()),
                     logger=self.logger,
                     span_name=span_name,
                     parent=trace_id,
@@ -56,11 +56,11 @@ class MaximLiteLLMTracer(CustomLogger):
                     container.add_tags(tags)
                 return container
             # We will be creating trace from scratch
-            tags = metadata["trace_tags"] if "trace_tags" in metadata else None
-            trace_name = metadata["trace_name"] if "trace_name" in metadata else None
-            session_id = metadata["session_id"] if "session_id" in metadata else None
+            tags = metadata.get("trace_tags")
+            trace_name = metadata.get("trace_name")
+            session_id = metadata.get("session_id")
             container = TraceContainer(
-                trace_id=str(str(uuid4())),
+                trace_id=str(uuid4()),
                 logger=self.logger,
                 trace_name=trace_name,
                 parent=session_id,
@@ -90,7 +90,7 @@ class MaximLiteLLMTracer(CustomLogger):
         for message in messages:
             if message.get("role", "user") != "user":
                 continue
-            content = message.get("content", None)
+            content = message.get("content")
             if content is None:
                 continue
             if isinstance(content, str):
@@ -106,25 +106,18 @@ class MaximLiteLLMTracer(CustomLogger):
         Runs when a LLM call starts.
         """
         try:
-            if kwargs.get("call_type", None) == "embedding":
+            if kwargs.get("call_type") == "embedding":
                 return
-            metadata: Optional[dict[str, Any]] = None
+            metadata: Optional[Dict[str, Any]] = None
             generation_name = None
             tags = {}
-            litellm_metadata = kwargs["litellm_params"]["metadata"] or {}
+
+            litellm_metadata = kwargs.get("litellm_params", {}).get("metadata") or {}
             if litellm_metadata:
-                metadata = litellm_metadata.get("maxim", None)
+                metadata = litellm_metadata.get("maxim")
                 if metadata is not None:
-                    generation_name = (
-                        metadata["generation_name"]
-                        if "generation_name" in metadata
-                        else None
-                    )
-                    tags = (
-                        metadata["generation_tags"]
-                        if "generation_tags" in metadata
-                        else None
-                    )
+                    generation_name = metadata.get("generation_name")
+                    tags = metadata.get("generation_tags") or {}
 
             # checking if trace_id present in metadata
             container = self.__get_container_from_metadata(metadata)
@@ -132,11 +125,13 @@ class MaximLiteLLMTracer(CustomLogger):
                 container.create()
             call_id = kwargs["litellm_call_id"]
             self.containers[call_id] = container
-            # starting trace
-            provider = kwargs["litellm_params"]["custom_llm_provider"]
-            params: Dict[str, Any] = (
-                kwargs["optional_params"] if "optional_params" in kwargs else {}
-            )
+
+            # Extract provider and parameters
+            litellm_params = kwargs.get("litellm_params", {})
+            provider = litellm_params.get("custom_llm_provider")
+            params: Dict[str, Any] = kwargs.get("optional_params", {})
+
+            # Handle chat/completion calls
             request_messages: list[GenerationRequestMessage] = []
             input_text = self._extract_input_from_messages(messages)
             for message in messages:
@@ -169,10 +164,10 @@ class MaximLiteLLMTracer(CustomLogger):
         Runs when a LLM call succeeds.
         """
         try:
-            if kwargs.get("call_type", None) == "embedding":
+            if kwargs.get("call_type") == "embedding":
                 return
             call_id = kwargs["litellm_call_id"]
-            container = self.containers[call_id] if call_id in self.containers else None
+            container = self.containers.get(call_id)
             if container is None:
                 scribe().warning(
                     "[MaximSDK] Couldn't find container for logging Litellm post call."
@@ -190,22 +185,18 @@ class MaximLiteLLMTracer(CustomLogger):
         Runs when a LLM call fails.
         """
         try:
-            if kwargs.get("call_type", None) == "embedding":
+            if kwargs.get("call_type") == "embedding":
                 return
             call_id = kwargs["litellm_call_id"]
-            container = self.containers[call_id] if call_id in self.containers else None
+            container = self.containers.get(call_id)
             if container is None:
                 # This means that this was an litellm level error
                 container = self.__get_container_from_metadata(None)
                 if not container.is_created():
                     container.create()
-                model = kwargs["model"] if "model" in kwargs else None
-                messages = kwargs["messages"] if "messages" in kwargs else None
-                provider = (
-                    kwargs["custom_llm_provider"]
-                    if "custom_llm_providervider" in kwargs
-                    else None
-                )
+                model = kwargs.get("model")
+                messages = kwargs.get("messages")
+                provider = kwargs.get("custom_llm_provider")
                 container.add_generation(
                     GenerationConfig(
                         id=call_id,
@@ -214,13 +205,13 @@ class MaximLiteLLMTracer(CustomLogger):
                         provider=provider or "Unknown",
                     )
                 )
-            exception = kwargs["exception"] or None
+            exception = kwargs.get("exception")
             if exception is not None:
                 self.logger.generation_error(
                     generation_id=call_id,
                     error=GenerationError(
-                        message=exception.message,
-                        code=str(exception.status_code),
+                        message=getattr(exception, "message", str(exception)),
+                        code=str(getattr(exception, "status_code", "unknown")),
                     ),
                 )
             container.end()
@@ -234,17 +225,18 @@ class MaximLiteLLMTracer(CustomLogger):
         Runs when a LLM call starts.
         """
         try:
-            if kwargs.get("call_type", None) == "embedding":
+            if kwargs.get("call_type") == "embedding":
                 return
-            metadata: Optional[dict[str, Any]] = None
+            metadata: Optional[Dict[str, Any]] = None
             generation_name = None
             tags = {}
-            litellm_metadata = kwargs["litellm_params"]["metadata"] or {}
+
+            litellm_metadata = kwargs.get("litellm_params", {}).get("metadata") or {}
             if litellm_metadata:
-                metadata = litellm_metadata.get("maxim", None)
+                metadata = litellm_metadata.get("maxim")
                 if metadata is not None:
-                    generation_name = metadata["generation_name"]
-                    tags = metadata["generation_tags"]
+                    generation_name = metadata.get("generation_name")
+                    tags = metadata.get("generation_tags") or {}
 
             # checking if trace_id present in metadata
             container = self.__get_container_from_metadata(metadata)
@@ -252,7 +244,13 @@ class MaximLiteLLMTracer(CustomLogger):
                 container.create()
             call_id = kwargs["litellm_call_id"]
             self.containers[call_id] = container
-            # starting trace
+
+            # Extract provider and parameters
+            litellm_params = kwargs.get("litellm_params", {})
+            provider = litellm_params.get("custom_llm_provider")
+            params: Dict[str, Any] = kwargs.get("optional_params", {})
+
+            # Handle chat/completion calls
             request_messages: list[GenerationRequestMessage] = []
             input_text = self._extract_input_from_messages(messages)
             for message in messages:
@@ -262,12 +260,6 @@ class MaximLiteLLMTracer(CustomLogger):
                         content=message.get("content", ""),
                     ),
                 )
-            if input_text is not None:
-                container.set_input(input_text)
-            provider = kwargs["litellm_params"]["custom_llm_provider"]
-            params: Dict[str, Any] = (
-                kwargs["optional_params"] if "optional_params" in kwargs else {}
-            )
             _ = container.add_generation(
                 GenerationConfig(
                     id=call_id,
@@ -279,6 +271,8 @@ class MaximLiteLLMTracer(CustomLogger):
                     tags=tags,
                 )
             )
+            if input_text is not None:
+                container.set_input(input_text)
         except Exception as e:
             scribe().error(
                 f"[MaximSDK] Error while handling async_log_pre_api_call for litellm: {str(e)}"
@@ -289,10 +283,10 @@ class MaximLiteLLMTracer(CustomLogger):
         Runs when a LLM call succeeds.
         """
         try:
-            if kwargs.get("call_type", None) == "embedding":
+            if kwargs.get("call_type") == "embedding":
                 return
             call_id = kwargs["litellm_call_id"]
-            container = self.containers[call_id] if call_id in self.containers else None
+            container = self.containers.get(call_id)
             if container is None:
                 scribe().warning(
                     "[MaximSDK] Couldn't find container for logging Litellm post call."
@@ -310,22 +304,18 @@ class MaximLiteLLMTracer(CustomLogger):
         Runs when a LLM call fails.
         """
         try:
-            if kwargs.get("call_type", None) == "embedding":
+            if kwargs.get("call_type") == "embedding":
                 return
             call_id = kwargs["litellm_call_id"]
-            container = self.containers[call_id] if call_id in self.containers else None
+            container = self.containers.get(call_id)
             if container is None:
                 # This means that this was an litellm level error
                 container = self.__get_container_from_metadata(None)
                 if not container.is_created():
                     container.create()
-                model = kwargs["model"] if "model" in kwargs else None
-                messages = kwargs["messages"] if "messages" in kwargs else None
-                provider = (
-                    kwargs["custom_llm_provider"]
-                    if "custom_llm_provider" in kwargs
-                    else None
-                )
+                model = kwargs.get("model")
+                messages = kwargs.get("messages")
+                provider = kwargs.get("custom_llm_provider")
                 container.add_generation(
                     GenerationConfig(
                         id=call_id,
@@ -334,13 +324,13 @@ class MaximLiteLLMTracer(CustomLogger):
                         provider=provider or "Unknown",
                     )
                 )
-            exception = kwargs["exception"] or None
+            exception = kwargs.get("exception")
             if exception is not None:
                 self.logger.generation_error(
                     generation_id=call_id,
                     error=GenerationError(
-                        message=exception.message,
-                        code=str(exception.status_code),
+                        message=getattr(exception, "message", str(exception)),
+                        code=str(getattr(exception, "status_code", "unknown")),
                     ),
                 )
             container.end()
