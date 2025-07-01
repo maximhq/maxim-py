@@ -84,7 +84,7 @@ class QueryBuilder:
 
         if len(self.query) > 0:
             self.query += ","
-        self.query += f"{'!!' if enforce else ''}{key}={json.dumps(value) if isinstance(value, list) else value}"
+        self.query += f"{'!!' if enforce else ''}{key}={json.dumps(value) if isinstance(value, (list, bool)) else value}"
         return self
 
     def tag(self, key: str, value: Union[str, int, bool], enforce: bool = False) -> 'QueryBuilder':
