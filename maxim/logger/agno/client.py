@@ -49,10 +49,89 @@ def _log_event(trace: Any, generation: Any, event: Any, content: Any) -> None:
     if not event:
         return
 
-    trace.add_event(str(uuid4()), str(event))
+    # Use the correct static method to add an event to the trace
+    trace.event_(trace.writer, trace.id, str(uuid4()), str(event))
 
     if event in (RunEvent.run_completed, RunEvent.run_completed.value, "RunCompleted"):
-        generation.result(content)
+        # If content has a to_dict method (like our mock), use it
+        if hasattr(content, "to_dict"):
+            generation.result(content.to_dict())
+        else:
+            # For plain content or complex Agno results, create proper format
+            from datetime import datetime
+
+            # Extract tool calls if present
+            tool_calls_data = None
+            if hasattr(content, "tool_calls") and content.tool_calls:
+                tool_calls_data = []
+                for i, tool_call in enumerate(content.tool_calls):
+                    tool_calls_data.append(
+                        {
+                            "id": f"call_{i}_{tool_call.get('name', 'unknown')}",
+                            "type": "function",
+                            "function": {
+                                "name": tool_call.get("name", "unknown_function"),
+                                "arguments": tool_call.get("arguments", "{}"),
+                            },
+                        }
+                    )
+
+            # Extract vision/image data if present
+            message_content = str(content)
+            if hasattr(content, "images") and content.images:
+                # For vision models, create structured content
+                message_content = [{"type": "text", "text": str(content)}]
+                for image in content.images:
+                    message_content.append(
+                        {
+                            "type": "image_analysis",
+                            "description": image.get("description", "Image processed"),
+                            "metadata": {
+                                "objects": image.get(
+                                    "objects_detected", image.get("objects", [])
+                                ),
+                                "colors": image.get("colors", []),
+                                "analysis": image.get("analysis", {}),
+                            },
+                        }
+                    )
+
+            # Get model info if available
+            model_name = "agno-model"
+            if hasattr(content, "metadata") and content.metadata:
+                model_name = content.metadata.get("model", model_name)
+
+            # Determine finish reason
+            finish_reason = "stop"
+            if tool_calls_data:
+                finish_reason = "tool_calls"
+            elif hasattr(content, "images") and content.images:
+                finish_reason = "stop"  # Vision models still finish normally
+
+            mock_result = {
+                "id": "agno_completion_id",
+                "object": "chat.completion",
+                "created": int(datetime.now().timestamp()),
+                "model": model_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": message_content,
+                            "tool_calls": tool_calls_data,
+                        },
+                        "finish_reason": finish_reason,
+                        "logprobs": None,
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
+            }
+            generation.result(mock_result)
 
 
 def _wrap_sync(logger: Logger, fn: Callable) -> Callable:
@@ -92,7 +171,14 @@ def _wrap_sync(logger: Logger, fn: Callable) -> Callable:
             )
             return result
         except Exception as exc:  # pragma: no cover - passthrough
-            generation.error(str(exc))
+            from ..components.generation import GenerationErrorTypedDict
+
+            error_config: GenerationErrorTypedDict = {
+                "message": str(exc),
+                "code": type(exc).__name__,
+                "type": "exception",
+            }
+            generation.error(error_config)
             raise
         finally:
             if end_trace and not (result is not None and inspect.isgenerator(result)):
@@ -138,7 +224,14 @@ def _wrap_async(logger: Logger, fn: Callable) -> Callable:
             )
             return result
         except Exception as exc:  # pragma: no cover - passthrough
-            generation.error(str(exc))
+            from ..components.generation import GenerationErrorTypedDict
+
+            error_config: GenerationErrorTypedDict = {
+                "message": str(exc),
+                "code": type(exc).__name__,
+                "type": "exception",
+            }
+            generation.error(error_config)
             raise
         finally:
             if end_trace and not (result is not None and inspect.isasyncgen(result)):
@@ -184,5 +277,3 @@ class MaximAgnoClient:
             instrument_agno(logger)
         except Exception as e:  # pragma: no cover - runtime errors
             scribe().warning(f"[MaximSDK][Agno] Failed to instrument Agno: {e}")
-
-

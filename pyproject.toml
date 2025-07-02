@@ -12,6 +12,7 @@ dependencies = [
     "typing-extensions",
     "filetype",
     "httpx>=0.28.1",
+    "agno>=1.7.0",
 ]
 authors = [
   { name = "Maxim Engineering", email = "eng@getmaxim.ai" }
