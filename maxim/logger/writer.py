@@ -17,11 +17,6 @@ from queue import Queue
 from typing import Optional
 
 import filetype
-from requests.exceptions import (
-    ConnectionError as RequestsConnectionError,
-    ConnectTimeout,
-    ReadTimeout,
-)
 from urllib3.exceptions import (
     ConnectTimeoutError,
     NewConnectionError,
