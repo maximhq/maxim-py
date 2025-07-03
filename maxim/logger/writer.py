@@ -17,17 +17,7 @@ from queue import Queue
 from typing import Optional
 
 import filetype
-from requests.exceptions import (
-    ConnectionError as RequestsConnectionError,
-    ConnectTimeout,
-    ReadTimeout,
-)
-from urllib3.exceptions import (
-    ConnectTimeoutError,
-    NewConnectionError,
-    ReadTimeoutError,
-)
-
+import httpx
 from ..apis import MaximAPI
 from ..scribe import scribe
 from .components.types import CommitLog
@@ -436,12 +426,15 @@ class LogWriter:
             scribe().debug("[MaximSDK] Flush complete")
         except (
             RemoteDisconnected,
-            RequestsConnectionError,
-            ConnectTimeout,
-            ReadTimeout,
-            ConnectTimeoutError,
-            NewConnectionError,
-            ReadTimeoutError,
+            ConnectionError,
+            TimeoutError,
+            httpx.ConnectError,
+            httpx.ConnectTimeout,
+            httpx.ReadTimeout,
+            httpx.ProtocolError,
+            httpx.TimeoutException,
+            httpx.PoolTimeout,
+            httpx.RequestError,
         ) as e:
             # Handle specific connection interruption exceptions
             scribe().warning(
