@@ -225,6 +225,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         metadata: Optional[dict[str, Any]] = None,
         **kwargs: Any,
     ) -> Any:
+        print(f"ON LLM START")
         """Runs when LLM starts"""
         try:
             self._parse_metadata(metadata)
@@ -273,6 +274,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         metadata: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> Any:
+        print(f"ON CHAT MODEL START")
         """Runs when a chat model call starts"""
         try:
             scribe().debug("[MaximSDK: Langchain] on_chat_model_start called")
@@ -348,6 +350,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         """Run on new LLM token. Only available when streaming is enabled."""
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> Any:
+        print(f"ON LLM END")
         """Run when LLM ends running."""
         try:
             scribe().debug("[MaximSDK][Langchain] on_llm_end called")
@@ -420,6 +423,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
     def on_llm_error(
         self, error: Union[Exception, BaseException, KeyboardInterrupt], **kwargs: Any
     ) -> Any:
+        print(f"ON LLM ERROR")
         """Run when LLM errors."""
         try:
             scribe().debug("[MaximSDK] on_llm_error called")
@@ -457,6 +461,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         metadata: Optional[dict[str, Any]] = None,
         **kwargs: Any,
     ) -> Any:
+        print(f"ON RETRIEVER START")
         """
         Run when Retriever starts running.
         """
@@ -489,6 +494,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> Any:
+        print(f"ON RETRIEVER END")
         try:
             scribe().debug("[MaximSDK] on_retriever_end called")
             container = self.__get_container(run_id, parent_run_id)
@@ -514,6 +520,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
     def on_chain_start(
         self, serialized: Dict[str, Any], inputs: Dict[str, Any], **kwargs: Any
     ) -> Any:
+        print(f"ON CHAIN START")
         try:
             scribe().debug("[MaximSDK: Langchain] on_chain_start called")
             if "metadata" in kwargs and kwargs.get("metadata", None) is not None:
@@ -566,6 +573,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
             )
 
     def on_chain_end(self, outputs: Union[str, Dict[str, Any]], **kwargs: Any) -> Any:
+        print(f"ON CHAIN END")
         try:
             run_id = kwargs.get("run_id", None)
             parent_run_id = kwargs.get("parent_run_id", None)
@@ -595,6 +603,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
     def on_chain_error(
         self, error: Union[Exception, BaseException, KeyboardInterrupt], **kwargs: Any
     ) -> Any:
+        print(f"ON CHAIN ERROR")
         scribe().info("[MaximSDK] on_chain_error called")
         try:
             run_id = kwargs.get("run_id", None)
@@ -631,6 +640,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         metadata: Optional[dict[str, Any]] = None,
         **kwargs: Any,
     ) -> Any:
+        print(f"ON CUSTOM EVENT")
         try:
             container = self.__get_container(run_id, kwargs.get("parent_run_id", None))
             if container is None:
@@ -659,6 +669,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> Any:
+        print(f"ON AGENT ACTION")
         scribe().warning("[MaximSDK] On agent action is not supported")
 
     def on_agent_finish(
@@ -669,6 +680,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> Any:
+        print(f"ON AGENT FINISH")
         scribe().warning("[MaximSDK] On agent action is not supported")
 
     # Tool callbacks
@@ -676,6 +688,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
     def on_tool_start(
         self, serialized: Dict[str, Any], input_str: str, **kwargs: Any
     ) -> Any:
+        print(f"ON TOOL START")
         try:
             run_id = kwargs.get("run_id", None)
             parent_run_id = kwargs.get("parent_run_id", None)
@@ -706,6 +719,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
             )
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> Any:
+        print(f"ON TOOL END")
         try:
             run_id = kwargs.get("run_id", None)
             parent_run_id = kwargs.get("parent_run_id", None)
@@ -744,6 +758,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
     def on_tool_error(
         self, error: Union[Exception, BaseException, KeyboardInterrupt], **kwargs: Any
     ) -> Any:
+        print(f"ON TOOL ERROR")
         try:
             run_id = kwargs.get("run_id", None)
             container = self.__get_container(run_id, kwargs.get("parent_run_id", None))
@@ -767,4 +782,5 @@ class MaximLangchainTracer(BaseCallbackHandler):
             )
 
     def on_text(self, text: str, **kwargs: Any) -> Any:
+        print(f"ON TEXT")
         scribe().warning("[MaximSDK] Text models are not supported by Maxim callback")
