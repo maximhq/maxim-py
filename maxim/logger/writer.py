@@ -368,7 +368,9 @@ class LogWriter:
                     self.maxim_api.push_logs(self.config.repository_id, logs)
                     os.remove(os.path.join(self.logs_dir, file))
                 except Exception as e:
-                    scribe().warning(f"[MaximSDK] Failed to access filesystem. Error: {e}")
+                    scribe().warning(
+                        f"[MaximSDK] Failed to access filesystem. Error: {e}"
+                    )
                     if self.raise_exceptions:
                         raise Exception(e)
         except Exception as e:
@@ -386,6 +388,20 @@ class LogWriter:
         except Exception:
             return False
 
+    def process_large_log(self, file_id: str, key: str, serialized_log: str) -> str:
+        """
+        Flush a large commit log to the Maxim API.
+        Exceptions are passed onto the caller.
+        Returns the final gcs command
+        """
+        resp = self.maxim_api.get_upload_url(key, "text/plain", len(serialized_log))
+        self.maxim_api.upload_to_signed_url(
+            resp["url"], serialized_log.encode("utf-8"), "text/plain"
+        )
+        return (
+            f'storage{{id={file_id},action=process-large-log,data={{"key":"{key}"}}}}'
+        )
+
     def flush_logs(self, logs: list[CommitLog]):
         """
         Flush logs to the Maxim API.
@@ -401,15 +417,29 @@ class LogWriter:
             if self.can_access_filesystem():
                 self.flush_log_files()
             # Serialize all logs
-            serialized_logs = [log.serialize() for log in logs]
             # Maximum size for each batch (5MB)
             MAX_BATCH_SIZE = 5 * 1024 * 1024
             # Split logs into batches to ensure each batch is under 5MB
             current_batch = []
             current_size = 0
-            for log_str in serialized_logs:
+            for log in logs:
                 # Calculate size of this log plus a newline character
+                log_str = log.serialize()
                 log_size = len(log_str.encode("utf-8")) + 1
+                # Here we will check if its above 900 kb - and if so - we will pass it to the process_large_log first
+                # And once we receive the key we will add it to the current batch
+                if log_size > 900 * 1024:
+                    scribe().debug(
+                        f"[MaximSDK] Log is too large. Size: {log_size}. Flushing via storage."
+                    )
+                    repo_id = self.config.repository_id
+                    file_id = str(uuid.uuid4())
+                    key = f"{repo_id}/large-logs/{file_id}"
+                    log_str = self.process_large_log(file_id, key, log_str)
+                    log_size = len(log_str.encode("utf-8")) + 1
+                    scribe().debug(
+                        f"[MaximSDK] Log flushed to storage. Size: {log_size}. Key: {key}. Log: {log_str}"
+                    )
                 # If adding this log would exceed the limit, push current batch and start a new one
                 if current_size + log_size > MAX_BATCH_SIZE and current_batch:
                     batch_content = "\n".join(current_batch)
@@ -564,9 +594,8 @@ class LogWriter:
             f"[MaximSDK] Flushing logs to server {time.strftime('%Y-%m-%dT%H:%M:%S')} with {len(items)} items"
         )
         for item in items:
-            scribe().debug(f"[MaximSDK] {item.serialize()}")
+            scribe().debug(f"[MaximSDK] {item.serialize()[:1000]}")
         # if we are running on lambda - we will flush without submitting to the executor
-
         if self.is_running_on_lambda() or is_sync:
             self.flush_logs(items)
         else:

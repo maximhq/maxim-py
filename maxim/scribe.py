@@ -127,8 +127,12 @@ class Scribe:
 def scribe():
     global _scribe_instance
     if _scribe_instance is None:
-        _scribe_instance = Scribe("maxim")        
-        if _scribe_instance.get_level() == logging.NOTSET:
+        _scribe_instance = Scribe("maxim")
+        # Take global logging level and set it for _scribe_instance if set
+        root_level = logging.getLogger().getEffectiveLevel()
+        if root_level != logging.NOTSET:
+            _scribe_instance.set_level(root_level)
+        elif _scribe_instance.get_level() == logging.NOTSET:
             print("\033[32m[MaximSDK] Using info logging level.\033[0m")
             print(
                 "\033[32m[MaximSDK] For debug logs, set global logging level to debug logging.basicConfig(level=logging.DEBUG).\033[0m"

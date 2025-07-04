@@ -1,3 +1,4 @@
+import json
 import uuid
 from dataclasses import fields
 from typing import Any, Dict, List, Optional, Sequence, Union
@@ -232,7 +233,12 @@ class MaximLangchainTracer(BaseCallbackHandler):
             model, model_parameters = parse_langchain_model_parameters(**kwargs)
             provider = parse_langchain_provider(serialized)
             model, provider = parse_langchain_model_and_provider(model, provider)
-            messages = parse_langchain_messages(prompts)
+            maxim_messages = parse_langchain_messages(prompts)
+            last_input_message = ""
+            if maxim_messages is not None:
+                for message in maxim_messages:
+                    if "role" in message and message["role"] == "user":
+                        last_input_message = message["content"]
             generation_id = str(run_id)
             maxim_metadata = self.__get_metadata(metadata)
             # Prepare generation config
@@ -241,7 +247,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 name=maxim_metadata.generation_name if maxim_metadata else None,
                 provider=provider,
                 model=model,
-                messages=messages,
+                messages=maxim_messages,
                 model_parameters=model_parameters,
                 tags=maxim_metadata.generation_tags if maxim_metadata else None,
             )
@@ -256,7 +262,28 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 container.create()
             if container.parent() is None:
                 self.containers[str(run_id)] = container
-            container.add_generation(generation_config)
+            generation_container = container.add_generation(generation_config)
+            # checking if we need to attach evaluator
+            if (
+                metadata is not None
+                and "langgraph_node" in metadata
+                and self.eval_config is not None
+                and metadata["langgraph_node"] in self.eval_config
+            ):
+                eval_data = {
+                    "container_id": generation_container.id,
+                    "generation_container": generation_container,
+                    "evaluators": (
+                        self.eval_config.get(metadata["langgraph_node"], [])
+                        if self.eval_config
+                        else []
+                    ),
+                    "node_name": metadata["langgraph_node"],
+                    "input": last_input_message,
+                }
+                self.to_be_evaluated_container_store.set(
+                    str(generation_container.id), eval_data, DEFAULT_TIMEOUT
+                )
         except Exception as e:
             import traceback
 
@@ -326,9 +353,11 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 eval_data = {
                     "container_id": generation_container.id,
                     "generation_container": generation_container,
-                    "evaluators": self.eval_config.get(metadata["langgraph_node"], [])
-                    if self.eval_config
-                    else [],
+                    "evaluators": (
+                        self.eval_config.get(metadata["langgraph_node"], [])
+                        if self.eval_config
+                        else []
+                    ),
                     "node_name": metadata["langgraph_node"],
                     "input": last_input_message,
                 }
@@ -352,7 +381,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         try:
             scribe().debug("[MaximSDK][Langchain] on_llm_end called")
             run_id = kwargs.get("run_id", None)
-            parent_run_id = kwargs.get("parent_run_id", None)       
+            parent_run_id = kwargs.get("parent_run_id", None)
             result = parse_langchain_llm_result(response)
             container = self.__get_container(run_id, parent_run_id)
             if container is None:
@@ -713,7 +742,15 @@ class MaximLangchainTracer(BaseCallbackHandler):
             if container is None:
                 scribe().error("[MaximSDK] Couldn't find a container for tool call")
                 return
-            if isinstance(output, dict):
+            if isinstance(output, ToolMessage):
+                result = ""
+                if output.content is not None:
+                    if isinstance(output.content, str):
+                        result = output.content
+                    else:
+                        result = json.dumps(output.content)
+                self.logger.tool_call_result(str(run_id), result)
+            elif isinstance(output, dict):
                 if output.get("status", None) == "success":
                     self.logger.tool_call_result(
                         str(run_id), output.get("content", None)
@@ -729,6 +766,11 @@ class MaximLangchainTracer(BaseCallbackHandler):
                             str(run_id),
                             ToolCallError(message=str(output.get("content", None))),
                         )
+                elif output.get("content", None) is not None:
+                    self.logger.tool_call_result(
+                        str(run_id), output.get("content", None)
+                    )
+
             if container.parent() is None:
                 container.end()
                 self.containers.pop(str(run_id))

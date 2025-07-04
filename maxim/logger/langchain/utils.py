@@ -158,12 +158,16 @@ def parse_langchain_message(message: BaseMessage):
                 "role": "assistant",
                 "content": message.content,
             },
-            "finish_reason": message.response_metadata["finish_reason"]
-            if message.response_metadata["finish_reason"]
-            else None,
-            "logprobs": message.response_metadata["logprobs"]
-            if message.response_metadata["logprobs"]
-            else None,
+            "finish_reason": (
+                message.response_metadata["finish_reason"]
+                if message.response_metadata["finish_reason"]
+                else None
+            ),
+            "logprobs": (
+                message.response_metadata["logprobs"]
+                if message.response_metadata["logprobs"]
+                else None
+            ),
         }
 
 
@@ -219,9 +223,11 @@ def parse_langchain_chat_generation_chunk(generation: ChatGeneration):
             "index": 0,
             "message": {"role": "assistant", "content": content, "tool_calls": []},
             "finish_reason": finish_reason,
-            "logprobs": generation.generation_info.get("logprobs")
-            if generation.generation_info
-            else None,
+            "logprobs": (
+                generation.generation_info.get("logprobs")
+                if generation.generation_info
+                else None
+            ),
         }
     )
     return choices
@@ -296,9 +302,11 @@ def parse_langchain_chat_generation(generation: ChatGeneration):
                     "tool_calls": parse_langchain_tool_call(tool_calls),
                 },
                 "finish_reason": finish_reason,
-                "logprobs": generation.generation_info.get("logprobs")
-                if generation.generation_info
-                else None,
+                "logprobs": (
+                    generation.generation_info.get("logprobs")
+                    if generation.generation_info
+                    else None
+                ),
             }
         )
     return choices
@@ -309,12 +317,16 @@ def parse_langchain_generation_chunk(generation: GenerationChunk):
         {
             "index": 0,
             "text": generation.text,
-            "logprobs": generation.generation_info.get("logprobs")
-            if generation.generation_info
-            else None,
-            "finish_reason": generation.generation_info.get("finish_reason")
-            if generation.generation_info
-            else "stop",
+            "logprobs": (
+                generation.generation_info.get("logprobs")
+                if generation.generation_info
+                else None
+            ),
+            "finish_reason": (
+                generation.generation_info.get("finish_reason")
+                if generation.generation_info
+                else "stop"
+            ),
         }
     ]
 
@@ -328,12 +340,16 @@ def parse_langchain_text_generation(generation: Generation):
                 {
                     "index": i,
                     "text": message["content"],
-                    "logprobs": generation.generation_info.get("logprobs")
-                    if generation.generation_info
-                    else None,
-                    "finish_reason": generation.generation_info.get("finish_reason")
-                    if generation.generation_info
-                    else None,
+                    "logprobs": (
+                        generation.generation_info.get("logprobs")
+                        if generation.generation_info
+                        else None
+                    ),
+                    "finish_reason": (
+                        generation.generation_info.get("finish_reason")
+                        if generation.generation_info
+                        else None
+                    ),
                 }
             )
     return choices
@@ -588,7 +604,11 @@ def parse_langchain_messages(
                         )
                     elif message_type.endswith("ToolMessage"):
                         messages.append(
-                            {"role": "tool", "content": message.content or ""}
+                            {
+                                "role": "tool",
+                                "content": message.content or "",
+                                "tool_call_id": message.tool_call_id,
+                            }
                         )
                     else:
                         logger.error(f"Invalid message type: {type(message)}")

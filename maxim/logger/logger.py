@@ -10,6 +10,7 @@ Attributes:
     flush_interval (int): The interval (in seconds) at which to flush logs when auto_flush is True. Defaults to 10 seconds.
 """
 
+import json
 import threading
 from typing import Any, Dict, Optional, TypedDict, Union
 
@@ -836,7 +837,7 @@ class Logger:
         """
         ToolCall.update_(self.writer, tool_call_id, data)
 
-    def tool_call_result(self, tool_call_id: str, result: Any):
+    def tool_call_result(self, tool_call_id: str, result: str):
         """
         Sets the result for the tool call.
 
@@ -844,6 +845,8 @@ class Logger:
             tool_call_id (str): The ID of the tool call.
             result (Any): The result for the tool call.
         """
+        if not isinstance(result, str):
+            result = json.dumps(result)
         ToolCall.result_(self.writer, tool_call_id, result)
 
     def tool_call_error(
