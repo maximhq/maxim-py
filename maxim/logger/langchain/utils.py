@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union, Optional
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolCall
@@ -226,6 +226,25 @@ def parse_langchain_chat_generation_chunk(generation: ChatGeneration):
     )
     return choices
 
+def get_action_from_kwargs(kwargs:Dict[str, Any])-> Optional[Dict]:
+    """
+    Extract action from tool outputs in kwargs.
+
+    Args:
+        kwargs: Dictionary containing tool outputs
+
+    Returns:
+        The action dict if found, None otherwise
+    """
+    try:
+        tool_outputs = kwargs.get("tool_outputs", [])
+        if tool_outputs and isinstance(tool_outputs, list) and len(tool_outputs) > 0:
+            first_output = tool_outputs[0]
+            if isinstance(first_output, dict) and "action" in first_output:
+                return first_output["action"]
+        return None
+    except (KeyError, IndexError, TypeError) as e:
+        return None
 
 def parse_langchain_chat_generation(generation: ChatGeneration):
     choices = []
@@ -249,6 +268,10 @@ def parse_langchain_chat_generation(generation: ChatGeneration):
             ai_message.tool_calls or message.lc_attributes.get("tool_calls") or []
         )
         content = ""
+        actions = get_action_from_kwargs(ai_message.additional_kwargs)
+        actions_dict = {'Action': actions}
+        if actions:
+            content += json.dumps(actions_dict)
         if isinstance(ai_message.content, str):
             content = ai_message.content
         elif isinstance(ai_message.content, list):
