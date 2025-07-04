@@ -64,6 +64,14 @@ def handle_input_speech_started(self: AgentActivity):
         session_info.current_turn.is_interrupted = True
         get_session_store().set_session(session_info)
         return
+    # here we can check if the current turn is interrupted
+    if (
+        session_info.current_turn is not None
+        and session_info.current_turn.turn_input_audio_buffer.tell() == 0
+        and session_info.current_turn.turn_output_audio_buffer.tell() == 0
+    ):
+        # we will reuse the same turn
+        return
     start_new_turn(session_info)
 
 
