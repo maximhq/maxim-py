@@ -4,6 +4,7 @@ This module contains utility functions for parsing attachments from messages.
 
 import base64
 import re
+import json
 from typing import TYPE_CHECKING, Tuple
 
 from ...scribe import scribe
@@ -33,6 +34,10 @@ def parse_attachments_from_messages(
     attachments = []
     for message in messages:
         content = message.get("content", [])
+        role = message.get("role", "")
+        if role == "tool" and isinstance(content, str):
+            content = json.loads(content)
+            content = [content]
         if content is None or isinstance(content, str):
             continue
         # Iterate in reverse order to safely remove items while iterating
@@ -40,8 +45,9 @@ def parse_attachments_from_messages(
             item = content[i]
             if isinstance(item, str):
                 continue
+            image_types = {"image", "input_image", "image_url"}
             if isinstance(item, dict) and (
-                item.get("type") == "image" or item.get("type") == "image_url"
+                item.get("type") in image_types
             ):
                 # Here we will check if its actual URL
                 # or base64 encoded data uri
@@ -78,7 +84,7 @@ def parse_attachments_from_messages(
                     else:
                         attachment = UrlAttachment(url=url, tags={"attach-to": "input"})
                         attachments.append(attachment)
+                    if role != "tool": # removing image data for ToolMessage breaks downstream flow
+                        content.pop(i)
 
-                    # Remove the image item from content
-                    content.pop(i)
     return messages, attachments
