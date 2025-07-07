@@ -65,8 +65,8 @@ class ConnectionPool:
         timeout = httpx.Timeout(
             connect=15.0,
             read=30.0,
-            write=30.0,
-            pool=60.0,
+            write=120.0,
+            pool=120.0,
         )
 
         self.client = httpx.Client(
