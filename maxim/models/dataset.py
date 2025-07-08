@@ -85,18 +85,18 @@ class DatasetEntry:
         return_dict = {}
         if self.input is not None:
             return_dict["input"] = {
-                "type": self.input["type"],  # type: ignore
-                "payload": self.input["payload"],  # type: ignore
+                "type": self.input.type,
+                "payload": self.input.payload,
             }
         if self.context is not None:
             return_dict["context"] = {
-                "type": self.context["type"],  # type: ignore
-                "payload": self.context["payload"],  # type: ignore
+                "type": self.context.type,
+                "payload": self.context.payload,
             }
         if self.expectedOutput is not None:
             return_dict["expectedOutput"] = {
-                "type": self.expectedOutput["type"],  # type: ignore
-                "payload": self.expectedOutput["payload"],  # type: ignore
+                "type": self.expectedOutput.type,
+                "payload": self.expectedOutput.payload,
             }
         return return_dict
 

@@ -8,18 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 from uuid import uuid4
+from agno.agent import RunEvent
 import inspect
-try:
-    from agno.run.response import RunEvent
-except ImportError:
-    # Fallback for different agno versions
-    try:
-        from agno.events import RunEvent
-    except ImportError:
-        # If neither works, create a fallback
-        class RunEvent:
-            run_completed = "RunCompleted"
-
 from ..logger import GenerationConfig, Logger, TraceConfig, ToolCallConfig, RetrievalConfig
 from ...scribe import scribe
 
@@ -151,75 +141,87 @@ def _instrument_tool_calls(logger: Logger):
     # Patch Agent._run_tool method for synchronous tool execution
     if hasattr(Agent, '_run_tool') and not getattr(Agent, '_maxim_run_tool_patched', False):
         original_run_tool = Agent._run_tool
-        
-        def instrumented_run_tool(self, tool, args, **kwargs):
+
+        def instrumented_run_tool(self, run_messages, tool):
             # Try to get the current span/trace from the agent
             trace = getattr(self, '_maxim_trace', None)
             if not trace:
                 # No trace available, call original
-                return original_run_tool(self, tool, args, **kwargs)
-            
+                return original_run_tool(self, run_messages, tool)
+
             # Create tool call
             tool_call_id = str(uuid4())
             tool_name = getattr(tool, 'name', 'unknown_tool')
             tool_description = getattr(tool, 'description', '')
-            
+
             tool_call_config = ToolCallConfig(
                 id=tool_call_id,
                 name=tool_name,
                 description=tool_description,
-                args=str(args) if args else "",
+                args=str(getattr(tool, "arguments", {})),
             )
-            
+
             tool_call = trace.tool_call(tool_call_config)
-            
+
             try:
-                result = original_run_tool(self, tool, args, **kwargs)
-                tool_call.result(str(result))
-                return result
+                result = original_run_tool(self, run_messages, tool)
+
+                # Handle iterator result
+                def _iterate():
+                    for chunk in result:
+                        yield chunk
+                    tool_call.result("Tool execution completed")
+
+                return _iterate()
             except Exception as e:
                 tool_call.result(f"Error: {str(e)}")
                 raise
-        
+
         Agent._run_tool = instrumented_run_tool
-        Agent._maxim_run_tool_patched = True
+        setattr(Agent, "_maxim_run_tool_patched", True)
         scribe().info("[MaximSDK][Agno] Agent._run_tool instrumented for tool tracing")
 
-    # Patch Agent._arun_tool method for asynchronous tool execution
+        # Patch Agent._arun_tool method for asynchronous tool execution
     if hasattr(Agent, '_arun_tool') and not getattr(Agent, '_maxim_arun_tool_patched', False):
         original_arun_tool = Agent._arun_tool
-        
-        async def instrumented_arun_tool(self, tool, args, **kwargs):
+
+        def instrumented_arun_tool(self, run_messages, tool):
             # Try to get the current span/trace from the agent
             trace = getattr(self, '_maxim_trace', None)
             if not trace:
                 # No trace available, call original
-                return await original_arun_tool(self, tool, args, **kwargs)
-            
+                return original_arun_tool(self, run_messages, tool)
+
             # Create tool call
             tool_call_id = str(uuid4())
             tool_name = getattr(tool, 'name', 'unknown_tool')
             tool_description = getattr(tool, 'description', '')
-            
+
             tool_call_config = ToolCallConfig(
                 id=tool_call_id,
                 name=tool_name,
                 description=tool_description,
-                args=str(args) if args else "",
+                args=str(getattr(tool, "arguments", {})),
             )
-            
+
             tool_call = trace.tool_call(tool_call_config)
-            
+
             try:
-                result = await original_arun_tool(self, tool, args, **kwargs)
-                tool_call.result(str(result))
-                return result
+                result = original_arun_tool(self, run_messages, tool)
+
+                # Handle async iterator result
+                async def _iterate():
+                    async for chunk in result:
+                        yield chunk
+                    tool_call.result("Tool execution completed")
+
+                return _iterate()
             except Exception as e:
                 tool_call.result(f"Error: {str(e)}")
                 raise
-        
+
         Agent._arun_tool = instrumented_arun_tool
-        Agent._maxim_arun_tool_patched = True
+        setattr(Agent, "_maxim_arun_tool_patched", True)
         scribe().info("[MaximSDK][Agno] Agent._arun_tool instrumented for async tool tracing")
 
 
@@ -234,26 +236,26 @@ def _instrument_knowledge_retrieval(logger: Logger):
     # Patch AgentKnowledge.search method
     if hasattr(AgentKnowledge, 'search') and not getattr(AgentKnowledge, '_maxim_knowledge_patched', False):
         original_search = AgentKnowledge.search
-        
-        def instrumented_search(self, query, **kwargs):
+
+        def instrumented_search(self, query, num_documents=None, filters=None):
             # Try to get the current span from the agent
             span = getattr(self, '_maxim_span', None)
             if not span:
                 # No span available, call original
-                return original_search(self, query, **kwargs)
-            
+                return original_search(self, query, num_documents, filters)
+
             # Create retrieval
             retrieval_id = str(uuid4())
             retrieval_config = RetrievalConfig(
                 id=retrieval_id,
                 name="Agno Knowledge Search",
             )
-            
+
             retrieval = span.retrieval(retrieval_config)
             retrieval.input(query)
-            
+
             try:
-                results = original_search(self, query, **kwargs)
+                results = original_search(self, query, num_documents, filters)
                 # Format results for output
                 if results and hasattr(results, '__iter__'):
                     output_text = "\n".join([str(result) for result in results])
@@ -264,9 +266,9 @@ def _instrument_knowledge_retrieval(logger: Logger):
             except Exception as e:
                 retrieval.output(f"Error: {str(e)}")
                 raise
-        
+
         AgentKnowledge.search = instrumented_search
-        AgentKnowledge._maxim_knowledge_patched = True
+        setattr(AgentKnowledge, "_maxim_knowledge_patched", True)
         scribe().info("[MaximSDK][Agno] AgentKnowledge.search instrumented for retrieval tracing")
 
 
@@ -382,7 +384,7 @@ def instrument_agno(logger: Logger) -> None:
         from agno.agent.agent import Agent
     except Exception as exc:  # pragma: no cover - dependency missing
         raise ImportError(
-            "Agno library is required for instrumentation"
+            "Agno library is required for instrumentation",
         ) from exc
 
     if getattr(Agent, "_maxim_patched", False):
@@ -395,27 +397,10 @@ def instrument_agno(logger: Logger) -> None:
     Agent.run = _wrap_sync(logger, original_run)
     if original_arun is not None:
         Agent.arun = _wrap_async(logger, original_arun)
-    Agent._maxim_patched = True
-    
+    setattr(Agent, "_maxim_patched", True)
+
     # Instrument tool calls and knowledge retrieval
     _instrument_tool_calls(logger)
     _instrument_knowledge_retrieval(logger)
-    
+
     scribe().info("[MaximSDK] Agno instrumentation enabled with tool and knowledge tracing")
-
-
-class MaximAgnoClient:
-    """Initialize Agno instrumentation for a Maxim logger."""
-
-    def __init__(self, logger: Logger) -> None:
-        """Create a client and immediately instrument ``agno``.
-
-        Args:
-            logger: The :class:`~maxim.logger.Logger` instance to record events
-                with.
-        """
-        self._logger = logger
-        try:
-            instrument_agno(logger)
-        except Exception as e:  # pragma: no cover - runtime errors
-            scribe().warning(f"[MaximSDK][Agno] Failed to instrument Agno: {e}")

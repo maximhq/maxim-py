@@ -102,7 +102,8 @@ def start_new_turn(session_info: SessionStoreEntry):
                 callback("maxim.trace.ended", {"trace_id": trace.id, "trace": trace})
             except Exception as e:
                 scribe().warning(
-                    f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}"
+                    f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}",
+                    exc_info=True
                 )
     next_turn_sequence = 1
     if turn is not None and turn.turn_sequence is not None:
@@ -147,6 +148,7 @@ def start_new_turn(session_info: SessionStoreEntry):
             callback("maxim.trace.started", {"trace_id": trace_id, "trace": trace})
         except Exception as e:
             scribe().warning(
-                f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}"
+                f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}",
+                exc_info=True
             )
     return current_turn

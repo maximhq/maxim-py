@@ -2,18 +2,12 @@ import unittest
 import os
 from uuid import uuid4
 
-try:
-    from maxim.logger import Logger, LoggerConfig
-    from maxim.logger.agno import MaximAgnoClient
-    from maxim.tests.mock_writer import inject_mock_writer
-
-    agno_available = True
-except ImportError:
-    agno_available = False
+from maxim.logger import Logger
+from maxim.logger.agno import instrument_agno
+from maxim.tests.mock_writer import inject_mock_writer
 
 
 class TestAgnoIntegration(unittest.TestCase):
-    @unittest.skipUnless(agno_available, "Agno not installed")
     def test_agno_generation_logging(self):
         # Import Agno agent and model
         try:
@@ -29,7 +23,7 @@ class TestAgnoIntegration(unittest.TestCase):
             base_url="https://app.getmaxim.ai",
         )
         mock_writer = inject_mock_writer(logger)
-        MaximAgnoClient(logger)
+        instrument_agno(logger)
 
         # Create agent and run
         agent = Agent(model=Ollama())

@@ -685,6 +685,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 if generation:
                     generation.error({"message": str(e)})
                     scribe().debug("[MaximSDK] GEN: Completed generation with error")
+                    _last_llm_usages.pop(generation.id, None)
 
                 if span:
                     span.add_error({"message": str(e)})
