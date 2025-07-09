@@ -60,32 +60,28 @@ def _start_trace(
     final_trace_id = trace_id or str(uuid4())
     trace = logger.trace(TraceConfig(id=final_trace_id))
     messages, model_parameters = _extract_agno_messages_and_params(agent, args, kwargs)
-    # Extract model name more robustly
+
+    # Extract model name and provider directly from the model object
     model_name = "unknown"
+    provider = "agno"
     if hasattr(agent, "model"):
         model = agent.model
-        if hasattr(model, "model_name"):
-            model_name = model.model_name
-        elif hasattr(model, "model"):
-            model_name = model.model
-        elif hasattr(model, "__class__"):
-            model_name = model.__class__.__name__
-        else:
-            model_name = str(model)
-    
+        model_name = getattr(model, "id", model_name)
+        provider = getattr(model, "provider", provider)
+
     gen_config = GenerationConfig(
         id=str(uuid4()),
         model=model_name,
-        provider="agno",
+        provider=provider,
         name=generation_name,
         messages=messages,
         model_parameters=model_parameters,
     )
     generation = trace.generation(gen_config)
-    
+
     # Attach the trace span to tools and knowledge for instrumentation
     _attach_span_to_tools_and_knowledge(agent, trace)
-    
+
     return trace, generation, final_trace_id, is_local_trace
 
 
