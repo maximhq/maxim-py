@@ -62,6 +62,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.9.8
+
+- feat: Adds one line integration for tracing Agno agents.
+
 ### 3.9.7
 
 - improvement: Adds support for uploading large payloads as part of logs.
