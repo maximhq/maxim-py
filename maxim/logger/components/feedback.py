@@ -15,7 +15,7 @@ class FeedbackDict(TypedDict, total=False):
 
 
 @deprecated(
-    "This class will be removed in a future version. Use {} which is TypedDict."
+    "This class will be removed in a future version. Use FeedbackDict instead."
 )
 @dataclass
 class Feedback():

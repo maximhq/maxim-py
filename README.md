@@ -18,6 +18,10 @@ pip install maxim-py
 
 You can find detailed documentation and available integrations [here](https://www.getmaxim.ai/docs/sdk/python/overview).
 
+### Cookbook
+
+See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing an Agno agent.
+
 #### Langchain module compatibility
 
 |                                                             | Anthropic | Bedrock Anthropic | Bedrock Meta | OpenAI | Azure                                        |
@@ -57,6 +61,10 @@ You can find detailed documentation and available integrations [here](https://ww
 3. Run `uv sync`.
 
 ## Version changelog
+
+### 3.9.8
+
+- feat: Adds one line integration for tracing Agno agents.
 
 ### 3.9.7
 

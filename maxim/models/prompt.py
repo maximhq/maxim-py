@@ -222,9 +222,9 @@ class Prompt:
             version_id=data["versionId"],
             messages=[Message.from_dict(m) for m in data["messages"]],
             model_parameters=data["modelParameters"],
-            model=data["model"],
-            provider=data["provider"],
-            tags=data["tags"],
+            model=data.get("model"),
+            provider=data.get("provider"),
+            tags=data.get("tags"),
         )
 
 

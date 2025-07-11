@@ -133,9 +133,9 @@ def scribe():
         if root_level != logging.NOTSET:
             _scribe_instance.set_level(root_level)
         elif _scribe_instance.get_level() == logging.NOTSET:
-            print("\033[32m[MaximSDK] Using info logging level.\033[0m")
+            print("\033[32m[MaximSDK] Using warning logging level.\033[0m")
             print(
-                "\033[32m[MaximSDK] For debug logs, set global logging level to debug logging.basicConfig(level=logging.DEBUG).\033[0m"
+                "\033[32m[MaximSDK] For debug or info logs, set global logging level using logging.basicConfig(level=logging.DEBUG) or logging.basicConfig(level=logging.INFO).\033[0m"
             )
             _scribe_instance.set_level(logging.WARNING)
         else:
