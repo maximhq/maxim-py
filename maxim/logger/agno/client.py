@@ -85,87 +85,113 @@ def _start_trace(
     return trace, generation, final_trace_id, is_local_trace
 
 
-def _log_event(trace: Any, generation: Any, event: Any, content: Any) -> None:
-    """Log an Agno event to the trace and record results if completed."""
+def to_serializable_dict(obj):
+    """Recursively convert an object to a JSON-serializable dict."""
+    import enum
+    import datetime
+    import collections.abc
 
-    if not event:
-        return
+    if obj is None:
+        return None
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, enum.Enum):
+        return obj.value if hasattr(obj, 'value') else str(obj)
+    if isinstance(obj, datetime.datetime):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {to_serializable_dict(k): to_serializable_dict(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [to_serializable_dict(item) for item in obj]
+    if hasattr(obj, 'dict') and callable(getattr(obj, 'dict')):
+        # Pydantic/BaseModel
+        return to_serializable_dict(obj.dict())
+    if hasattr(obj, '__dict__'):
+        return to_serializable_dict(vars(obj))
+    if hasattr(obj, '_asdict') and callable(getattr(obj, '_asdict')):
+        # namedtuple
+        return to_serializable_dict(obj._asdict())
+    # Fallback: string representation
+    return str(obj)
 
-    trace.event(str(uuid4()), str(event))
 
-    if (
-        event == RunEvent.run_completed
-        or str(event) == "RunCompleted"
-        or str(event) == "run_completed"
-        or (hasattr(event, "value") and event.value == "RunCompleted")
-    ):
-        import time
+def _log_event(trace: Any, generation: Any, agno_response: Any) -> None:
+    """Log an Agno response to the trace and record results."""
+    import time
+    import collections.abc
 
-        # If content is a dict, use it directly; else, try to get __dict__ or fallback to str
-        if isinstance(content, dict):
-            agno_response = content
-        elif hasattr(content, "__dict__"):
-            agno_response = content.__dict__
-        else:
-            agno_response = {"content": str(content)}
+    # Robustly convert agno_response to a dict if possible
+    response_dict = None
+    if isinstance(agno_response, dict):
+        response_dict = agno_response
+    elif hasattr(agno_response, 'dict') and callable(getattr(agno_response, 'dict')):
+        # Pydantic/BaseModel
+        response_dict = agno_response.dict()
+    elif hasattr(agno_response, '__dict__'):
+        response_dict = vars(agno_response)
+    elif isinstance(agno_response, collections.abc.Mapping):
+        response_dict = dict(agno_response)
+    else:
+        # Fallback: treat as string content
+        response_dict = {"content": str(agno_response)}
 
-        # Extract fields
-        model = agno_response.get("model", "unknown")
-        model_provider = agno_response.get("model_provider", "unknown")
-        metrics = agno_response.get("metrics", {})
-        messages = agno_response.get("messages", [])
-        agent_team = agno_response.get("agent_team", {})
-        tools = agno_response.get("tools", [])
-        run_id = agno_response.get("run_id", None)
-        session_id = agno_response.get("session_id", None)
-        agent_id = agno_response.get("agent_id", None)
-        created_at = agno_response.get("created_at", int(time.time()))
-        context_rules = agno_response.get("context_rules", {})
+    # Extract fields and ensure serializability
+    model = response_dict.get("model", "unknown")
+    model_provider = response_dict.get("model_provider", "unknown")
+    metrics = to_serializable_dict(response_dict.get("metrics", {}))
+    messages = to_serializable_dict(response_dict.get("messages", []))
+    agent_team = to_serializable_dict(response_dict.get("agent_team", {}))
+    tools = to_serializable_dict(response_dict.get("tools", []))
+    run_id = response_dict.get("run_id", None)
+    session_id = response_dict.get("session_id", None)
+    agent_id = response_dict.get("agent_id", None)
+    created_at = response_dict.get("created_at", int(time.time()))
+    context_rules = to_serializable_dict(response_dict.get("context_rules", {}))
 
-        # Token usage
-        def _first(val):
-            if isinstance(val, list) and val:
-                return val[0]
-            if isinstance(val, int):
-                return val
-            return 0
+    # Helper to get first value if list, else int, else 0
+    def _first(val):
+        if isinstance(val, list) and val:
+            return val[0]
+        if isinstance(val, int):
+            return val
+        if isinstance(val, float):
+            return int(val)
+        return 0
 
-        prompt_tokens = _first(metrics.get("prompt_tokens", 0))
-        completion_tokens = _first(metrics.get("completion_tokens", 0))
-        total_tokens = _first(metrics.get("total_tokens", 0))
+    prompt_tokens = _first(metrics.get("prompt_tokens", 0))
+    completion_tokens = _first(metrics.get("completion_tokens", 0))
+    total_tokens = _first(metrics.get("total_tokens", 0))
 
-        # Build result_data for Maxim
-        result_data = {
-            "id": f"agno_{uuid4()}",
-            "object": "chat.completion",
-            "created": created_at,
-            "model": model,
-            "model_provider": model_provider,
-            "run_id": run_id,
-            "session_id": session_id,
-            "agent_id": agent_id,
-            "agent_team": agent_team,
-            "context_rules": context_rules,
-            "messages": messages,
-            "tools": tools,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": agno_response.get("content", ""),
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {
-                "prompt_tokens": 100,
-                "total_tokens" : 210, 
-                "completion_tokens": 110
-            },
-            "metrics": metrics,  # Optionally include full metrics
-        }
-        generation.result(result_data)
+    result_data = {
+        "id": f"agno_{uuid4()}",
+        "object": "chat.completion",
+        "created": created_at,
+        "model": model,
+        "model_provider": model_provider,
+        "run_id": run_id,
+        "session_id": session_id,
+        "agent_id": agent_id,
+        "agent_team": agent_team,
+        "context_rules": context_rules,
+        "messages": messages,
+        "tools": tools,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": response_dict.get("content", ""),
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        },
+    }
+    generation.result(to_serializable_dict(result_data))
 
 def _instrument_tool_calls(logger: Logger):
     """Instrument Agno tool calls for tracing."""
@@ -341,7 +367,6 @@ def _wrap_sync(logger: Logger, fn: Callable) -> Callable:
                         _log_event(
                             trace,
                             generation,
-                            getattr(chunk, "event", None),
                             getattr(chunk, "content", str(chunk)),
                         )
                         yield chunk
@@ -353,8 +378,7 @@ def _wrap_sync(logger: Logger, fn: Callable) -> Callable:
             _log_event(
                 trace,
                 generation,
-                getattr(result, "event", None),
-                getattr(result, "content", str(result)),
+                result
             )
             return result
         except Exception as exc:  # pragma: no cover - passthrough
@@ -389,8 +413,7 @@ def _wrap_async(logger: Logger, fn: Callable) -> Callable:
                         _log_event(
                             trace,
                             generation,
-                            getattr(chunk, "event", None),
-                            getattr(chunk, "content", str(chunk)),
+                            chunk
                         )
                         yield chunk
                     if end_trace:
@@ -401,8 +424,7 @@ def _wrap_async(logger: Logger, fn: Callable) -> Callable:
             _log_event(
                 trace,
                 generation,
-                getattr(result, "event", None),
-                getattr(result, "content", str(result)),
+                result
             )
             return result
         except Exception as exc:  # pragma: no cover - passthrough
