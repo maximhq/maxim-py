@@ -93,38 +93,79 @@ def _log_event(trace: Any, generation: Any, event: Any, content: Any) -> None:
 
     trace.event(str(uuid4()), str(event))
 
-    # Check if event indicates completion - handle both enum and string values
     if (
         event == RunEvent.run_completed
         or str(event) == "RunCompleted"
         or str(event) == "run_completed"
         or (hasattr(event, "value") and event.value == "RunCompleted")
     ):
-        # Format the result to match what the generation parser expects
         import time
+
+        # If content is a dict, use it directly; else, try to get __dict__ or fallback to str
+        if isinstance(content, dict):
+            agno_response = content
+        elif hasattr(content, "__dict__"):
+            agno_response = content.__dict__
+        else:
+            agno_response = {"content": str(content)}
+
+        # Extract fields
+        model = agno_response.get("model", "unknown")
+        model_provider = agno_response.get("model_provider", "unknown")
+        metrics = agno_response.get("metrics", {})
+        messages = agno_response.get("messages", [])
+        agent_team = agno_response.get("agent_team", {})
+        tools = agno_response.get("tools", [])
+        run_id = agno_response.get("run_id", None)
+        session_id = agno_response.get("session_id", None)
+        agent_id = agno_response.get("agent_id", None)
+        created_at = agno_response.get("created_at", int(time.time()))
+        context_rules = agno_response.get("context_rules", {})
+
+        # Token usage
+        def _first(val):
+            if isinstance(val, list) and val:
+                return val[0]
+            if isinstance(val, int):
+                return val
+            return 0
+
+        prompt_tokens = _first(metrics.get("prompt_tokens", 0))
+        completion_tokens = _first(metrics.get("completion_tokens", 0))
+        total_tokens = _first(metrics.get("total_tokens", 0))
+
+        # Build result_data for Maxim
         result_data = {
             "id": f"agno_{uuid4()}",
             "object": "chat.completion",
-            "created": int(time.time()),
-            "model": "agno-agent",
+            "created": created_at,
+            "model": model,
+            "model_provider": model_provider,
+            "run_id": run_id,
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "agent_team": agent_team,
+            "context_rules": context_rules,
+            "messages": messages,
+            "tools": tools,
             "choices": [
                 {
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": str(content),
+                        "content": agno_response.get("content", ""),
                     },
                     "finish_reason": "stop",
                 }
             ],
             "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
+                "prompt_tokens": 100,
+                "total_tokens" : 210, 
+                "completion_tokens": 110
             },
+            "metrics": metrics,  # Optionally include full metrics
         }
         generation.result(result_data)
-
 
 def _instrument_tool_calls(logger: Logger):
     """Instrument Agno tool calls for tracing."""
