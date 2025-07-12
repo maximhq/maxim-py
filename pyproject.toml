@@ -60,4 +60,5 @@ dev = [
   "mistralai>=1.8.2",
   "together>=1.4.6",
   "groq>=0.30.0",
+  "fireworks-ai>=0.17.9",
 ]

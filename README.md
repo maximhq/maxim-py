@@ -62,6 +62,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.9.12
+
+- feat: Adds one line integration for Fireworks Build SDK
+
 ### 3.9.11
 
 - feat: Adds support for PROMPT_TYPE_CUSTOM for langchain

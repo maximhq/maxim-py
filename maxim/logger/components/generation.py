@@ -132,6 +132,7 @@ valid_providers = [
     "groq",
     "bedrock",
     "cohere",
+    "fireworks",
     "unknown",
 ]
 
