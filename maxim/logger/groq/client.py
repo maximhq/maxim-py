@@ -14,7 +14,7 @@ from uuid import uuid4
 from groq.resources.chat import Completions, AsyncCompletions
 from .utils import GroqUtils
 from .helpers import GroqHelpers
-from ..logger import Generation, Logger, Trace
+from ..logger import Generation, Logger, Trace, GenerationConfigDict
 from ...scribe import scribe
 
 _INSTRUMENTED = False
@@ -84,18 +84,18 @@ def instrument_groq(logger: Logger) -> None:
             # Initialize trace and generation for logging
             try:
                 trace = logger.trace({"id": final_trace_id})
-                gen_config = {
-                    "id": str(uuid4()),
-                    "model": model,
-                    "provider": "groq",
-                    "name": generation_name,
-                    "model_parameters": GroqUtils.get_model_params(**kwargs),
-                    "messages": GroqUtils.parse_message_param(messages),
-                }
+                gen_config = GenerationConfigDict(
+                    id=str(uuid4()),
+                    model=model or "",
+                    provider="groq",
+                    name=generation_name,
+                    model_parameters=GroqUtils.get_model_params(**kwargs),
+                    messages=GroqUtils.parse_message_param(messages or []),
+                )
                 generation = trace.generation(gen_config)
 
                 # Check for image URLs in messages and add as attachments
-                GroqUtils.add_image_attachments_from_messages(generation, messages)
+                GroqUtils.add_image_attachments_from_messages(generation, messages or [])
 
             except Exception as e:
                 scribe().warning(
@@ -178,18 +178,18 @@ def instrument_groq(logger: Logger) -> None:
             # Initialize trace and generation for logging
             try:
                 trace = logger.trace({"id": final_trace_id})
-                gen_config = {
-                    "id": str(uuid4()),
-                    "model": model,
-                    "provider": "groq",
-                    "name": generation_name,
-                    "model_parameters": GroqUtils.get_model_params(**kwargs),
-                    "messages": GroqUtils.parse_message_param(messages),
-                }
+                gen_config = GenerationConfigDict(
+                    id=str(uuid4()),
+                    model=model or "",
+                    provider="groq",
+                    name=generation_name,
+                    model_parameters=GroqUtils.get_model_params(**kwargs),
+                    messages=GroqUtils.parse_message_param(messages or []),
+                )
                 generation = trace.generation(gen_config)
 
                 # Check for image URLs in messages and add as attachments
-                GroqUtils.add_image_attachments_from_messages(generation, messages)
+                GroqUtils.add_image_attachments_from_messages(generation, messages or [])
 
             except Exception as e:
                 scribe().warning(
@@ -230,6 +230,6 @@ def instrument_groq(logger: Logger) -> None:
         return wrapper
 
     # Apply the patches to both sync and async chat completion methods
-    Completions.create = wrap_sync_create(Completions.create)
-    AsyncCompletions.create = wrap_async_create(AsyncCompletions.create)
+    setattr(Completions, 'create', wrap_sync_create(Completions.create))
+    setattr(AsyncCompletions, 'create', wrap_async_create(AsyncCompletions.create))
     _INSTRUMENTED = True

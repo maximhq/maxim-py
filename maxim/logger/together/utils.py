@@ -7,67 +7,15 @@ and image attachment processing.
 """
 
 import time
-from dataclasses import dataclass 
-from typing import Any, Dict, Iterable, List, Optional, Union
+import uuid
+from typing import Any, Dict, Iterable, List, Optional
+
+from together.types.common import FinishReason, ObjectType 
+from together.types.chat_completions import ChatCompletionResponse, MessageRole, UsageData, ChatCompletionChoicesData, ChatCompletionMessage
 
 from ..logger import GenerationRequestMessage, Generation
 from ..components.attachment import UrlAttachment
-from together.types.chat_completions import ChatCompletionResponse, UsageData
 from ...scribe import scribe
-
-
-@dataclass
-class ResponseMessage:
-    """Message object for Together AI response parsing."""
-    content: str
-    role: str = "assistant"
-
-
-@dataclass
-class ResponseChoice:
-    """Choice object for Together AI response parsing."""
-    message: ResponseMessage
-    index: int = 0
-    finish_reason: str = "stop"
-
-
-@dataclass(init=False)
-class ResponseUsage:
-    """Usage object for Together AI response parsing."""
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
-    
-    def __init__(self, usage_data: Optional[UsageData] = None):
-        """Initialize usage statistics from CompletionUsage object.
-        
-        Args:
-            usage_data (Optional[CompletionUsage]): Usage data from Together API response.
-                If None, all token counts will be set to 0.
-        """
-
-        if usage_data:
-            self.prompt_tokens = getattr(usage_data, 'prompt_tokens', 0)
-            self.completion_tokens = getattr(usage_data, 'completion_tokens', 0)
-            self.total_tokens = getattr(usage_data, 'total_tokens', 0)
-        else:
-            self.prompt_tokens = 0
-            self.completion_tokens = 0
-            self.total_tokens = 0
-
-@dataclass(init=False)
-class Response:
-    """Response object for Together AI response parsing."""
-    id: str
-    created: int
-    choices: List[ResponseChoice]
-    usage: Optional[ResponseUsage]
-    
-    def __init__(self, content: str, usage_data: Optional[UsageData] = None):
-        self.id = "streaming-response"
-        self.created = int(time.time())
-        self.choices = [ResponseChoice(ResponseMessage(content))]
-        self.usage = ResponseUsage(usage_data)
 
 
 class TogetherUtils:
@@ -188,7 +136,7 @@ class TogetherUtils:
     @staticmethod
     def parse_chunks_to_response(
         content: str, usage_data: Optional[UsageData] = None
-    ) -> Response:
+    ) -> ChatCompletionResponse:
         """Create a response object from streaming chunks for parsing.
         
         This method constructs a response object compatible with the parse_completion
@@ -206,7 +154,18 @@ class TogetherUtils:
                 by parse_completion() method. Contains choices, usage, and
                 standard response metadata.
         """
-        return Response(content, usage_data)
+       
+        return ChatCompletionResponse(
+            id=f"streaming-response-{uuid.uuid4()}",
+            created=int(time.time()),
+            choices=[ChatCompletionChoicesData(
+                index=0,
+                message=ChatCompletionMessage(role=MessageRole.ASSISTANT, content=content),
+                finish_reason=FinishReason.StopSequence
+            )],
+            usage=usage_data,
+            object=ObjectType.ChatCompletion,
+        )
 
     @staticmethod
     def parse_completion(completion: ChatCompletionResponse) -> Dict[str, Any]:
@@ -270,7 +229,6 @@ class TogetherUtils:
                     "completion_tokens": getattr(completion.usage, 'completion_tokens', 0),
                     "total_tokens": getattr(completion.usage, 'total_tokens', 0),
                 }
-                print(f"parsed_response: {parsed_response}")
 
             return parsed_response
 

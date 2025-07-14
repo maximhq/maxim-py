@@ -7,75 +7,17 @@ and image attachment processing.
 """
 
 import time
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from collections.abc import Iterable
+import uuid
+
+from groq.types.chat.chat_completion import Choice
+from groq.types.chat import ChatCompletion, ChatCompletionMessage, ChatCompletionMessageParam
+from groq.types import CompletionUsage
 
 from ..logger import GenerationRequestMessage, Generation
 from ..components.attachment import UrlAttachment
-from groq.types.chat import ChatCompletion, ChatCompletionMessageParam, ChatCompletionUserMessageParam
-from groq.types import CompletionUsage
 from ...scribe import scribe
-
-
-@dataclass
-class ResponseMessage:
-    """Message object for Groq API responses."""
-    content: str
-    role: str = "assistant"
-
-
-@dataclass
-class ResponseChoice:
-    """Choice object for Groq API responses."""
-    message: ResponseMessage
-    index: int = 0
-    finish_reason: str = "stop"
-
-
-@dataclass(init=False)
-class ResponseUsage:
-    """Usage statistics for Groq API responses."""
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
-    
-    def __init__(self, usage_data: Optional[CompletionUsage]) -> None:
-        """Initialize usage statistics from CompletionUsage object.
-        
-        Args:
-            usage_data (Optional[CompletionUsage]): Usage data from Groq API response.
-                If None, all token counts will be set to 0.
-        """
-        if usage_data:
-            self.prompt_tokens = getattr(usage_data, 'prompt_tokens', 0)
-            self.completion_tokens = getattr(usage_data, 'completion_tokens', 0)
-            self.total_tokens = getattr(usage_data, 'total_tokens', 0)
-        else:
-            self.prompt_tokens = 0
-            self.completion_tokens = 0
-            self.total_tokens = 0
-
-
-@dataclass(init=False)
-class Response:
-    """Response object for Groq API responses."""
-    id: str
-    created: int
-    choices: List[ResponseChoice]
-    usage: ResponseUsage
-    
-    def __init__(self, content: str, usage_data: Optional[CompletionUsage]) -> None:
-        """Initialize response object from content and usage data.
-        
-        Args:
-            content (str): The response content text.
-            usage_data (Optional[CompletionUsage]): Usage statistics from the API.
-        """
-        self.id = "streaming-response"
-        self.created = int(time.time())
-        self.choices = [ResponseChoice(ResponseMessage(content))]
-        self.usage = ResponseUsage(usage_data)
 
 
 class GroqUtils:
@@ -188,7 +130,7 @@ class GroqUtils:
         return model_params
 
     @staticmethod
-    def parse_chunks_to_response(content: str, usage_data: Optional[CompletionUsage]) -> Response:
+    def parse_chunks_to_response(content: str, usage_data: Optional[CompletionUsage]) -> ChatCompletion:
         """Create a response object from streaming chunks for parsing.
         
         This method constructs a response object compatible with the parse_completion
@@ -206,7 +148,19 @@ class GroqUtils:
                 by parse_completion() method. Contains choices, usage, and
                 standard response metadata.
         """
-        return Response(content, usage_data)
+        
+        return ChatCompletion(
+            id=f"streaming-response-{uuid.uuid4()}",
+            created=int(time.time()),
+            choices=[Choice(
+                index=0,
+                message=ChatCompletionMessage(role="assistant", content=content),
+                finish_reason="stop"
+            )],
+            usage=usage_data,
+            model="",
+            object="chat.completion",
+        )
 
     @staticmethod
     def parse_completion(completion: ChatCompletion) -> Dict[str, Any]:
@@ -263,14 +217,16 @@ class GroqUtils:
 
             return parsed_response
 
-        # Fallback for dict-like responses
-        elif isinstance(completion, dict):
+        if isinstance(completion, dict):
             return completion
 
         return {}
 
     @staticmethod
-    def add_image_attachments_from_messages(generation: Generation, messages: Iterable[ChatCompletionMessageParam]) -> None:
+    def add_image_attachments_from_messages(
+            generation: Generation, 
+            messages: Iterable[ChatCompletionMessageParam]
+        ) -> None:
         """Extract image URLs from messages and add them as attachments to the generation.
 
         This method scans through Groq messages to find image URLs in content
@@ -294,7 +250,7 @@ class GroqUtils:
 
         try:
             for message in messages:
-                if isinstance(message, ChatCompletionUserMessageParam):
+                if isinstance(message, dict) and message.get("role") == "user":
                     content = message.get("content", [])
                     if isinstance(content, list):
                         for content_item in content:
