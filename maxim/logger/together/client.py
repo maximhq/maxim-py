@@ -12,7 +12,7 @@ import functools
 from typing import Any, Optional
 from uuid import uuid4
 from together.resources.chat import AsyncChatCompletions, ChatCompletions
-from ..logger import Generation, Logger, Trace
+from ..logger import Generation, Logger, Trace, GenerationConfigDict
 from .utils import TogetherUtils
 from .helpers import TogetherHelpers
 from ...scribe import scribe
@@ -85,18 +85,18 @@ def instrument_together(logger: Logger) -> None:
             # Initialize trace and generation for logging
             try:
                 trace = logger.trace({"id": final_trace_id})
-                gen_config = {
-                    "id": str(uuid4()),
-                    "model": model,
-                    "provider": "together",
-                    "name": generation_name,
-                    "model_parameters": TogetherUtils.get_model_params(**kwargs),
-                    "messages": TogetherUtils.parse_message_param(messages),
-                }
+                gen_config = GenerationConfigDict(
+                    id=str(uuid4()),
+                    model=model or "",
+                    provider="together",
+                    name=generation_name,
+                    model_parameters=TogetherUtils.get_model_params(**kwargs),
+                    messages=TogetherUtils.parse_message_param(messages or []),
+                )
                 generation = trace.generation(gen_config)
 
                 # Check for image URLs in messages and add as attachments
-                TogetherUtils.add_image_attachments_from_messages(generation, messages)
+                TogetherUtils.add_image_attachments_from_messages(generation, messages or [])
 
             except Exception as e:
                 scribe().warning(
@@ -180,18 +180,18 @@ def instrument_together(logger: Logger) -> None:
             # Initialize trace and generation for logging
             try:
                 trace = logger.trace({"id": final_trace_id})
-                gen_config = {
-                    "id": str(uuid4()),
-                    "model": model,
-                    "provider": "together",
-                    "name": generation_name,
-                    "model_parameters": TogetherUtils.get_model_params(**kwargs),
-                    "messages": TogetherUtils.parse_message_param(messages),
-                }
+                gen_config = GenerationConfigDict(
+                    id=str(uuid4()),
+                    model=model or "",
+                    provider="together",
+                    name=generation_name,
+                    model_parameters=TogetherUtils.get_model_params(**kwargs),
+                    messages=TogetherUtils.parse_message_param(messages or []),
+                )
                 generation = trace.generation(gen_config)
 
                 # Check for image URLs in messages and add as attachments
-                TogetherUtils.add_image_attachments_from_messages(generation, messages)
+                TogetherUtils.add_image_attachments_from_messages(generation, messages or [])
 
             except Exception as e:
                 scribe().warning(

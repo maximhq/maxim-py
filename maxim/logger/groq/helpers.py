@@ -79,7 +79,9 @@ class GroqHelpers:
                         accumulated_content += delta.content
                 
                 # Collect usage data from chunks
-                if hasattr(chunk, 'usage') and chunk.usage:
+                if hasattr(chunk, 'x_groq') and chunk.x_groq and hasattr(chunk.x_groq, 'usage') and chunk.x_groq.usage:
+                    final_usage = chunk.x_groq.usage
+                elif hasattr(chunk, 'usage') and chunk.usage:
                     final_usage = chunk.usage
                 
                 yield chunk
@@ -139,13 +141,15 @@ class GroqHelpers:
         try:
             async for chunk in stream:
                 # Accumulate content from chunks
-                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                if hasattr(chunk, "choices") and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
+                    if hasattr(delta, "content") and delta.content:
                         accumulated_content += delta.content
                 
                 # Collect usage data from chunks
-                if hasattr(chunk, 'usage') and chunk.usage:
+                if hasattr(chunk, 'x_groq') and chunk.x_groq and hasattr(chunk.x_groq, 'usage') and chunk.x_groq.usage:
+                    final_usage = chunk.x_groq.usage
+                elif hasattr(chunk, "usage") and chunk.usage:
                     final_usage = chunk.usage
                 
                 yield chunk
