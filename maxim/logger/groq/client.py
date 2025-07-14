@@ -93,10 +93,10 @@ def instrument_groq(logger: Logger) -> None:
                     "messages": GroqUtils.parse_message_param(messages),
                 }
                 generation = trace.generation(gen_config)
-                
+
                 # Check for image URLs in messages and add as attachments
                 GroqUtils.add_image_attachments_from_messages(generation, messages)
-                        
+
             except Exception as e:
                 scribe().warning(
                     f"[MaximSDK][GroqInstrumentation] Error in generating content: {e}",
@@ -124,10 +124,12 @@ def instrument_groq(logger: Logger) -> None:
                 )
 
             # Apply tags if provided
-            if generation_tags is not None:
-                generation.set_tags(generation_tags)
-            if trace_tags is not None:
-                trace.set_tags(trace_tags)
+            if generation_tags is not None and generation is not None:
+                for key, value in generation_tags.items():
+                    generation.add_tag(key, value)
+            if trace_tags is not None and trace is not None:
+                for key, value in trace_tags.items():
+                    trace.add_tag(key, value)
 
             return response
 
@@ -185,10 +187,10 @@ def instrument_groq(logger: Logger) -> None:
                     "messages": GroqUtils.parse_message_param(messages),
                 }
                 generation = trace.generation(gen_config)
-                
+
                 # Check for image URLs in messages and add as attachments
                 GroqUtils.add_image_attachments_from_messages(generation, messages)
-                        
+
             except Exception as e:
                 scribe().warning(
                     f"[MaximSDK][GroqInstrumentation] Error in generating content: {e}",
@@ -216,10 +218,12 @@ def instrument_groq(logger: Logger) -> None:
                 )
 
             # Apply tags if provided
-            if generation_tags is not None:
-                generation.set_tags(generation_tags)
-            if trace_tags is not None:
-                trace.set_tags(trace_tags)
+            if generation_tags is not None and generation is not None:
+                for key, value in generation_tags.items():
+                    generation.add_tag(key, value)
+            if trace_tags is not None and trace is not None:
+                for key, value in trace_tags.items():
+                    trace.add_tag(key, value)
 
             return response
 

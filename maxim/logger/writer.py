@@ -100,6 +100,7 @@ class LogWriter:
         self.logs_dir = os.path.join(
             tempfile.gettempdir(), f"maxim-sdk/{self.id}/maxim-logs"
         )
+        self.sinks: list[LogWriter] = []
         self.__flush_thread = None
         try:
             os.makedirs(self.logs_dir, exist_ok=True)
@@ -119,6 +120,12 @@ class LogWriter:
                 raise ValueError(
                     "flush_interval is set to None.flush_interval has to be a number"
                 )
+
+    def add_sink(self, config: LogWriterConfig) -> None:
+        """
+        Adds a sink to the logger.
+        """
+        self.sinks.append(LogWriter(config))
 
     @property
     def repository_id(self):
@@ -514,6 +521,14 @@ class LogWriter:
         Raises:
             ValueError: If the entity_id is invalid and raise_exceptions is True.
         """
+        # Here first we send these to sink
+        try:
+            for sink in self.sinks:
+                sink.commit(log)
+        except Exception as e:
+            scribe().warning(f"[MaximSDK] Failed to send log to sink. Error: {e}")
+            if self.raise_exceptions:
+                raise e
         if not re.match(r"^[a-zA-Z0-9_-]+$", log.entity_id):
             if self.raise_exceptions:
                 raise ValueError(

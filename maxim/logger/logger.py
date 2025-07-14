@@ -133,6 +133,7 @@ class Logger:
         self._id = repo_id
         self.raise_exceptions = raise_exceptions
         self.is_debug = is_debug
+        self.config = config
         writer_config = LogWriterConfig(
             auto_flush="auto_flush" in config and config["auto_flush"] or True,
             flush_interval="flush_interval" in config
@@ -145,7 +146,41 @@ class Logger:
             raise_exceptions=raise_exceptions,
         )
         self.writer = LogWriter(writer_config)
+        self.sinks: list[LogWriter] = []
         scribe().debug("[MaximSDK] Logger initialized")
+
+    def add_sink(
+        self,
+        base_url: str,
+        api_key: str,
+        repo_id: str,
+        is_debug: bool = False,
+        raise_exceptions: bool = False,
+    ) -> None:
+        """
+        Adds a sink to the logger. This will allow you to write logs to multiple repositories at the same time.
+
+        Args:
+            base_url (str): The base URL for the sink.
+            api_key (str): The API key for the sink.
+            repo_id (str): The repository ID for the sink.
+            is_debug (bool): Whether to enable debug logging for the sink.
+            raise_exceptions (bool): Whether to raise exceptions for the sink.
+        """
+        sink_config = LogWriterConfig(
+            auto_flush=("auto_flush" in self.config and self.config["auto_flush"])
+            or True,
+            flush_interval=(
+                "flush_interval" in self.config and self.config["flush_interval"]
+            )
+            or 10,
+            base_url=base_url,
+            api_key=api_key,
+            is_debug=is_debug,
+            repository_id=repo_id,
+            raise_exceptions=raise_exceptions,
+        )
+        self.writer.add_sink(sink_config)
 
     def session(self, config: Union[SessionConfig, SessionConfigDict]) -> Session:
         """
@@ -219,7 +254,11 @@ class Logger:
         """
         Session.feedback_(self.writer, session_id, feedback)
 
-    def session_add_attachment(self, session_id: str, attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment]):
+    def session_add_attachment(
+        self,
+        session_id: str,
+        attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment],
+    ):
         """
         Adds an attachment to the session.
         """

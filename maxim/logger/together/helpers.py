@@ -67,31 +67,39 @@ class TogetherHelpers:
 
         accumulated_content = ""
         final_usage = None
-        
+
         try:
             for chunk in stream:
                 # Accumulate content from chunks
-                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                if (
+                    hasattr(chunk, "choices")
+                    and chunk.choices is not None
+                    and len(chunk.choices) > 0
+                ):
                     delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
+                    if (
+                        delta is not None
+                        and hasattr(delta, "content")
+                        and delta.content is not None
+                    ):
                         accumulated_content += delta.content
-                
+
                 # Collect usage data from chunks
                 if hasattr(chunk, 'usage') and chunk.usage:
                     final_usage = chunk.usage
-                
+
                 yield chunk
-            
+
             # After stream is complete, log the accumulated result
             if generation is not None:
                 # Create a complete response object
                 response_to_parse = TogetherUtils.parse_chunks_to_response(accumulated_content, final_usage)
                 generation.result(TogetherUtils.parse_completion(response_to_parse))
-            
+
             if is_local_trace and trace is not None:
                 trace.set_output(accumulated_content)
                 trace.end()
-                
+
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][TogetherInstrumentation] Error in streaming generation: {e}",
@@ -132,33 +140,41 @@ class TogetherHelpers:
             AsyncGenerator[ChatCompletionChunk, None]: An async generator that yields
                 the same chunks as the input stream while providing logging.
         """
-    
+
         accumulated_content = ""
         final_usage = None
-    
+
         try:
             async for chunk in stream:
                 # Accumulate content from chunks
-                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                if (
+                    hasattr(chunk, "choices")
+                    and chunk.choices is not None
+                    and len(chunk.choices) > 0
+                ):
                     delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
+                    if (
+                        delta is not None
+                        and hasattr(delta, "content")
+                        and delta.content is not None
+                    ):
                         accumulated_content += delta.content
-                
+
                 # Collect usage data from chunks
-                if hasattr(chunk, 'usage') and chunk.usage:
+                if hasattr(chunk, "usage") and chunk.usage is not None:
                     final_usage = chunk.usage
-                
+
                 yield chunk
-            
+
             if generation is not None:
                 # Create a proper response object with real attributes
                 response_to_parse = TogetherUtils.parse_chunks_to_response(accumulated_content, final_usage)
                 generation.result(TogetherUtils.parse_completion(response_to_parse))
-            
+
             if is_local_trace and trace is not None:
                 trace.set_output(accumulated_content)
                 trace.end()
-                
+
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][TogetherInstrumentation] Error in async streaming generation: {e}",

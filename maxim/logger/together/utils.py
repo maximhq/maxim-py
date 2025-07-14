@@ -151,7 +151,7 @@ class TogetherUtils:
         """
         model_params = {}
         skip_keys = ["messages", "model"]
-        
+
         # Common parameters that Together AI supports
         param_keys = [
             "temperature",
@@ -186,7 +186,9 @@ class TogetherUtils:
         return model_params
 
     @staticmethod
-    def parse_chunks_to_response(content: str, usage_data: UsageData) -> Response:
+    def parse_chunks_to_response(
+        content: str, usage_data: Optional[UsageData] = None
+    ) -> Response:
         """Create a response object from streaming chunks for parsing.
         
         This method constructs a response object compatible with the parse_completion
@@ -227,7 +229,7 @@ class TogetherUtils:
                 - choices: List of choices with message content and metadata
                 - usage: Token usage statistics (prompt, completion, total)
         """
-            # Handle Together ChatCompletionResponse format
+        # Handle Together ChatCompletionResponse format
         if hasattr(completion, 'choices') and hasattr(completion, 'id'):
             parsed_response = {
                 "id": completion.id,
@@ -235,7 +237,7 @@ class TogetherUtils:
                 "choices": [],
             }
 
-            for choice in completion.choices:
+            for choice in completion.choices or []:
                 choice_data = {
                     "index": getattr(choice, 'index', 0),
                     "message": {
@@ -244,15 +246,25 @@ class TogetherUtils:
                     },
                     "finish_reason": getattr(choice, 'finish_reason', None),
                 }
-                
+
                 # Add tool calls if present
-                if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
+                if (
+                    choice.message is not None
+                    and hasattr(choice.message, "tool_calls")
+                    and choice.message.tool_calls
+                ):
                     choice_data["message"]["tool_calls"] = choice.message.tool_calls
-                
+
                 parsed_response["choices"].append(choice_data)
 
             # Add usage information if available
-            if hasattr(completion, 'usage') and completion.usage:
+            if (
+                hasattr(completion, "usage")
+                and completion.usage is not None
+                and completion.usage.prompt_tokens is not None
+                and completion.usage.completion_tokens is not None
+                and completion.usage.total_tokens is not None
+            ):
                 parsed_response["usage"] = {
                     "prompt_tokens": getattr(completion.usage, 'prompt_tokens', 0),
                     "completion_tokens": getattr(completion.usage, 'completion_tokens', 0),
@@ -265,7 +277,8 @@ class TogetherUtils:
         # Fallback for dict-like responses
         elif isinstance(completion, dict):
             return completion
-        
+
+        return {}
 
     @staticmethod
     def add_image_attachments_from_messages(generation: Generation, messages: Iterable[Dict[str, Any]]) -> None:
@@ -289,7 +302,7 @@ class TogetherUtils:
         """
         if generation is None or not messages:
             return
-            
+
         try:
             for message in messages:
                 if isinstance(message, dict) and message.get("role") == "user":
@@ -307,4 +320,3 @@ class TogetherUtils:
                                     ))
         except Exception as e:
             scribe().warning(f"[MaximSDK] Error adding image attachments: {e}")
-
