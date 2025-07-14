@@ -42,7 +42,6 @@ def instrument_together(logger: Logger) -> None:
         scribe().debug("[MaximSDK] Together already instrumented")
         return
 
-
     def wrap_sync_create(create_func):
         """Wrapper for synchronous chat completion create method.
         
@@ -73,7 +72,7 @@ def instrument_together(logger: Logger) -> None:
                 generation_name = extra_headers.get("x-maxim-generation-name", None)
                 generation_tags = extra_headers.get("x-maxim-generation-tags", None)
                 trace_tags = extra_headers.get("x-maxim-trace-tags", None)
-                
+
             # Determine if we need to create a new trace or use existing one
             is_local_trace = trace_id is None
             model = kwargs.get("model", None)
@@ -95,10 +94,10 @@ def instrument_together(logger: Logger) -> None:
                     "messages": TogetherUtils.parse_message_param(messages),
                 }
                 generation = trace.generation(gen_config)
-                
+
                 # Check for image URLs in messages and add as attachments
                 TogetherUtils.add_image_attachments_from_messages(generation, messages)
-                        
+
             except Exception as e:
                 scribe().warning(
                     f"[MaximSDK][TogetherInstrumentation] Error in generating content: {e}",
@@ -125,12 +124,14 @@ def instrument_together(logger: Logger) -> None:
                 scribe().warning(
                     f"[MaximSDK][TogetherInstrumentation] Error in logging generation: {e}",
                 )
-            
+
             # Apply tags if provided
-            if generation_tags is not None:
-                generation.set_tags(generation_tags)
-            if trace_tags is not None:
-                trace.set_tags(trace_tags)
+            if generation_tags is not None and generation is not None:
+                for key, value in generation_tags.items():
+                    generation.add_tag(key, value)
+            if trace_tags is not None and trace is not None:
+                for key, value in trace_tags.items():
+                    trace.add_tag(key, value)
 
             return response
 
@@ -166,7 +167,7 @@ def instrument_together(logger: Logger) -> None:
                 generation_name = extra_headers.get("x-maxim-generation-name", None)
                 generation_tags = extra_headers.get("x-maxim-generation-tags", None)
                 trace_tags = extra_headers.get("x-maxim-trace-tags", None)
-                
+
             # Determine if we need to create a new trace or use existing one
             is_local_trace = trace_id is None
             model = kwargs.get("model", None)
@@ -188,10 +189,10 @@ def instrument_together(logger: Logger) -> None:
                     "messages": TogetherUtils.parse_message_param(messages),
                 }
                 generation = trace.generation(gen_config)
-                
+
                 # Check for image URLs in messages and add as attachments
                 TogetherUtils.add_image_attachments_from_messages(generation, messages)
-                        
+
             except Exception as e:
                 scribe().warning(
                     f"[MaximSDK][TogetherInstrumentation] Error in generating content: {e}",
@@ -220,10 +221,12 @@ def instrument_together(logger: Logger) -> None:
                 )
 
             # Apply tags if provided
-            if generation_tags is not None:
-                generation.set_tags(generation_tags)
-            if trace_tags is not None:
-                trace.set_tags(trace_tags)
+            if generation_tags is not None and generation is not None:
+                for key, value in generation_tags.items():
+                    generation.add_tag(key, value)
+            if trace_tags is not None and trace is not None:
+                for key, value in trace_tags.items():
+                    trace.add_tag(key, value)
 
             return response
 

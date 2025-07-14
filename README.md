@@ -66,6 +66,7 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 - feat: Adds one line integration for Together AI SDK
 - feat: Adds one line integration for Groq SDK
+- feat: Adds sink support for logger to write to multiple repos.
 
 ### 3.9.8
 

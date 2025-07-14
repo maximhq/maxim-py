@@ -155,7 +155,7 @@ class GroqUtils:
         """
         model_params = {}
         skip_keys = ["messages", "model", "extra_headers"]
-        
+
         # Common parameters that Groq supports
         param_keys = [
             "temperature",
@@ -246,11 +246,11 @@ class GroqUtils:
                     },
                     "finish_reason": getattr(choice, 'finish_reason', "stop"),
                 }
-                
+
                 # Add tool calls if present
                 if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
                     choice_data["message"]["tool_calls"] = choice.message.tool_calls
-                
+
                 parsed_response["choices"].append(choice_data)
 
             # Add usage information if available
@@ -266,6 +266,8 @@ class GroqUtils:
         # Fallback for dict-like responses
         elif isinstance(completion, dict):
             return completion
+
+        return {}
 
     @staticmethod
     def add_image_attachments_from_messages(generation: Generation, messages: Iterable[ChatCompletionMessageParam]) -> None:
@@ -289,7 +291,7 @@ class GroqUtils:
         """
         if generation is None or not messages:
             return
-            
+
         try:
             for message in messages:
                 if isinstance(message, ChatCompletionUserMessageParam):

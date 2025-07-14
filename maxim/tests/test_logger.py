@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import unittest
+from dotenv import load_dotenv
 from uuid import uuid4
 
 from maxim import Config, Maxim
@@ -18,17 +19,9 @@ from maxim.logger import (
     TraceConfig,
 )
 
-with open(str(f"{os.getcwd()}/libs/maxim-py/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
 
+load_dotenv(override=True)
 logging.basicConfig(level=logging.INFO)
-env = "dev"
-
-apiKey = data[env]["apiKey"]
-baseUrl = data[env]["baseUrl"]
-repoId = data[env]["repoId"]
-
-print(baseUrl)
 
 
 # Set global log level to debug
@@ -37,39 +30,29 @@ logging.getLogger().setLevel(logging.DEBUG)
 
 class TestLoggerInitialization(unittest.TestCase):
     def setUp(self):
-        config = Config(
-            api_key=apiKey, base_url=baseUrl, debug=True, raise_exceptions=True
-        )
-        self.maxim = Maxim(config)
+        self.maxim = Maxim()
 
     def test_initialize_logger_if_log_repository_exists(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         self.assertIsNotNone(logger)
 
     def test_should_throw_error_if_log_repository_does_not_exist(self):
-        config = LoggerConfig(id=f"{repoId}1")
         with self.assertRaises(Exception) as context:
-            self.maxim.logger(config)
+            self.maxim.logger()
         self.assertTrue("Log repository not found" in str(context.exception))
 
 
 class TestLogging(unittest.TestCase):
     def setUp(self):
-        self.maxim = Maxim(
-            {
-                "api_key": apiKey,
-                "base_url": baseUrl,
-                "debug": True,
-            }
-        )
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        self.maxim = Maxim()
 
     def tearDown(self) -> None:
         self.maxim.cleanup()
         return super().tearDown()
 
     def test_trace_with_input_output(self):
-        os.environ["MAXIM_LOG_REPO_ID"] = repoId
         logger = self.maxim.logger(
             {
                 "auto_flush": False,
@@ -85,8 +68,7 @@ class TestLogging(unittest.TestCase):
         trace.end()
 
     def test_should_be_able_to_create_a_trace_and_update(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         trace_config = TraceConfig(id=str(uuid4()))
         trace = logger.trace(trace_config)
         trace.set_input("testinput")
@@ -103,15 +85,16 @@ class TestLogging(unittest.TestCase):
 
 class TestCreatingSession(unittest.TestCase):
     def setUp(self):
-        config = Config(api_key=apiKey, base_url=baseUrl, debug=True)
-        self.maxim = Maxim(config)
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        self.maxim = Maxim()
 
     def tearDown(self) -> None:
         self.maxim.cleanup()
         return super().tearDown()
 
     def test_send_retrieval(self):
-        logger = self.maxim.logger({"id": repoId})
+        logger = self.maxim.logger()
         trace_id = str(uuid4())
         trace = logger.trace({"id": trace_id, "name": "test trace"})
         trace.set_input("test retrieval input")
@@ -128,11 +111,7 @@ class TestCreatingSession(unittest.TestCase):
         logger.retrieval_end(retrieval_id)
 
     def test_trace_generation(self):
-        logger = self.maxim.logger(
-            {
-                "id": repoId,
-            }
-        )
+        logger = self.maxim.logger()
         trace = logger.trace({"id": str(uuid4()), "name": "test trace"})
         trace.set_input("test input")
         trace.set_output("test output")
@@ -181,7 +160,7 @@ class TestCreatingSession(unittest.TestCase):
         gen.end()
 
     def test_trace_create_spans(self):
-        logger = self.maxim.logger({"id": repoId})
+        logger = self.maxim.logger()
         trace_id = str(uuid4())
         trace = logger.trace({"id": trace_id, "name": "test trace"})
         trace.end()
@@ -227,7 +206,7 @@ class TestCreatingSession(unittest.TestCase):
         return
 
     def test_trace_create_spans_with_error(self):
-        logger = self.maxim.logger({"id": repoId})
+        logger = self.maxim.logger()
         trace_id = str(uuid4())
         trace = logger.trace({"id": trace_id, "name": "test trace"})
         trace.end()
@@ -277,8 +256,7 @@ class TestCreatingSession(unittest.TestCase):
         return
 
     def test_session_changes(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         session_id = str(uuid4())
         session = logger.session(SessionConfig(id=session_id, name="test session"))
         trace_id = str(uuid4())
@@ -294,8 +272,7 @@ class TestCreatingSession(unittest.TestCase):
         session.end()
 
     def test_unended_session(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         session_id = str(uuid4())
         session = logger.session(SessionConfig(id=session_id, name="test session"))
         time.sleep(100)
@@ -303,7 +280,7 @@ class TestCreatingSession(unittest.TestCase):
         time.sleep(100)
 
     def test_upload_file_attachment(self):
-        logger = self.maxim.logger({"id": repoId})
+        logger = self.maxim.logger()
         trace = logger.trace({"id": str(uuid4())})
         trace.set_input("test input")
         trace.add_attachment(FileAttachment(path="files/text_file.txt"))
@@ -312,8 +289,7 @@ class TestCreatingSession(unittest.TestCase):
         logger.flush()
 
     def test_adding_logs_out_of_order(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         session_id = str(uuid4())
         session = logger.session(SessionConfig(id=session_id))
         trace_id = str(uuid4())
@@ -418,8 +394,7 @@ class TestCreatingSession(unittest.TestCase):
         logger.span_end(span1_id)
 
     def test_should_be_able_to_create_a_session_and_trace_using_logger(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         session_id = str(uuid4())
         session = logger.session(SessionConfig(id=session_id))
         trace_id = str(uuid4())
@@ -536,8 +511,7 @@ class TestCreatingSession(unittest.TestCase):
         self.assertEqual(1, 1)
 
     def test_should_capture_error_generation(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         traceId = str(uuid4())
         trace_config = TraceConfig(id=traceId)
         trace = logger.trace(trace_config)
@@ -575,8 +549,7 @@ class TestCreatingSession(unittest.TestCase):
         logger.cleanup()
 
     def test_cohere_generation(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         trace_config = TraceConfig(id="test")
         trace = logger.trace(trace_config)
         logger.trace_add_tag(trace.id, "test", "yes")
@@ -630,8 +603,7 @@ class TestCreatingSession(unittest.TestCase):
         logger.cleanup()
 
     def test_model_parameters_bug_fix(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         trace_config = TraceConfig(id="test")
         trace = logger.trace(trace_config)
         logger.trace_add_tag(trace.id, "test", "yes")
@@ -730,8 +702,7 @@ class TestCreatingSession(unittest.TestCase):
         logger.cleanup()
 
     def test_atomicwork_failing_cases(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         trace_config = TraceConfig(id="test")
         trace = logger.trace(trace_config)
         logger.trace_add_tag(trace.id, "test", "yes")
@@ -769,8 +740,7 @@ class TestCreatingSession(unittest.TestCase):
         logger.cleanup()
 
     def test_should_be_able_to_create_a_session_and_add_a_trace(self):
-        config = LoggerConfig(id=repoId)
-        logger = self.maxim.logger(config)
+        logger = self.maxim.logger()
         sessionId = str(uuid4())
         session_config = SessionConfig(id=sessionId)
         session = logger.session(session_config)
