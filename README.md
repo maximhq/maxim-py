@@ -62,6 +62,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.9.10
+
+- fix: removes signal handlers from the package.
+
 ### 3.9.9
 
 - feat: Adds one line integration for Together AI SDK
