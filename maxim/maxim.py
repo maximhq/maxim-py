@@ -146,9 +146,6 @@ class Maxim:
             Maxim._instance = self
         self.has_cleaned_up = False
         atexit.register(self.cleanup)
-        if threading.current_thread() is threading.main_thread():
-            signal.signal(signal.SIGINT, self._signal_handler)
-            signal.signal(signal.SIGTERM, self._signal_handler)
         self.ascii_logo = (
             f"\033[32m[MaximSDK] Initializing Maxim AI(v{current_version})\033[0m"
         )
@@ -1001,22 +998,6 @@ class Maxim:
             Optional[PromptResponse]: The completion response if successful, None otherwise
         """
         return self.maxim_api.run_prompt(model, messages, tools, **kwargs)
-
-    def _signal_handler(self, signum, frame):
-        """
-        Handles system signals (SIGINT, SIGTERM) for graceful shutdown.
-
-        This method ensures proper cleanup when the application receives termination signals.
-
-        Args:
-            signum: The signal number that was received.
-            frame: The current stack frame (unused).
-        """
-        if self.has_cleaned_up:
-            return
-        self.has_cleaned_up = True
-        self.cleanup()
-        sys.exit(0)
 
     def cleanup(self):
         """
