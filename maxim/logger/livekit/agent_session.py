@@ -197,6 +197,8 @@ def handle_tool_call_executed(self, event: FunctionToolsExecutedEvent):
         )
         tool_output = ""
         for output in event.function_call_outputs or []:
+            if output is None:
+                continue
             if output.call_id == function_call.call_id:
                 tool_output = output.output
                 break
