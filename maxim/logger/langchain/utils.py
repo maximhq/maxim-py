@@ -232,7 +232,8 @@ def parse_langchain_chat_generation_chunk(generation: ChatGeneration):
     )
     return choices
 
-def get_action_from_kwargs(kwargs:Dict[str, Any])-> Optional[Dict]:
+
+def get_action_from_kwargs(kwargs: Dict[str, Any]) -> Optional[Dict]:
     """
     Extract action from tool outputs in kwargs.
 
@@ -251,6 +252,7 @@ def get_action_from_kwargs(kwargs:Dict[str, Any])-> Optional[Dict]:
         return None
     except (KeyError, IndexError, TypeError) as e:
         return None
+
 
 def parse_langchain_chat_generation(generation: ChatGeneration):
     choices = []
@@ -275,7 +277,7 @@ def parse_langchain_chat_generation(generation: ChatGeneration):
         )
         content = ""
         actions = get_action_from_kwargs(ai_message.additional_kwargs)
-        actions_dict = {'Action': actions}
+        actions_dict = {"Action": actions}
         if actions:
             content += json.dumps(actions_dict)
         if isinstance(ai_message.content, str):
@@ -608,6 +610,13 @@ def parse_langchain_messages(
                                 "role": "tool",
                                 "content": message.content or "",
                                 "tool_call_id": message.tool_call_id,
+                            }
+                        )
+                    elif message_type.endswith("ChatMessage"):
+                        messages.append(
+                            {
+                                "role": message.role,
+                                "content": message.content or "",
                             }
                         )
                     else:
