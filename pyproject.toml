@@ -60,4 +60,7 @@ dev = [
   "mistralai>=1.8.2",
   "together>=1.4.6",
   "groq>=0.30.0",
+  "llama-index-core>=0.12.49",
+  "llama-index-llms-openai>=0.4.7",
+  "tavily-python>=0.7.9",
 ]
