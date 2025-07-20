@@ -359,6 +359,29 @@ class Generation(BaseContainer):
         self.model = model
         self._commit("update", {"model": model})
 
+    def add_metric(self, name: str, value: float) -> None:
+        """
+        Add a metric to this trace.
+
+        Args:
+            name: The name of the metric.
+            value: The value of the metric.
+        """
+        self._commit("update", {"metrics": {"name": name, "value": value}})
+
+    @staticmethod
+    def add_metric_(writer: LogWriter, id: str, name: str, value: float):
+        """
+        Static method to add a metric to a trace.
+        """
+        Generation._commit_(
+            writer,
+            Entity.GENERATION,
+            id,
+            "update",
+            {"metrics": {"name": name, "value": value}},
+        )
+
     @staticmethod
     def add_message_(writer: LogWriter, id: str, message: GenerationRequestMessage):
         """
