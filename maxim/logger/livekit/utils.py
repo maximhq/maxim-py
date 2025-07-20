@@ -48,9 +48,6 @@ class SameThreadExecutor(Executor):
         except Exception as e:
             return _ImmediateResult(exception=e)
 
-    def shutdown(self, wait=True):
-        pass
-
 
 # Create a global thread pool for processing
 _thread_pool_executor = ThreadPoolExecutor(max_workers=1)
@@ -90,8 +87,8 @@ def start_new_turn(session_info: SessionStoreEntry):
         The new turn or None if the current turn is interrupted or empty.
     """
     turn = session_info.current_turn
-    trace = get_session_store().get_current_trace_from_rt_session_id(
-        session_info.rt_session_id
+    trace = get_session_store().get_current_trace_for_agent_session(
+        session_info.agent_session_id,
     )
     # Here if the turn was interrupted, we need to push pending changes to the llm call as well
     if trace is not None and turn is not None:
@@ -103,7 +100,7 @@ def start_new_turn(session_info: SessionStoreEntry):
             except Exception as e:
                 scribe().warning(
                     f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}",
-                    exc_info=True
+                    exc_info=True,
                 )
     next_turn_sequence = 1
     if turn is not None and turn.turn_sequence is not None:
@@ -149,6 +146,6 @@ def start_new_turn(session_info: SessionStoreEntry):
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}",
-                exc_info=True
+                exc_info=True,
             )
     return current_turn

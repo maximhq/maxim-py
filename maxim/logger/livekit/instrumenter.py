@@ -1,14 +1,17 @@
 from livekit.agents import AgentSession, JobContext, Worker
 from livekit.agents.llm import RealtimeSession
 from livekit.agents.voice.agent_activity import AgentActivity
-
+from livekit.plugins.openai import LLM, STT, TTS
 from ...logger import Logger
 from .agent_activity import instrument_agent_activity
 from .agent_session import instrument_agent_session
 from .gemini.instrumenter import instrument_gemini
 from .job_context import instrument_job_context
+from .llm import instrument_llm_init
 from .realtime_session import instrument_realtime_session
+from .stt import instrument_stt_init
 from .store import MaximLiveKitCallback, set_livekit_callback, set_maxim_logger
+from .tts import instrument_tts_init
 from .worker import instrument_worker
 
 
@@ -71,6 +74,47 @@ def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
     ]:
         if name != "__class__" and not name.startswith("__"):
             setattr(JobContext, name, instrument_job_context(orig, name))
+
+    # Instrumenting LLM models if present
+    for name, orig in [
+        (n, getattr(LLM, n)) for n in dir(LLM) if callable(getattr(LLM, n))
+    ]:
+        if name == "__init__":
+            setattr(
+                LLM,
+                name,
+                instrument_llm_init(orig, name, LLM.__name__),
+            )
+
+    # Instrumenting STT models if present
+    for name, orig in [
+        (n, getattr(STT, n)) for n in dir(STT) if callable(getattr(STT, n))
+    ]:
+        if name == "__init__":
+            setattr(
+                STT,
+                name,
+                instrument_stt_init(orig, name, STT.__name__),
+            )
+        elif not name.startswith("__"):
+            from .stt import instrument_stt
+
+            setattr(STT, name, instrument_stt(orig, name))
+
+    # Instrumenting TTS models if present
+    for name, orig in [
+        (n, getattr(TTS, n)) for n in dir(TTS) if callable(getattr(TTS, n))
+    ]:
+        if name == "__init__":
+            setattr(
+                TTS,
+                name,
+                instrument_tts_init(orig, name, TTS.__name__),
+            )
+        elif not name.startswith("__"):
+            from .tts import instrument_tts
+
+            setattr(TTS, name, instrument_tts(orig, name))
 
     # Instrument gemini models if present
     instrument_gemini()

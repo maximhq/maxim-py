@@ -9,6 +9,7 @@ from io import BytesIO
 from livekit.agents import Agent, AgentSession
 from livekit.agents.voice.events import FunctionToolsExecutedEvent
 from livekit.protocol.models import Room
+from livekit.agents.vad import VADEvent
 
 from ...scribe import scribe
 from .store import (
@@ -197,10 +198,17 @@ def handle_tool_call_executed(self, event: FunctionToolsExecutedEvent):
         )
         tool_output = ""
         for output in event.function_call_outputs or []:
-            if output.call_id == function_call.call_id:
+            if output is not None and output.call_id == function_call.call_id:
                 tool_output = output.output
                 break
         tool_call.result(tool_output)
+
+
+def intercept_metrics_collected(self, event):
+    """
+    This function is called when the metrics are collected.
+    """
+    pass
 
 
 def pre_hook(self, hook_name, args, kwargs):
@@ -231,15 +239,20 @@ def pre_hook(self, hook_name, args, kwargs):
         elif hook_name == "emit":
             if args[0] == "metrics_collected":
                 pass
+            elif args[0] == "_on_metrics_collected":
+                pass
             elif args[0] == "function_tools_executed":
                 if not args or len(args) == 0:
                     return
                 get_thread_pool_executor().submit(
                     handle_tool_call_executed, self, args[1]
                 )
-            scribe().debug(
-                f"[Internal][{self.__class__.__name__}] emit called; args={args}, kwargs={kwargs}"
-            )
+            elif args[0] == "agent_state_changed":
+                pass
+            else:
+                scribe().debug(
+                    f"[Internal][{self.__class__.__name__}] emit called; args={args}, kwargs={kwargs}"
+                )
         elif hook_name == "end":
             pass
         else:
