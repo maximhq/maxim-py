@@ -118,6 +118,25 @@ class Retrieval(BaseContainer):
         )
         self.end()
 
+    def add_metric(self, name: str, value: float) -> None:
+        """
+        Add a metric to this retrieval.
+        """
+        self._commit("update", {"metrics": {"name": name, "value": value}})
+
+    @staticmethod
+    def add_metric_(writer: LogWriter, id: str, name: str, value: float):
+        """
+        Add a metric to the retrieval.
+        """
+        BaseContainer._commit_(
+            writer,
+            Entity.RETRIEVAL,
+            id,
+            "update",
+            {"metrics": {"name": name, "value": value}},
+        )
+
     def add_attachment(
         self, attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment]
     ):
