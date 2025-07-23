@@ -824,15 +824,14 @@ class TestRunBuilder(Generic[T]):
         def process_all_dataset_entries(dataset_id: str) -> None:
             threads = []
             index = 0
-            while True:
+            total_rows = self._maxim_apis.get_dataset_total_rows(dataset_id)
+            for index in range(total_rows):
                 try:
                     semaphore.acquire()
                     # getting the entry
                     row = self._maxim_apis.get_dataset_row(dataset_id, index)
                     if row is None:
-                        on_dataset_finished()
                         break
-                    index += 1
                     thread = threading.Thread(
                         target=process_dataset_entry,
                         args=(
@@ -851,6 +850,7 @@ class TestRunBuilder(Generic[T]):
                     on_entry_failed(index)
                 finally:
                     semaphore.release()
+            on_dataset_finished()
 
             for thread in threads:
                 thread.join()
