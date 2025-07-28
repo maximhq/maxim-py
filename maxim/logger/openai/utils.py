@@ -40,7 +40,7 @@ class OpenAIUtils:
         **kwargs: Any,
     ) -> Dict[str, Any]:
         model_params = {}
-        skip_keys = ["messages"]
+        skip_keys = ["messages", "tools"]
         max_tokens = kwargs.get("max_tokens", None)
         if max_tokens is not None:
             model_params["max_tokens"] = max_tokens
@@ -65,27 +65,6 @@ class OpenAIUtils:
         return model_params
 
     @staticmethod
-    def parse_stream_response(
-        chunk: ChatCompletionChunk,
-    ) -> Dict[str, Any]:
-        return {
-            "id": chunk.id,
-            "created": int(time.time()),
-            "choices": [
-                {
-                    "index": choice.index,
-                    "delta": {
-                        "role": "assistant",
-                        "content": choice.delta.content or "",
-                        "tool_calls": getattr(choice.delta, "tool_calls", None),
-                    },
-                    "finish_reason": choice.finish_reason,
-                }
-                for choice in chunk.choices
-            ],
-        }
-
-    @staticmethod
     def parse_completion(
         completion: Union[ChatCompletion, Stream[ChatCompletionChunk]],
     ) -> Dict[str, Any]:
@@ -93,7 +72,7 @@ class OpenAIUtils:
             # Process the stream of chunks
             chunks = []
             for chunk in completion:
-                chunks.append(OpenAIUtils.parse_stream_response(chunk))
+                chunks.append(chunk)
             # Combine all chunks into a single response
             if chunks:
                 last_chunk = chunks[-1]
@@ -166,33 +145,58 @@ class OpenAIUtils:
         if not chunks:
             return {}
 
-        # Parse each chunk
-        parsed_chunks = [OpenAIUtils.parse_stream_response(chunk) for chunk in chunks]
+        # Get the last chunk for metadata
+        last_chunk = chunks[-1]
+        
+        # Combine all content from chunks
+        combined_content = "".join(
+            choice.delta.content or ""
+            for chunk in chunks
+            for choice in chunk.choices
+            if choice.delta and choice.delta.content
+        )
 
-        if parsed_chunks:
-            last_chunk = parsed_chunks[-1]
-            combined_content = "".join(
-                [
-                    choice.get("delta", {}).get("content", "")
-                    for chunk in parsed_chunks
-                    for choice in chunk.get("choices", [])
-                ]
-            )
-            return {
-                "id": last_chunk.get("id", ""),
-                "created": int(time.time()),
-                "choices": [
-                    {
-                        "index": choice.get("index", 0),
-                        "message": {
-                            "role": "assistant",
-                            "content": combined_content,
-                            "tool_calls": choice.get("delta", {}).get("tool_calls"),
-                        },
-                        "finish_reason": choice.get("finish_reason"),
-                    }
-                    for choice in last_chunk.get("choices", [])
-                ],
-            }
-        else:
-            return {}
+        # Combine all tool calls from chunks
+        tool_calls = []
+        current_tool_call = None
+        
+        for chunk in chunks:
+            for choice in chunk.choices:
+                if choice.delta and choice.delta.tool_calls:
+                    for tool_call in choice.delta.tool_calls:
+                        if current_tool_call is None or (tool_call.index != current_tool_call.index):
+                            if current_tool_call:
+                                tool_calls.append(current_tool_call)
+                            current_tool_call = tool_call
+                        else:
+                            # Append to existing tool call
+                            if tool_call.function.name:
+                                current_tool_call.function.name = tool_call.function.name
+                            if tool_call.function.arguments:
+                                if current_tool_call.function.arguments:
+                                    current_tool_call.function.arguments += tool_call.function.arguments
+                                else:
+                                    current_tool_call.function.arguments = tool_call.function.arguments
+        
+        if current_tool_call:
+            tool_calls.append(current_tool_call)
+
+        # Construct the final response
+        response = {
+            "id": last_chunk.id,
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": getattr(last_chunk, "model", None),
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": combined_content if not tool_calls else None,
+                    "tool_calls": tool_calls if tool_calls else None
+                },
+                "finish_reason": last_chunk.choices[0].finish_reason if last_chunk.choices else None
+            }],
+            "usage": last_chunk.usage.model_dump() if last_chunk.usage else {}
+        }
+        
+        return response

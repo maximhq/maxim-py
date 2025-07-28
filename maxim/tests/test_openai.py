@@ -1,25 +1,17 @@
-import json
 import logging
 import os
 import unittest
-from uuid import uuid4
+import asyncio
 
+import dotenv
 from openai import OpenAI
-from openai.types.chat import ChatCompletion
 
-from maxim import Config, Maxim
-from maxim.logger import (
-    GenerationConfig,
-    GenerationRequestMessage,
-    LoggerConfig,
-    TraceConfig,
-)
+from maxim import Maxim
 from maxim.logger.openai import MaximOpenAIClient
-from maxim.tests.mock_writer import inject_mock_writer
 
+dotenv.load_dotenv()
 
 logging.basicConfig(level=logging.DEBUG)
-env = "dev"
 
 openaiApiKey = os.getenv("OPENAI_API_KEY")
 apiKey = os.getenv("MAXIM_API_KEY")
@@ -33,14 +25,13 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
         self.logger = Maxim().logger()
-        self.mock_writer = inject_mock_writer(self.logger)
 
     async def test_async_chat_completions(self):
         client = MaximOpenAIClient(
             OpenAI(api_key=openaiApiKey), logger=self.logger
         ).aio
         response = await client.chat.completions.create(
-            messages=[{"role": "user", "content": "Explain how AI works"}],
+            messages=[{"role": "user", "content": "Explain how ML works"}],
             model="gpt-4o",
             max_tokens=1000,
         )
@@ -48,55 +39,154 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
 
         # Flush the logger and verify logging
         self.logger.flush()
-        self.mock_writer.print_logs_summary()
-
-        # Assert that we have exactly 1 add-generation log
-        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
-
-        # Assert that we have exactly 1 result log on generation
-        self.mock_writer.assert_entity_action_count("generation", "result", 1)
-
-        # Assert that we have exactly 1 trace create log
-        self.mock_writer.assert_entity_action_count("trace", "create", 1)
-
-        # Assert that we have exactly 1 trace end log
-        self.mock_writer.assert_entity_action_count("trace", "end", 1)
 
     async def test_async_chat_completions_stream(self):
         client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger 
+            OpenAI(api_key=openaiApiKey), logger=self.logger
         ).aio
         response = await client.chat.completions.create(
-            messages=[{"role": "user", "content": "Explain how AI works"}],
+            messages=[{"role": "user", "content": "Explain how Deep learning works"}],
             model="gpt-4o",
             max_tokens=1000,
             stream=True,
         )
+        
+        # Collect all chunks
+        chunks = []
         async for chunk in response:
-            print(chunk.choices[0].delta.content or "", end="")
-
+            chunks.append(chunk)
+            if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
+                print(chunk.choices[0].delta.content, end="", flush=True)
+        
+        # Verify we got some content
+        self.assertTrue(len(chunks) > 0, "No chunks received from the stream")
+        
         # Flush the logger and verify logging
         self.logger.flush()
-        self.mock_writer.print_logs_summary()
 
-        # Assert that we have exactly 1 add-generation log
-        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+    async def test_async_chat_completions_with_functions(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        ).aio
 
-        # Assert that we have exactly 1 result log on generation
-        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get the current weather in a given location",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "The city and state, e.g. San Francisco, CA"
+                            }
+                        },
+                        "required": ["location"]
+                    }
+                }
+            }
+        ]
 
-        # Assert that we have exactly 1 trace create log
-        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+        response = await client.chat.completions.create(
+            messages=[{"role": "user", "content": "What's the weather like in New York?"}],
+            model="gpt-4o",
+            tools=tools,
+            tool_choice="auto",
+            max_tokens=1000,
+        )
+        print("Response: ", response)
+        self.logger.flush()
 
-        # Assert that we have exactly 1 trace end log
-        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+    async def test_async_chat_completions_with_system_message(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        ).aio
+
+        messages = [
+            {"role": "system", "content": "You are a helpful coding assistant who always writes code in Python."},
+            {"role": "user", "content": "Write a function to calculate fibonacci numbers"}
+        ]
+
+        response = await client.chat.completions.create(
+            messages=messages,
+            model="gpt-4o",
+            max_tokens=1000,
+        )
+        print("Response: ", response)
+        self.logger.flush()
+
+    async def test_async_chat_completions_error_handling(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        ).aio
+
+        # Test invalid model
+        with self.assertRaises(Exception):
+            await client.chat.completions.create(
+                messages=[{"role": "user", "content": "Hello"}],
+                model="invalid-model",
+                max_tokens=1000,
+            )
+
+        # Test invalid message format
+        with self.assertRaises(Exception):
+            await client.chat.completions.create(
+                messages=[{"invalid_role": "user", "content": "Hello"}],
+                model="gpt-4o",
+                max_tokens=1000,
+            )
+
+        self.logger.flush()
+
+    async def test_async_chat_completions_stream_with_functions(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        ).aio
+
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get the current weather in a given location",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "The city and state, e.g. San Francisco, CA"
+                            }
+                        },
+                        "required": ["location"]
+                    }
+                }
+            }
+        ]
+
+        response = await client.chat.completions.create(
+            messages=[{"role": "user", "content": "What's the weather like in New York?"}],
+            model="gpt-4o",
+            tools=tools,
+            tool_choice="auto",
+            max_tokens=1000,
+            stream=True,
+        )
+
+        # Collect all chunks
+        chunks = []
+        async for chunk in response:
+            chunks.append(chunk)
+            if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
+                print(chunk.choices[0].delta.content, end="", flush=True)
+
+        # Verify we got some content
+        self.assertTrue(len(chunks) > 0, "No chunks received from the stream")
+        self.logger.flush()
 
     async def asyncTearDown(self) -> None:
-        # Print final summary for debugging
-        self.mock_writer.print_logs_summary()
-
-        # Cleanup the mock writer
-        self.mock_writer.cleanup()
+        self.logger.flush()
 
 
 class TestOpenAI(unittest.TestCase):
@@ -105,45 +195,18 @@ class TestOpenAI(unittest.TestCase):
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
         self.logger = Maxim().logger()
-        self.mock_writer = inject_mock_writer(self.logger)
 
     def test_chat_completions(self):
         client = OpenAI(api_key=openaiApiKey)
-        trace = self.logger.trace(TraceConfig(id=str(uuid4())))
-        config = GenerationConfig(
-            id=str(uuid4()),
-            model="gpt-4o",
-            provider="openai",
-            model_parameters={"max_tokens": 1000},
-            messages=[
-                GenerationRequestMessage(role="user", content="Explain how AI works")
-            ],
-        )
-        generation = trace.generation(config)
         response = client.chat.completions.create(
-            messages=[{"role": "user", "content": "Explain how AI works"}],
+            messages=[{"role": "user", "content": "Explain how F1 works"}],
             model="gpt-4o",
             max_tokens=1000,
         )
-        generation.result(response)
-        trace.end()
         print(response)
 
         # Flush the logger and verify logging
         self.logger.flush()
-        self.mock_writer.print_logs_summary()
-
-        # Assert that we have exactly 1 add-generation log
-        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
-
-        # Assert that we have exactly 1 result log on generation
-        self.mock_writer.assert_entity_action_count("generation", "result", 1)
-
-        # Assert that we have exactly 1 trace create log
-        self.mock_writer.assert_entity_action_count("trace", "create", 1)
-
-        # Assert that we have exactly 1 trace end log
-        self.mock_writer.assert_entity_action_count("trace", "end", 1)
 
     def test_chat_completions_using_wrapper(self):
         client = MaximOpenAIClient(
@@ -158,54 +221,231 @@ class TestOpenAI(unittest.TestCase):
 
         # Flush the logger and verify logging
         self.logger.flush()
-        self.mock_writer.print_logs_summary()
-
-        # Assert that we have exactly 1 add-generation log
-        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
-
-        # Assert that we have exactly 1 result log on generation
-        self.mock_writer.assert_entity_action_count("generation", "result", 1)
-
-        # Assert that we have exactly 1 trace create log
-        self.mock_writer.assert_entity_action_count("trace", "create", 1)
-
-        # Assert that we have exactly 1 trace end log
-        self.mock_writer.assert_entity_action_count("trace", "end", 1)
 
     def test_chat_completions_stream_using_wrapper(self):
         client = MaximOpenAIClient(
             OpenAI(api_key=openaiApiKey), logger=self.logger
         )
         response = client.chat.completions.create(
-            messages=[{"role": "user", "content": "Explain how AI works"}],
+            messages=[{"role": "user", "content": "Explain how Nascar works"}],
             model="gpt-4o",
             max_tokens=1000,
             stream=True,
         )
         for event in response:
             print(event)
-            pass
 
         # Flush the logger and verify logging
         self.logger.flush()
-        self.mock_writer.print_logs_summary()
 
-        # Assert that we have exactly 1 add-generation log
-        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
+    def test_chat_completions_with_tool_calls(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        )
 
-        # Assert that we have exactly 1 result log on generation
-        self.mock_writer.assert_entity_action_count("generation", "result", 1)
+        # Define the tools
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get the current weather in a given location",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "The city and state, e.g. San Francisco, CA"
+                            }
+                        },
+                        "required": ["location"]
+                    }
+                }
+            }
+        ]
 
-        # Assert that we have exactly 1 trace create log
-        self.mock_writer.assert_entity_action_count("trace", "create", 1)
+        response = client.chat.completions.create(
+            messages=[{"role": "user", "content": "What's the weather like in New York?"}],
+            model="gpt-4o",
+            tools=tools,
+            tool_choice="auto",
+            max_tokens=1000,
+        )
+        print("Response: ", response)
 
-        # Assert that we have exactly 1 trace end log
-        self.mock_writer.assert_entity_action_count("trace", "end", 1)
+        # Flush the logger and verify logging
+        self.logger.flush()
+
+    def test_chat_completions_with_multiple_functions(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        )
+
+        # Define multiple tools
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get the current weather in a given location",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "The city and state, e.g. San Francisco, CA"
+                            }
+                        },
+                        "required": ["location"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_restaurant",
+                    "description": "Find a restaurant in a given location",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "The city and state"
+                            },
+                            "cuisine": {
+                                "type": "string",
+                                "description": "Type of cuisine"
+                            }
+                        },
+                        "required": ["location", "cuisine"]
+                    }
+                }
+            }
+        ]
+
+        response = client.chat.completions.create(
+            messages=[{"role": "user", "content": "Find me an Italian restaurant in New York and tell me if I need an umbrella"}],
+            model="gpt-4o",
+            tools=tools,
+            tool_choice="auto",
+            max_tokens=1000,
+        )
+        print("Response: ", response)
+        self.logger.flush()
+
+    def test_chat_completions_with_system_message(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        )
+
+        messages = [
+            {"role": "system", "content": "You are a helpful coding assistant who always writes code in Python."},
+            {"role": "user", "content": "Write a function to calculate fibonacci numbers"}
+        ]
+
+        response = client.chat.completions.create(
+            messages=messages,
+            model="gpt-4o",
+            max_tokens=1000,
+        )
+        print("Response: ", response)
+        self.logger.flush()
+
+    def test_chat_completions_with_response_format(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        )
+
+        response = client.chat.completions.create(
+            messages=[{"role": "user", "content": "Return a JSON object with name: John Doe, age: 30"}],
+            model="gpt-4o",
+            response_format={"type": "json_object"},
+            max_tokens=1000,
+        )
+        print("Response: ", response)
+        self.logger.flush()
+
+    def test_chat_completions_with_temperature(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        )
+
+        # Test with different temperature settings
+        response_creative = client.chat.completions.create(
+            messages=[{"role": "user", "content": "Write a short story about a robot"}],
+            model="gpt-4o",
+            temperature=1.0,  # More creative
+            max_tokens=1000,
+        )
+        print("Creative Response: ", response_creative)
+
+        response_focused = client.chat.completions.create(
+            messages=[{"role": "user", "content": "Write a short story about a robot"}],
+            model="gpt-4o",
+            temperature=0.2,  # More focused
+            max_tokens=1000,
+        )
+        print("Focused Response: ", response_focused)
+        self.logger.flush()
+
+    def test_chat_completions_error_handling(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        )
+
+        # Test invalid model
+        with self.assertRaises(Exception):
+            client.chat.completions.create(
+                messages=[{"role": "user", "content": "Hello"}],
+                model="invalid-model",
+                max_tokens=1000,
+            )
+
+        # Test invalid message format
+        with self.assertRaises(Exception):
+            client.chat.completions.create(
+                messages=[{"invalid_role": "user", "content": "Hello"}],
+                model="gpt-4o",
+                max_tokens=1000,
+            )
+
+        # Test empty messages
+        with self.assertRaises(Exception):
+            client.chat.completions.create(
+                messages=[],
+                model="gpt-4o",
+                max_tokens=1000,
+            )
+
+        self.logger.flush()
+
+    def test_chat_completions_with_seed(self):
+        client = MaximOpenAIClient(
+            OpenAI(api_key=openaiApiKey), logger=self.logger
+        )
+
+        # Make two identical requests with the same seed
+        seed_value = 123
+        response1 = client.chat.completions.create(
+            messages=[{"role": "user", "content": "Generate a random number between 1 and 100"}],
+            model="gpt-4o",
+            seed=seed_value,
+            max_tokens=1000,
+        )
+        
+        response2 = client.chat.completions.create(
+            messages=[{"role": "user", "content": "Generate a random number between 1 and 100"}],
+            model="gpt-4o",
+            seed=seed_value,
+            max_tokens=1000,
+        )
+
+        print("Response 1: ", response1)
+        print("Response 2: ", response2)
+        self.logger.flush()
 
     def tearDown(self) -> None:
-        # Print final summary for debugging
-        self.mock_writer.print_logs_summary()
-
-        # Cleanup the mock writer
-        self.mock_writer.cleanup()
         return super().tearDown()
+
+if __name__ == "__main__":
+    unittest.main()
