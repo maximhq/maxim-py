@@ -36,8 +36,14 @@ def parse_attachments_from_messages(
         content = message.get("content", [])
         role = message.get("role", "")
         if role == "tool" and isinstance(content, str):
-            content = json.loads(content)
-            content = [content]
+            try:
+                content = json.loads(content)
+                content = [content]
+            except Exception as e:
+                scribe().debug(
+                    f"[MaximSDK] Error while parsing attachment (Failed to parse tool message): {str(e)}"
+                )
+                continue
         if content is None or isinstance(content, str):
             continue
         # Iterate in reverse order to safely remove items while iterating

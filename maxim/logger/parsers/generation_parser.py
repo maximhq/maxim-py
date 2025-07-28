@@ -21,8 +21,8 @@ def parse_function_call(function_call_data):
     Returns:
         The parsed function call.
     """
-    validate_type(function_call_data.get("name"), str, "name")
-    validate_type(function_call_data.get("arguments"), str, "arguments")
+    validate_type(function_call_data.name, str, "name")
+    validate_type(function_call_data.arguments, str, "arguments")
     return function_call_data
 
 
@@ -36,9 +36,9 @@ def parse_tool_calls(tool_calls_data):
     Returns:
         The parsed tool calls.
     """
-    validate_type(tool_calls_data.get("id"), str, "id")
-    validate_type(tool_calls_data.get("type"), str, "type")
-    parse_function_call(tool_calls_data.get("function"))
+    validate_type(tool_calls_data.id, str, "id")
+    validate_type(tool_calls_data.type, str, "type")
+    parse_function_call(tool_calls_data.function)
     return tool_calls_data
 
 

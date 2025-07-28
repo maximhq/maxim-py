@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
+import traceback
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
@@ -26,15 +27,37 @@ class Entity(Enum):
     RETRIEVAL = "retrieval"
 
 
-class DateTimeEncoder(json.JSONEncoder):
-    """DateTime encoder.
+class CustomEncoder(json.JSONEncoder):
+    """Custom encoder.
 
-    This class represents a date time encoder.
+    This class represents a custom encoder that can handle any object type.
     """
 
     def default(self, o):
+        # Handle datetime objects
         if isinstance(o, datetime):
             return o.isoformat()
+        
+        # Handle any object with model_dump (newer Pydantic)
+        if hasattr(o, 'model_dump') and callable(o.model_dump):
+            return o.model_dump()
+            
+        # Handle any object with dict (older Pydantic)
+        if hasattr(o, 'dict') and callable(o.dict):
+            return o.dict()
+            
+        # Handle any object with to_dict
+        if hasattr(o, 'to_dict') and callable(o.to_dict):
+            return o.to_dict()
+            
+        # Handle any object with __dict__
+        if hasattr(o, '__dict__'):
+            return vars(o)
+            
+        # Handle any object with _asdict (namedtuples)
+        if hasattr(o, '_asdict') and callable(o._asdict):
+            return o._asdict()
+            
         return super().default(o)
 
 
@@ -90,14 +113,15 @@ class CommitLog:
         # If not we wont error out but just log it
         if self.data is not None:
             try:
-                json.dumps(self.data, cls=DateTimeEncoder)
+                json.dumps(self.data, cls=CustomEncoder)
             except Exception:
                 # Find the problematic key by trying to serialize each key-value pair
                 problematic_keys = []
                 for key, value in self.data.items():
                     try:
-                        json.dumps({key: value}, cls=DateTimeEncoder)
+                        json.dumps({key: value}, cls=CustomEncoder)
                     except Exception:
+                        traceback.print_exc()
                         problematic_keys.append(key)
 
                 # Remove only the problematic keys
@@ -107,7 +131,7 @@ class CommitLog:
                         f"[MaximSDK] Key '{key}' is not serializable and will be removed from data"
                     )
 
-        return f"{self.entity.value}{{id={self.entity_id},action={self.action},data={json.dumps(self.data,cls=DateTimeEncoder)}}}"
+        return f"{self.entity.value}{{id={self.entity_id},action={self.action},data={json.dumps(self.data,cls=CustomEncoder)}}}"
 
 
 def object_to_dict(obj: Any) -> Union[Dict, List, str, int, float, bool, None]:

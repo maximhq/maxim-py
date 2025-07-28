@@ -694,11 +694,8 @@ class Generation(BaseContainer):
             self._commit("result", {"result": result})
             self.end()
         except ValueError as e:
-            import traceback
-
             scribe().error(
                 f"[MaximSDK] Invalid result. You can pass OpenAI/Azure ChatCompletion or Langchain LLMResult, AIMessage, ToolMessage, Gemini result or LiteLLM ModelResponse: {str(e)}",
-                traceback.format_exc(),
             )
 
     def error(self, error: Union[GenerationError, GenerationErrorTypedDict]):
