@@ -11,7 +11,10 @@ streaming responses, and various model parameters specific to Fireworks AI.
 import functools
 from uuid import uuid4
 from typing import Any, Optional
-from fireworks.llm.LLM import ChatCompletion
+try:
+    from fireworks.llm.llm import ChatCompletion  # For older versions
+except ImportError:
+    from fireworks.llm.LLM import ChatCompletion 
 
 from maxim.logger.components.generation import GenerationConfigDict
 from ..logger import Logger, Generation, Trace
@@ -90,13 +93,26 @@ def instrument_fireworks(logger: Logger) -> None:
                 # Check for image URLs in messages and add as attachments
                 FireworksUtils.add_image_attachments_from_messages(generation, messages or [])
             except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
                 scribe().warning(
                     f"[MaximSDK][FireworksInstrumentation] Error in generating content: {e}",
                 )
 
             # Call the original Fireworks API method
+            # Not cleaning out the model name here in case the user sends one as it is a wrong method call
+            # and should not be handled by the SDK (Fireworks does not have a model name property in the call
+            # signature, directly while creating the LLM instance)
             clean_kwargs = {k: v for k, v in kwargs.items() if k != "extra_headers"}
-            response = create_func(self, *args, **clean_kwargs)
+            try:
+                response = create_func(self, *args, **clean_kwargs)
+            except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
+                scribe().warning(
+                    f"[MaximSDK][FireworksInstrumentation] Error in generating content: {e}",
+                )
+                raise
 
             try:
                 if generation is not None and trace is not None:
@@ -189,7 +205,15 @@ def instrument_fireworks(logger: Logger) -> None:
 
             # Call the actual async Fireworks completion
             clean_kwargs = {k: v for k, v in kwargs.items() if k != "extra_headers"}
-            response = await acreate_func(self, *args, **clean_kwargs)
+            try:
+                response = await acreate_func(self, *args, **clean_kwargs)
+            except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
+                scribe().warning(
+                    f"[MaximSDK][FireworksInstrumentation] Error in generating content: {e}",
+                )
+                raise
 
             # Process response and log results
             try:
@@ -205,6 +229,8 @@ def instrument_fireworks(logger: Logger) -> None:
                                 trace.set_output("")
                             trace.end()
             except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
                 scribe().warning(
                     f"[MaximSDK][FireworksInstrumentation] Error in logging generation: {e}",
                 )
