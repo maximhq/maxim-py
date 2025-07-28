@@ -6,7 +6,6 @@ from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
 from ..logger import GenerationRequestMessage
 
-
 class OpenAIUtils:
     @staticmethod
     def parse_message_param(
@@ -124,6 +123,30 @@ class OpenAIUtils:
                 return {}
         else:
             # Handle regular ChatCompletion objects
+            print("[OPENAI DEBUG] Completion: ", completion)
+            # [OPENAI DEBUG] Completion:
+            # ChatCompletion(id='chatcmpl-BxVm0O7tp6prrgif0DzuJDs8wMkWE',
+            # choices=[Choice(finish_reason='tool_calls', index=0,
+            # logprobs=None, message=ChatCompletionMessage(content=None,
+            # refusal=None, role='assistant', annotations=[], audio=None,
+            # function_call=None,
+            # tool_calls=[ChatCompletionMessageToolCall(id='call_Qk82QQINVCdcvPXQXTNUXDxX',
+            # function=Function(arguments='{"location":"San Francisco, CA"}',
+            # name='get_weather'), type='function')]))], created=1753523188,
+            # model='gpt-4o-2024-08-06', object='chat.completion',
+            # service_tier='default', system_fingerprint='fp_07871e2ad8',
+            # usage=CompletionUsage(
+            # completion_tokens=17,
+            # prompt_tokens=68,
+            # total_tokens=85,
+            # completion_tokens_details=CompletionTokensDetails(
+            # accepted_prediction_tokens=0,
+            # audio_tokens=0, reasoning_tokens=0, rejected_prediction_tokens=0),
+            # prompt_tokens_details=PromptTokensDetails(audio_tokens=0,
+            # cached_tokens=0)))
+            for choice in completion.choices:
+                print(f"tool calls: {getattr(choice.message, 'tool_calls', None)}, type: {type(getattr(choice.message, 'tool_calls', None))}")
+
             return {
                 "id": completion.id,
                 "created": completion.created,
@@ -178,6 +201,9 @@ class OpenAIUtils:
                     for choice in chunk.get("choices", [])
                 ]
             )
+            print(f"[DEBUG] Parsed chunks: {parsed_chunks}")
+            print(f"[DEBUG] Combined content: {combined_content}")
+            print(f"[DEBUG] Last chunk: {last_chunk}")
             return {
                 "id": last_chunk.get("id", ""),
                 "created": int(time.time()),

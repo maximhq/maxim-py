@@ -12,6 +12,8 @@ dependencies = [
     "typing-extensions",
     "filetype",
     "httpx>=0.28.1",
+    "openai>=1.95.1",
+    "dotenv>=0.9.9",
 ]
 authors = [
   { name = "Maxim Engineering", email = "eng@getmaxim.ai" }

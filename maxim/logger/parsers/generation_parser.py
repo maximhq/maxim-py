@@ -84,9 +84,10 @@ def parse_chat_completion_choice(messages_data):
         parse_content_list(messages_data.get("content"))
     else:
         validate_optional_type(messages_data.get("content"), str, "content")
-    if messages_data.get("function_call") is not None:
+
+    if hasattr(messages_data, "function_call") and messages_data.get("function_call") is not None:
         parse_function_call(messages_data.get("function_call"))
-    elif messages_data.get("tool_calls") is not None:
+    elif hasattr(messages_data, "tool_calls") and messages_data.get("tool_calls") is not None:
         # Check if its a list of tool calls
         if isinstance(messages_data.get("tool_calls"), list):
             for tool_call in messages_data.get("tool_calls"):

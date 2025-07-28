@@ -11,7 +11,10 @@ streaming responses, and various model parameters specific to Fireworks AI.
 import functools
 from uuid import uuid4
 from typing import Any, Optional
-from fireworks.llm.LLM import ChatCompletion
+try:
+    from fireworks.llm.llm import ChatCompletion  # For older versions
+except ImportError:
+    from fireworks.llm.LLM import ChatCompletion  # For newer versions
 
 from maxim.logger.components.generation import GenerationConfigDict
 from ..logger import Logger, Generation, Trace
