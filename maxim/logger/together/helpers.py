@@ -101,6 +101,7 @@ class TogetherHelpers:
                 trace.end()
 
         except Exception as e:
+            generation.error({"message": str(e)})
             scribe().warning(
                 f"[MaximSDK][TogetherInstrumentation] Error in streaming generation: {e}",
             )
@@ -176,6 +177,7 @@ class TogetherHelpers:
                 trace.end()
 
         except Exception as e:
+            generation.error({"message": str(e)})
             scribe().warning(
                 f"[MaximSDK][TogetherInstrumentation] Error in async streaming generation: {e}",
             )

@@ -1,5 +1,4 @@
 import os
-import traceback
 import unittest
 from uuid import uuid4
 import json
@@ -301,7 +300,6 @@ class TestGroq(unittest.TestCase):
                 print(f"Tool call details: {tool_call}")
 
         except Exception as e:
-            traceback.print_exc()
             self.skipTest(f"Multiple tool calls error: {str(e)}")
 
     def test_response_format_json(self):
@@ -373,7 +371,6 @@ class TestGroq(unittest.TestCase):
                     self.assertIsInstance(tool_calls, list)
 
         except Exception as e:
-            traceback.print_exc()
             self.skipTest(f"Parallel tool calls error: {str(e)}")
             
     def test_parallel_tool_calls_with_system_message(self):

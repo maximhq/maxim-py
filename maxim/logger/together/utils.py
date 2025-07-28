@@ -277,4 +277,5 @@ class TogetherUtils:
                                         mime_type="image"
                                     ))
         except Exception as e:
+            generation.error({"message": str(e)})
             scribe().warning(f"[MaximSDK] Error adding image attachments: {e}")
