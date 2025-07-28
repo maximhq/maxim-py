@@ -1,0 +1,707 @@
+{
+  "version": "6.0",
+  "nxVersion": "20.1.2",
+  "pathMappings": {},
+  "nxJsonPlugins": [],
+  "fileMap": {
+    "projectFileMap": {},
+    "nonProjectFiles": [
+      {
+        "file": ".gitignore",
+        "hash": "2934483385584512434"
+      },
+      {
+        "file": ".python-version",
+        "hash": "8314360979549319869"
+      },
+      {
+        "file": "LICENSE.txt",
+        "hash": "11621113498467983142"
+      },
+      {
+        "file": "MANIFEST.in",
+        "hash": "9118090175846877574"
+      },
+      {
+        "file": "Makefile",
+        "hash": "15945107789366552362"
+      },
+      {
+        "file": "README.md",
+        "hash": "18155366381407522750"
+      },
+      {
+        "file": "maxim/__init__.py",
+        "hash": "10707745571077760981"
+      },
+      {
+        "file": "maxim/apis/__init__.py",
+        "hash": "15831004492969974205"
+      },
+      {
+        "file": "maxim/apis/maxim_apis.py",
+        "hash": "6779664427433259395"
+      },
+      {
+        "file": "maxim/cache/__init__.py",
+        "hash": "18142726471682369648"
+      },
+      {
+        "file": "maxim/cache/cache.py",
+        "hash": "17967590045596648598"
+      },
+      {
+        "file": "maxim/cache/inMemory.py",
+        "hash": "5778752802956976447"
+      },
+      {
+        "file": "maxim/dataset/__init__.py",
+        "hash": "13398862327779794348"
+      },
+      {
+        "file": "maxim/dataset/dataset.py",
+        "hash": "14007756584981155261"
+      },
+      {
+        "file": "maxim/decorators/__init__.py",
+        "hash": "435439197790725795"
+      },
+      {
+        "file": "maxim/decorators/generation.py",
+        "hash": "15487854926352445955"
+      },
+      {
+        "file": "maxim/decorators/langchain/__init__.py",
+        "hash": "5637020939575178074"
+      },
+      {
+        "file": "maxim/decorators/langchain/langchain.py",
+        "hash": "1265451660516723707"
+      },
+      {
+        "file": "maxim/decorators/retrieval.py",
+        "hash": "6990278484426529554"
+      },
+      {
+        "file": "maxim/decorators/span.py",
+        "hash": "9859326711942288025"
+      },
+      {
+        "file": "maxim/decorators/tool_call.py",
+        "hash": "5505355565766936145"
+      },
+      {
+        "file": "maxim/decorators/trace.py",
+        "hash": "455219824331802823"
+      },
+      {
+        "file": "maxim/evaluators/__init__.py",
+        "hash": "14777124084801784475"
+      },
+      {
+        "file": "maxim/evaluators/base_evaluator.py",
+        "hash": "5191818161071080334"
+      },
+      {
+        "file": "maxim/evaluators/utils.py",
+        "hash": "15566019427619169715"
+      },
+      {
+        "file": "maxim/expiring_key_value_store.py",
+        "hash": "10680421839774363910"
+      },
+      {
+        "file": "maxim/filter_objects.py",
+        "hash": "4156055691835922522"
+      },
+      {
+        "file": "maxim/logger/__init__.py",
+        "hash": "17829790603455663796"
+      },
+      {
+        "file": "maxim/logger/agno/__init__.py",
+        "hash": "5324636111202281783"
+      },
+      {
+        "file": "maxim/logger/agno/client.py",
+        "hash": "4600759033257126554"
+      },
+      {
+        "file": "maxim/logger/anthropic/__init__.py",
+        "hash": "7131844678916901724"
+      },
+      {
+        "file": "maxim/logger/anthropic/client.py",
+        "hash": "13998192418323357229"
+      },
+      {
+        "file": "maxim/logger/anthropic/message.py",
+        "hash": "4353009348523582809"
+      },
+      {
+        "file": "maxim/logger/anthropic/stream_manager.py",
+        "hash": "18235331788618968400"
+      },
+      {
+        "file": "maxim/logger/anthropic/utils.py",
+        "hash": "17315385042122177985"
+      },
+      {
+        "file": "maxim/logger/bedrock/__init__.py",
+        "hash": "15080084813655118256"
+      },
+      {
+        "file": "maxim/logger/bedrock/async_client.py",
+        "hash": "8330343436961113325"
+      },
+      {
+        "file": "maxim/logger/bedrock/client.py",
+        "hash": "14599473417756377849"
+      },
+      {
+        "file": "maxim/logger/bedrock/utils.py",
+        "hash": "15126845054050060702"
+      },
+      {
+        "file": "maxim/logger/components/__init__.py",
+        "hash": "6353303396790266194"
+      },
+      {
+        "file": "maxim/logger/components/attachment.py",
+        "hash": "14410108033312072534"
+      },
+      {
+        "file": "maxim/logger/components/base.py",
+        "hash": "1066739401816307589"
+      },
+      {
+        "file": "maxim/logger/components/error.py",
+        "hash": "12387714156941032263"
+      },
+      {
+        "file": "maxim/logger/components/feedback.py",
+        "hash": "8125245614794171061"
+      },
+      {
+        "file": "maxim/logger/components/generation.py",
+        "hash": "12118723614574110494"
+      },
+      {
+        "file": "maxim/logger/components/retrieval.py",
+        "hash": "4746577382543099720"
+      },
+      {
+        "file": "maxim/logger/components/session.py",
+        "hash": "11918060823990895592"
+      },
+      {
+        "file": "maxim/logger/components/span.py",
+        "hash": "4475697275997656219"
+      },
+      {
+        "file": "maxim/logger/components/tool_call.py",
+        "hash": "9342793032969830006"
+      },
+      {
+        "file": "maxim/logger/components/trace.py",
+        "hash": "17430444581558520403"
+      },
+      {
+        "file": "maxim/logger/components/types.py",
+        "hash": "9127660981932590651"
+      },
+      {
+        "file": "maxim/logger/components/utils.py",
+        "hash": "1691282991762292779"
+      },
+      {
+        "file": "maxim/logger/crewai/__init__.py",
+        "hash": "12097483025156133753"
+      },
+      {
+        "file": "maxim/logger/crewai/client.py",
+        "hash": "1656048136058182391"
+      },
+      {
+        "file": "maxim/logger/crewai/utils.py",
+        "hash": "10886654630352524701"
+      },
+      {
+        "file": "maxim/logger/fireworks/__init__.py",
+        "hash": "11021970102757243020"
+      },
+      {
+        "file": "maxim/logger/fireworks/client.py",
+        "hash": "1305685540156050054"
+      },
+      {
+        "file": "maxim/logger/fireworks/helpers.py",
+        "hash": "371275083964335827"
+      },
+      {
+        "file": "maxim/logger/fireworks/utils.py",
+        "hash": "13319670298768073191"
+      },
+      {
+        "file": "maxim/logger/gemini/__init__.py",
+        "hash": "10078035938470705744"
+      },
+      {
+        "file": "maxim/logger/gemini/async_client.py",
+        "hash": "2797598373338486677"
+      },
+      {
+        "file": "maxim/logger/gemini/client.py",
+        "hash": "2618847224434111088"
+      },
+      {
+        "file": "maxim/logger/gemini/utils.py",
+        "hash": "8198704787404068485"
+      },
+      {
+        "file": "maxim/logger/groq/__init__.py",
+        "hash": "5636053027675170042"
+      },
+      {
+        "file": "maxim/logger/groq/client.py",
+        "hash": "1200482206470786489"
+      },
+      {
+        "file": "maxim/logger/groq/helpers.py",
+        "hash": "691442212846466977"
+      },
+      {
+        "file": "maxim/logger/groq/utils.py",
+        "hash": "1579494943462457901"
+      },
+      {
+        "file": "maxim/logger/langchain/__init__.py",
+        "hash": "3204083320499363757"
+      },
+      {
+        "file": "maxim/logger/langchain/tracer.py",
+        "hash": "4562082863036664523"
+      },
+      {
+        "file": "maxim/logger/langchain/utils.py",
+        "hash": "15140176888011781516"
+      },
+      {
+        "file": "maxim/logger/litellm/__init__.py",
+        "hash": "14454345271639331209"
+      },
+      {
+        "file": "maxim/logger/litellm/parser.py",
+        "hash": "4555601873911856245"
+      },
+      {
+        "file": "maxim/logger/litellm/tracer.py",
+        "hash": "14426028495536409037"
+      },
+      {
+        "file": "maxim/logger/litellm_proxy/__init__.py",
+        "hash": "5885550686865183977"
+      },
+      {
+        "file": "maxim/logger/litellm_proxy/tracer.py",
+        "hash": "13683051060986619231"
+      },
+      {
+        "file": "maxim/logger/livekit/__init__.py",
+        "hash": "17871410730186630954"
+      },
+      {
+        "file": "maxim/logger/livekit/agent_activity.py",
+        "hash": "17912021334148045405"
+      },
+      {
+        "file": "maxim/logger/livekit/agent_session.py",
+        "hash": "2831201934345468438"
+      },
+      {
+        "file": "maxim/logger/livekit/gemini/gemini_realtime_session.py",
+        "hash": "15730438643848718158"
+      },
+      {
+        "file": "maxim/logger/livekit/gemini/instrumenter.py",
+        "hash": "3936048850830824342"
+      },
+      {
+        "file": "maxim/logger/livekit/instrumenter.py",
+        "hash": "5451546563858385970"
+      },
+      {
+        "file": "maxim/logger/livekit/job_context.py",
+        "hash": "760444403822211865"
+      },
+      {
+        "file": "maxim/logger/livekit/openai/realtime/events.py",
+        "hash": "15796104489123462413"
+      },
+      {
+        "file": "maxim/logger/livekit/openai/realtime/handler.py",
+        "hash": "16083350799012735317"
+      },
+      {
+        "file": "maxim/logger/livekit/realtime_session.py",
+        "hash": "3689657777355067176"
+      },
+      {
+        "file": "maxim/logger/livekit/store.py",
+        "hash": "14171373118617700539"
+      },
+      {
+        "file": "maxim/logger/livekit/utils.py",
+        "hash": "10467093871059884962"
+      },
+      {
+        "file": "maxim/logger/livekit/worker.py",
+        "hash": "8778349558263667510"
+      },
+      {
+        "file": "maxim/logger/logger.py",
+        "hash": "11158988213770739730"
+      },
+      {
+        "file": "maxim/logger/mistral/__init__.py",
+        "hash": "1872344200504303107"
+      },
+      {
+        "file": "maxim/logger/mistral/client.py",
+        "hash": "7289492342994359285"
+      },
+      {
+        "file": "maxim/logger/mistral/utils.py",
+        "hash": "12233331807341716564"
+      },
+      {
+        "file": "maxim/logger/models/__init__.py",
+        "hash": "6802605020466540471"
+      },
+      {
+        "file": "maxim/logger/models/container.py",
+        "hash": "1367420898351672582"
+      },
+      {
+        "file": "maxim/logger/openai/__init__.py",
+        "hash": "2863223752335518510"
+      },
+      {
+        "file": "maxim/logger/openai/agents/__init__.py",
+        "hash": "5461823199324096015"
+      },
+      {
+        "file": "maxim/logger/openai/agents/processor.py",
+        "hash": "13694426890430681896"
+      },
+      {
+        "file": "maxim/logger/openai/agents/utils.py",
+        "hash": "17584721238311373492"
+      },
+      {
+        "file": "maxim/logger/openai/async_chat.py",
+        "hash": "9515987742324691893"
+      },
+      {
+        "file": "maxim/logger/openai/async_client.py",
+        "hash": "8142759626267278644"
+      },
+      {
+        "file": "maxim/logger/openai/async_completions.py",
+        "hash": "8580231381031506127"
+      },
+      {
+        "file": "maxim/logger/openai/chat.py",
+        "hash": "12277703506436835519"
+      },
+      {
+        "file": "maxim/logger/openai/client.py",
+        "hash": "11525559061954122878"
+      },
+      {
+        "file": "maxim/logger/openai/completions.py",
+        "hash": "15492693673259623730"
+      },
+      {
+        "file": "maxim/logger/openai/utils.py",
+        "hash": "17600318212073079103"
+      },
+      {
+        "file": "maxim/logger/parsers/__init__.py",
+        "hash": "16312264777809151184"
+      },
+      {
+        "file": "maxim/logger/parsers/core.py",
+        "hash": "7164282146859912063"
+      },
+      {
+        "file": "maxim/logger/parsers/generation_parser.py",
+        "hash": "11746728058144799666"
+      },
+      {
+        "file": "maxim/logger/parsers/tags_parser.py",
+        "hash": "1788376766177084283"
+      },
+      {
+        "file": "maxim/logger/portkey/__init__.py",
+        "hash": "9516931595054254187"
+      },
+      {
+        "file": "maxim/logger/portkey/client.py",
+        "hash": "9677098908509143959"
+      },
+      {
+        "file": "maxim/logger/portkey/portkey.py",
+        "hash": "11977501346279028350"
+      },
+      {
+        "file": "maxim/logger/together/__init__.py",
+        "hash": "14712225303620158356"
+      },
+      {
+        "file": "maxim/logger/together/client.py",
+        "hash": "10438186063764038633"
+      },
+      {
+        "file": "maxim/logger/together/helpers.py",
+        "hash": "14440932630853693465"
+      },
+      {
+        "file": "maxim/logger/together/utils.py",
+        "hash": "4934735698483889186"
+      },
+      {
+        "file": "maxim/logger/utils.py",
+        "hash": "13431368025451522541"
+      },
+      {
+        "file": "maxim/logger/writer.py",
+        "hash": "14723213768954029156"
+      },
+      {
+        "file": "maxim/maxim.py",
+        "hash": "9761611602969473951"
+      },
+      {
+        "file": "maxim/models/__init__.py",
+        "hash": "11253171988798943243"
+      },
+      {
+        "file": "maxim/models/attachment.py",
+        "hash": "12063350181248510416"
+      },
+      {
+        "file": "maxim/models/cache.py",
+        "hash": "14750352369176243304"
+      },
+      {
+        "file": "maxim/models/dataset.py",
+        "hash": "8067462335248172713"
+      },
+      {
+        "file": "maxim/models/evaluator.py",
+        "hash": "9506899638636931263"
+      },
+      {
+        "file": "maxim/models/folder.py",
+        "hash": "16611109926266832890"
+      },
+      {
+        "file": "maxim/models/metadata.py",
+        "hash": "2212647836763596798"
+      },
+      {
+        "file": "maxim/models/prompt.py",
+        "hash": "11843898940266194363"
+      },
+      {
+        "file": "maxim/models/prompt_chain.py",
+        "hash": "457930091600382778"
+      },
+      {
+        "file": "maxim/models/query_builder.py",
+        "hash": "5824205421307632448"
+      },
+      {
+        "file": "maxim/models/test_run.py",
+        "hash": "2472372795041838164"
+      },
+      {
+        "file": "maxim/runnable/__init__.py",
+        "hash": "6430449668628688306"
+      },
+      {
+        "file": "maxim/runnable/prompt.py",
+        "hash": "14710358288773235912"
+      },
+      {
+        "file": "maxim/runnable/prompt_chain.py",
+        "hash": "10469477332793362387"
+      },
+      {
+        "file": "maxim/scribe.py",
+        "hash": "2058362653617991084"
+      },
+      {
+        "file": "maxim/test_runs/__init__.py",
+        "hash": "7580460522092751002"
+      },
+      {
+        "file": "maxim/test_runs/run_utils.py",
+        "hash": "1594040290469517193"
+      },
+      {
+        "file": "maxim/test_runs/sanitization_utils.py",
+        "hash": "10610051035603422982"
+      },
+      {
+        "file": "maxim/test_runs/test_run_builder.py",
+        "hash": "16625496287523519638"
+      },
+      {
+        "file": "maxim/test_runs/utils.py",
+        "hash": "66819624063784907"
+      },
+      {
+        "file": "maxim/tests/files/png_image.png",
+        "hash": "16943508594119050280"
+      },
+      {
+        "file": "maxim/tests/files/text_file.txt",
+        "hash": "1595649772650700650"
+      },
+      {
+        "file": "maxim/tests/files/wav_audio.wav",
+        "hash": "14834254697317551234"
+      },
+      {
+        "file": "maxim/tests/mock_writer.py",
+        "hash": "16807325497006092389"
+      },
+      {
+        "file": "maxim/tests/test_agno.py",
+        "hash": "3423575174906639287"
+      },
+      {
+        "file": "maxim/tests/test_anthropic.py",
+        "hash": "16402422488839537697"
+      },
+      {
+        "file": "maxim/tests/test_connection_retry_logic.py",
+        "hash": "15766542405363746513"
+      },
+      {
+        "file": "maxim/tests/test_decorators.py",
+        "hash": "16901020393352072482"
+      },
+      {
+        "file": "maxim/tests/test_fireworks.py",
+        "hash": "18253929077536911334"
+      },
+      {
+        "file": "maxim/tests/test_gemini.py",
+        "hash": "9091097904751077522"
+      },
+      {
+        "file": "maxim/tests/test_groq.py",
+        "hash": "4935685231723016606"
+      },
+      {
+        "file": "maxim/tests/test_langgraph.py",
+        "hash": "4142040619779831321"
+      },
+      {
+        "file": "maxim/tests/test_litellm.py",
+        "hash": "11099902075142388998"
+      },
+      {
+        "file": "maxim/tests/test_logger.py",
+        "hash": "17736485477973656750"
+      },
+      {
+        "file": "maxim/tests/test_logger_azure_openai.py",
+        "hash": "2701226528563616636"
+      },
+      {
+        "file": "maxim/tests/test_logger_langchain_01x.py",
+        "hash": "2376131476099385446"
+      },
+      {
+        "file": "maxim/tests/test_logger_langchain_02x.py",
+        "hash": "12438197012538005366"
+      },
+      {
+        "file": "maxim/tests/test_logger_langchain_03x.py",
+        "hash": "8990415085371184506"
+      },
+      {
+        "file": "maxim/tests/test_maxim_core_simple.py",
+        "hash": "3234897181114172517"
+      },
+      {
+        "file": "maxim/tests/test_openai.py",
+        "hash": "3444384195732131454"
+      },
+      {
+        "file": "maxim/tests/test_portkey.py",
+        "hash": "2560844075416526631"
+      },
+      {
+        "file": "maxim/tests/test_prompt_chains.py",
+        "hash": "89277075229983079"
+      },
+      {
+        "file": "maxim/tests/test_prompts.py",
+        "hash": "14994474085713149883"
+      },
+      {
+        "file": "maxim/tests/test_retry_for_maxim_api.py",
+        "hash": "6195428678004466937"
+      },
+      {
+        "file": "maxim/tests/test_test_runs.py",
+        "hash": "770312209601525412"
+      },
+      {
+        "file": "maxim/tests/test_together.py",
+        "hash": "3195314986828486195"
+      },
+      {
+        "file": "maxim/types.py",
+        "hash": "5234342248293908405"
+      },
+      {
+        "file": "maxim/utils/__init__.py",
+        "hash": "3378017431775663240"
+      },
+      {
+        "file": "maxim/utils/semaphore.py",
+        "hash": "10802617620319543669"
+      },
+      {
+        "file": "maxim/utils/utils.py",
+        "hash": "10817019649976944668"
+      },
+      {
+        "file": "maxim/version.py",
+        "hash": "12822019629199043285"
+      },
+      {
+        "file": "mypy.ini",
+        "hash": "12183124462333778678"
+      },
+      {
+        "file": "pyproject.toml",
+        "hash": "15495434157754348323"
+      },
+      {
+        "file": "scripts/split_docs.py",
+        "hash": "17721476561265912388"
+      },
+      {
+        "file": "uv.lock",
+        "hash": "1866535355383747256"
+      }
+    ]
+  }
+}

@@ -15,6 +15,8 @@ from groq.types.chat.chat_completion import Choice
 from groq.types.chat import ChatCompletion, ChatCompletionMessage, ChatCompletionMessageParam
 from groq.types import CompletionUsage
 
+from maxim.logger.components.tool_call import ToolCallConfigDict
+
 from ..logger import GenerationRequestMessage, Generation
 from ..components.attachment import UrlAttachment
 from ...scribe import scribe
@@ -96,7 +98,7 @@ class GroqUtils:
                 and 'model' are excluded from the result.
         """
         model_params = {}
-        skip_keys = ["messages", "model", "extra_headers"]
+        skip_keys = ["messages", "model", "extra_headers", "tools"]
 
         # Common parameters that Groq supports
         param_keys = [
@@ -148,7 +150,7 @@ class GroqUtils:
                 by parse_completion() method. Contains choices, usage, and
                 standard response metadata.
         """
-        
+
         return ChatCompletion(
             id=f"streaming-response-{uuid.uuid4()}",
             created=int(time.time()),
@@ -163,64 +165,61 @@ class GroqUtils:
         )
 
     @staticmethod
+    def parse_tool_calls(message: ChatCompletionMessage) -> Optional[List[ToolCallConfigDict]]:
+        """Parse tool calls from a Groq message."""
+
+        if not hasattr(message, 'tool_calls') or not message.tool_calls:
+            return None
+
+        tool_calls: List[ToolCallConfigDict] = []
+        for tool_call in message.tool_calls:
+            tool_info = ToolCallConfigDict(
+                id=tool_call.id,
+                name=tool_call.function.name,
+                args=tool_call.function.arguments,
+            )
+            tool_calls.append(tool_info)
+
+        return tool_calls
+
+    @staticmethod
     def parse_completion(completion: ChatCompletion) -> Dict[str, Any]:
-        """Parse Groq completion response into standardized format.
+        """Parse Groq completion response into standardized format."""
 
-        This method converts a Groq ChatCompletion object into
-        a standardized dictionary format that can be consistently processed
-        by Maxim's logging system. It handles various response formats and
-        provides fallback parsing for edge cases.
-
-        Args:
-            completion (ChatCompletion): The completion response object
-                from Groq API containing the generated content, choices,
-                usage information, and other response metadata.
-
-        Returns:
-            Dict[str, Any]: Standardized response dictionary with the following structure:
-                - id: Unique identifier for the response
-                - created: Unix timestamp of creation
-                - choices: List of choices with message content and metadata
-                - usage: Token usage statistics (prompt, completion, total)
-        """
         # Handle Groq ChatCompletion format
-        if hasattr(completion, 'choices') and hasattr(completion, 'id'):
-            parsed_response = {
-                "id": completion.id,
-                "created": getattr(completion, 'created', int(time.time())),
-                "choices": [],
-            }
-
-            for choice in completion.choices:
-                choice_data = {
-                    "index": getattr(choice, 'index', 0),
+        return {
+            "id": completion.id,
+            "created": completion.created,
+            "choices": [
+                {
+                    "index": choice.index,
                     "message": {
-                        "role": getattr(choice.message, 'role', 'assistant'),
-                        "content": getattr(choice.message, 'content', ''),
+                        "role": choice.message.role,
+                        "content": choice.message.content,
+                        "tool_calls": getattr(choice.message, "tool_calls", None),
                     },
-                    "finish_reason": getattr(choice, 'finish_reason', "stop"),
+                    "finish_reason": choice.finish_reason,
                 }
-
-                # Add tool calls if present
-                if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
-                    choice_data["message"]["tool_calls"] = choice.message.tool_calls
-
-                parsed_response["choices"].append(choice_data)
-
-            # Add usage information if available
-            if hasattr(completion, 'usage') and completion.usage:
-                parsed_response["usage"] = {
-                    "prompt_tokens": getattr(completion.usage, 'prompt_tokens', 0),
-                    "completion_tokens": getattr(completion.usage, 'completion_tokens', 0),
-                    "total_tokens": getattr(completion.usage, 'total_tokens', 0),
+                for choice in completion.choices
+            ],
+            "usage": (
+                {
+                    "prompt_tokens": (
+                        completion.usage.prompt_tokens if completion.usage else 0
+                    ),
+                    "completion_tokens": (
+                        completion.usage.completion_tokens
+                        if completion.usage
+                        else 0
+                    ),
+                    "total_tokens": (
+                        completion.usage.total_tokens if completion.usage else 0
+                    ),
                 }
-
-            return parsed_response
-
-        if isinstance(completion, dict):
-            return completion
-
-        return {}
+                if completion.usage
+                else {}
+            ),
+        }
 
     @staticmethod
     def add_image_attachments_from_messages(

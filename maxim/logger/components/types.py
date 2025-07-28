@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
+import traceback
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
@@ -35,6 +36,16 @@ class DateTimeEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, datetime):
             return o.isoformat()
+        # Handle OpenAI tool calls by checking the class name
+        if o.__class__.__name__ == "ChatCompletionMessageToolCall":
+            return {
+                "id": o.id,
+                "type": o.type,
+                "function": {
+                    "name": o.function.name,
+                    "arguments": o.function.arguments
+                }
+            }
         return super().default(o)
 
 
@@ -90,7 +101,7 @@ class CommitLog:
         # If not we wont error out but just log it
         if self.data is not None:
             try:
-                json.dumps(self.data, cls=DateTimeEncoder)
+                res = json.dumps(self.data, cls=DateTimeEncoder)
             except Exception:
                 # Find the problematic key by trying to serialize each key-value pair
                 problematic_keys = []
@@ -98,7 +109,10 @@ class CommitLog:
                     try:
                         json.dumps({key: value}, cls=DateTimeEncoder)
                     except Exception:
+                        traceback.print_exc()
                         problematic_keys.append(key)
+
+                print(f"Problematic keys: {problematic_keys}")
 
                 # Remove only the problematic keys
                 for key in problematic_keys:

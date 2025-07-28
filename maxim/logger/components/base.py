@@ -374,7 +374,8 @@ class BaseContainer:
             data = self.data()
         # Removing all null values from data dict
         data = {k: v for k, v in data.items() if v is not None}
-        self.writer.commit(CommitLog(self.entity, self._id, action, data))
+        commit_log = CommitLog(self.entity, self._id, action, data)
+        self.writer.commit(commit_log)
 
 
 class EventEmittingBaseContainer(BaseContainer):

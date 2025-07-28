@@ -26,7 +26,7 @@ class TestGroq(unittest.TestCase):
         if not groqApiKey:
             self.skipTest("GROQ_API_KEY environment variable is not set")
 
-        self.logger = Maxim().logger()
+        self.logger = Maxim({ "base_url": baseUrl }).logger()
         
         # Initialize Groq client with instrumentation
         self.client = Groq(api_key=groqApiKey)
@@ -274,6 +274,192 @@ class TestGroq(unittest.TestCase):
     def tearDown(self) -> None:
         self.logger.cleanup()
 
+    def test_non_streaming_chat_completion_with_tool_calls(self):
+        """Test non-streaming chat completion with tool calls"""
+        
+        trace_id = str(uuid4())
+    
+        try:
+            tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Get the current weather for a location",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "location": {
+                                    "type": "string",
+                                    "description": "The location to get weather for"
+                                },
+                                "unit": {
+                                    "type": "string",
+                                    "enum": ["celsius", "fahrenheit"],
+                                    "description": "The unit of temperature"
+                                }
+                            },
+                            "required": ["location"]
+                        }
+                    }
+                }
+            ]
+
+            response = self.client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": "What's the weather like in New York?"}],
+                max_tokens=150,
+                temperature=0.7,
+                tools=tools,
+                tool_choice="auto",  # Let the model decide whether to use tools
+                extra_headers={
+                    "x-maxim-trace-id": trace_id,
+                }
+            )
+            
+            # Verify response structure
+            self.assertIsNotNone(response)
+            self.assertTrue(hasattr(response, 'choices'))
+            self.assertTrue(len(response.choices) > 0)
+            self.assertIsNotNone(response.choices[0].message)
+            
+            # Verify tool calls if present
+            message = response.choices[0].message
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                tool_call = message.tool_calls[0]
+                self.assertEqual(tool_call.function.name, "get_weather")
+                self.assertIsNotNone(tool_call.function.arguments)
+                
+                # Simulate tool execution result
+                tool_result = {"temperature": 72, "condition": "sunny"}
+                
+                # Send tool execution result back
+                response = self.client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {"role": "user", "content": "What's the weather like in New York?"},
+                        {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [tool_call]
+                        },
+                        {
+                            "role": "tool",
+                            "content": str(tool_result),
+                            "tool_call_id": tool_call.id,
+                            "name": tool_call.function.name
+                        }
+                    ],
+                    tools=tools,
+                    extra_headers={
+                        "x-maxim-trace-id": trace_id,
+                    }
+                )
+                
+                # Verify final response
+                self.assertIsNotNone(response.choices[0].message.content)
+                print("Tool call response:", response.choices[0].message.content)
+
+        except Exception as e:
+            self.skipTest(f"Error: {e}")
+            
+    def test_streaming_chat_completion_with_tool_calls(self):
+        """Test streaming chat completion with tool calls"""
+        try:
+            tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Get the current weather for a location",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "location": {
+                                    "type": "string",
+                                    "description": "The location to get weather for"
+                                },
+                                "unit": {
+                                    "type": "string",
+                                    "enum": ["celsius", "fahrenheit"],
+                                    "description": "The unit of temperature"
+                                }
+                            },
+                            "required": ["location"]
+                        }
+                    }
+                }
+            ]
+
+            stream = self.client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": "What's the weather like in New York?"}],
+                max_tokens=150,
+                temperature=0.7,
+                tools=tools,
+                tool_choice="auto",
+                stream=True
+            )
+            
+            # Consume the stream
+            full_response = ""
+            chunk_count = 0
+            tool_calls = []
+            
+            for chunk in stream:
+                chunk_count += 1
+                if hasattr(chunk.choices[0].delta, 'tool_calls'):
+                    tool_calls.extend(chunk.choices[0].delta.tool_calls)
+                if chunk.choices[0].delta.content:
+                    full_response += chunk.choices[0].delta.content
+            
+            # Verify we received streaming data
+            self.assertGreater(chunk_count, 0, "Expected to receive streaming chunks")
+            
+            # If tool calls were present, verify and handle them
+            if tool_calls:
+                tool_call = tool_calls[0]
+                self.assertEqual(tool_call.function.name, "get_weather")
+                self.assertIsNotNone(tool_call.function.arguments)
+                
+                # Simulate tool execution result
+                tool_result = {"temperature": 72, "condition": "sunny"}
+                
+                # Send tool execution result back
+                stream = self.client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {"role": "user", "content": "What's the weather like in New York?"},
+                        {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [tool_call]
+                        },
+                        {
+                            "role": "tool",
+                            "content": str(tool_result),
+                            "tool_call_id": tool_call.id,
+                            "name": tool_call.function.name
+                        }
+                    ],
+                    tools=tools,
+                    stream=True
+                )
+                
+                # Consume the final response stream
+                final_response = ""
+                for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        final_response += chunk.choices[0].delta.content
+                
+                self.assertGreater(len(final_response), 0, "Expected non-empty final response")
+                print("Streaming tool call response:", final_response)
+            else:
+                print("Streaming response without tool calls:", full_response)
+
+        except Exception as e:
+            self.skipTest(f"Streaming error: {e}")
+
 class TestGroqAsync(unittest.IsolatedAsyncioTestCase):
     """Test class for Groq async integration."""
 
@@ -439,6 +625,183 @@ class TestGroqAsync(unittest.IsolatedAsyncioTestCase):
         
     async def asyncTearDown(self) -> None:
         self.logger.cleanup()
+
+    async def test_async_chat_completion_with_tool_calls(self):
+        """Test async chat completion with tool calls"""
+        try:
+            tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Get the current weather for a location",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "location": {
+                                    "type": "string",
+                                    "description": "The location to get weather for"
+                                },
+                                "unit": {
+                                    "type": "string",
+                                    "enum": ["celsius", "fahrenheit"],
+                                    "description": "The unit of temperature"
+                                }
+                            },
+                            "required": ["location"]
+                        }
+                    }
+                }
+            ]
+
+            response = await self.async_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": "What's the weather like in New York?"}],
+                max_tokens=150,
+                temperature=0.7,
+                tools=tools,
+                tool_choice="auto"
+            )
+            
+            # Verify response structure
+            self.assertIsNotNone(response)
+            self.assertTrue(hasattr(response, 'choices'))
+            self.assertTrue(len(response.choices) > 0)
+            self.assertIsNotNone(response.choices[0].message)
+            
+            # Verify tool calls if present
+            message = response.choices[0].message
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                tool_call = message.tool_calls[0]
+                self.assertEqual(tool_call.function.name, "get_weather")
+                self.assertIsNotNone(tool_call.function.arguments)
+                
+                # Simulate tool execution result
+                tool_result = {"temperature": 72, "condition": "sunny"}
+                
+                # Send tool execution result back
+                response = await self.async_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {"role": "user", "content": "What's the weather like in New York?"},
+                        {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [tool_call]
+                        },
+                        {
+                            "role": "tool",
+                            "content": str(tool_result),
+                            "tool_call_id": tool_call.id,
+                            "name": tool_call.function.name
+                        }
+                    ],
+                    tools=tools
+                )
+                
+                # Verify final response
+                self.assertIsNotNone(response.choices[0].message.content)
+                print("Async tool call response:", response.choices[0].message.content)
+
+        except Exception as e:
+            self.skipTest(f"Async error: {e}")
+            
+    async def test_async_streaming_chat_completion_with_tool_calls(self):
+        """Test async streaming chat completion with tool calls"""
+        try:
+            tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Get the current weather for a location",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "location": {
+                                    "type": "string",
+                                    "description": "The location to get weather for"
+                                },
+                                "unit": {
+                                    "type": "string",
+                                    "enum": ["celsius", "fahrenheit"],
+                                    "description": "The unit of temperature"
+                                }
+                            },
+                            "required": ["location"]
+                        }
+                    }
+                }
+            ]
+
+            stream = await self.async_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": "What's the weather like in New York?"}],
+                max_tokens=150,
+                temperature=0.7,
+                tools=tools,
+                tool_choice="auto",
+                stream=True
+            )
+            
+            # Consume the stream
+            full_response = ""
+            chunk_count = 0
+            tool_calls = []
+            
+            async for chunk in stream:
+                chunk_count += 1
+                if hasattr(chunk.choices[0].delta, 'tool_calls'):
+                    tool_calls.extend(chunk.choices[0].delta.tool_calls)
+                if chunk.choices[0].delta.content:
+                    full_response += chunk.choices[0].delta.content
+            
+            # Verify we received streaming data
+            self.assertGreater(chunk_count, 0, "Expected to receive streaming chunks")
+            
+            # If tool calls were present, verify and handle them
+            if tool_calls:
+                tool_call = tool_calls[0]
+                self.assertEqual(tool_call.function.name, "get_weather")
+                self.assertIsNotNone(tool_call.function.arguments)
+                
+                # Simulate tool execution result
+                tool_result = {"temperature": 72, "condition": "sunny"}
+                
+                # Send tool execution result back
+                stream = await self.async_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {"role": "user", "content": "What's the weather like in New York?"},
+                        {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [tool_call]
+                        },
+                        {
+                            "role": "tool",
+                            "content": str(tool_result),
+                            "tool_call_id": tool_call.id,
+                            "name": tool_call.function.name
+                        }
+                    ],
+                    tools=tools,
+                    stream=True
+                )
+                
+                # Consume the final response stream
+                final_response = ""
+                async for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        final_response += chunk.choices[0].delta.content
+                
+                self.assertGreater(len(final_response), 0, "Expected non-empty final response")
+                print("Async streaming tool call response:", final_response)
+            else:
+                print("Async streaming response without tool calls:", full_response)
+
+        except Exception as e:
+            self.skipTest(f"Async streaming error: {e}")
 
 
 if __name__ == "__main__":

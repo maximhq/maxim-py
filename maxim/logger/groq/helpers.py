@@ -11,6 +11,8 @@ from groq.types.chat import ChatCompletionChunk
 from typing import Optional
 from collections.abc import Generator, AsyncGenerator
 
+from maxim.logger.components.tool_call import ToolCallConfigDict
+
 from .utils import GroqUtils
 from ..logger import Generation, Trace
 from ...scribe import scribe
@@ -69,7 +71,7 @@ class GroqHelpers:
 
         accumulated_content = ""
         final_usage = None
-        
+
         try:
             for chunk in stream:
                 # Accumulate content from chunks
@@ -77,27 +79,67 @@ class GroqHelpers:
                     delta = chunk.choices[0].delta
                     if hasattr(delta, 'content') and delta.content:
                         accumulated_content += delta.content
-                
+
                 # Collect usage data from chunks
                 if hasattr(chunk, 'x_groq') and chunk.x_groq and hasattr(chunk.x_groq, 'usage') and chunk.x_groq.usage:
                     final_usage = chunk.x_groq.usage
                 elif hasattr(chunk, 'usage') and chunk.usage:
                     final_usage = chunk.usage
-                
+
                 yield chunk
-            
+
+
             # After stream is complete, log the accumulated result
             response_to_parse = GroqUtils.parse_chunks_to_response(accumulated_content, final_usage)
-            generation.result(GroqUtils.parse_completion(response_to_parse))
-            
-            if is_local_trace and trace is not None:
-                trace.set_output(accumulated_content)
-                trace.end()
-                
+
+            try:
+                # Handle tool calls if present
+                message = response_to_parse.choices[0].message
+                try:
+                    tool_call_info = GroqUtils.parse_tool_calls(message)
+                    if tool_call_info and trace:
+                        try:
+                            for tool_call in tool_call_info:
+                                tool = trace.tool_call(tool_call)
+                                # If this is a tool result message (role is 'tool'), log the result
+                                if message.role == "tool" and hasattr(message, "tool_call_id") and message.tool_call_id == tool_call["id"]:
+                                    tool.result(message.content or "")
+                                tool.end()
+                        except Exception as e:
+                            scribe().warning(
+                                f"[MaximSDK][GroqInstrumentation] Error creating tool call: {str(e)}",
+                            )
+                except Exception as e:
+                    scribe().warning(
+                        f"[MaximSDK][GroqInstrumentation] Error parsing tool calls: {str(e)}",
+                    )
+
+                generation.result(GroqUtils.parse_completion(response_to_parse))
+
+                if is_local_trace and trace is not None:
+                    trace.set_output(accumulated_content)
+                    trace.end()
+            except Exception as e:
+                scribe().warning(
+                    f"[MaximSDK][GroqInstrumentation] Error processing response: {str(e)}",
+                )
+                if generation:
+                    generation.error(str(e))
+                    generation.end()
+                if trace and is_local_trace:
+                    trace.add_error(str(e))
+                    trace.end()
+
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][GroqInstrumentation] Error in streaming generation: {e}",
             )
+            if generation:
+                generation.error(str(e))
+                generation.end()
+            if trace and is_local_trace:
+                trace.add_error(str(e))
+                trace.end()
 
     @staticmethod
     async def async_stream_helper(
@@ -134,10 +176,10 @@ class GroqHelpers:
             AsyncGenerator[ChatCompletionChunk, None]: An async generator that yields
                 the same chunks as the input stream while providing logging.
         """
-    
+
         accumulated_content = ""
         final_usage = None
-    
+
         try:
             async for chunk in stream:
                 # Accumulate content from chunks
@@ -145,24 +187,58 @@ class GroqHelpers:
                     delta = chunk.choices[0].delta
                     if hasattr(delta, "content") and delta.content:
                         accumulated_content += delta.content
-                
+
                 # Collect usage data from chunks
                 if hasattr(chunk, 'x_groq') and chunk.x_groq and hasattr(chunk.x_groq, 'usage') and chunk.x_groq.usage:
                     final_usage = chunk.x_groq.usage
                 elif hasattr(chunk, "usage") and chunk.usage:
                     final_usage = chunk.usage
-                
+
                 yield chunk
-            
+
             # Create a proper response object with real attributes
             response_to_parse = GroqUtils.parse_chunks_to_response(accumulated_content, final_usage)
-            generation.result(GroqUtils.parse_completion(response_to_parse))
-            
-            if is_local_trace and trace is not None:
-                trace.set_output(accumulated_content)
-                trace.end()
-                
+
+            try:
+                # Handle tool calls if present
+                message = response_to_parse.choices[0].message
+                try:
+                    tool_call_info = GroqUtils.parse_tool_calls(message)
+                    if tool_call_info and trace:
+                        try:
+                            tool = trace.tool_call(tool_call_info)
+                        except Exception as e:
+                            scribe().warning(
+                                f"[MaximSDK][GroqInstrumentation] Error creating tool call: {str(e)}",
+                            )
+                except Exception as e:
+                    scribe().warning(
+                        f"[MaximSDK][GroqInstrumentation] Error parsing tool calls: {str(e)}",
+                    )
+
+                generation.result(GroqUtils.parse_completion(response_to_parse))
+
+                if is_local_trace and trace is not None:
+                    trace.set_output(accumulated_content)
+                    trace.end()
+            except Exception as e:
+                scribe().warning(
+                    f"[MaximSDK][GroqInstrumentation] Error processing response: {str(e)}",
+                )
+                if generation:
+                    generation.error({"message": str(e)})
+                    generation.end()
+                if trace and is_local_trace:
+                    trace.add_error({"message": str(e)})
+                    trace.end()
+
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][GroqInstrumentation] Error in async streaming generation: {e}",
             )
+            if generation:
+                generation.error({"message": str(e)})
+                generation.end()
+            if trace and is_local_trace:
+                trace.add_error({"message": str(e)})
+                trace.end()
