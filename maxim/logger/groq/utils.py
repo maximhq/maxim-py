@@ -7,13 +7,20 @@ and image attachment processing.
 """
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from collections.abc import Iterable
 import uuid
 
 from groq.types.chat.chat_completion import Choice
-from groq.types.chat import ChatCompletion, ChatCompletionMessage, ChatCompletionMessageParam
+from groq.types.chat import (
+    ChatCompletion,
+    ChatCompletionMessage,
+    ChatCompletionMessageParam,
+    ChatCompletionMessageToolCall,
+)
 from groq.types import CompletionUsage
+from groq.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
+from groq.types.chat.chat_completion_message_tool_call import Function
 
 from ..logger import GenerationRequestMessage, Generation
 from ..components.attachment import UrlAttachment
@@ -32,10 +39,17 @@ class GroqUtils:
     instantiation. The class follows the same patterns as other provider
     integrations in the Maxim SDK.
     """
+    
+    @staticmethod
+    def parse_message(
+        message: ChatCompletionMessage,
+    ) -> ChatCompletionMessageParam:
+        """Parse Groq message into Maxim format."""
+        return ChatCompletionMessageParam(role=message.role, content=message.content)
 
     @staticmethod
     def parse_message_param(
-        messages: Iterable[ChatCompletionMessageParam],
+        messages: Iterable[Union[ChatCompletionMessageParam, ChatCompletionMessage]],
     ) -> List[GenerationRequestMessage]:
         """Parse Groq message parameters into Maxim format.
 
@@ -56,8 +70,12 @@ class GroqUtils:
         parsed_messages: List[GenerationRequestMessage] = []
 
         for msg in messages:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
+            if isinstance(msg, ChatCompletionMessage):
+                role = msg.role
+                content = msg.content
+            else:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
 
             if isinstance(content, list):
                 # Handle content blocks for multimodal messages
@@ -130,7 +148,61 @@ class GroqUtils:
         return model_params
 
     @staticmethod
-    def parse_chunks_to_response(content: str, usage_data: Optional[CompletionUsage]) -> ChatCompletion:
+    def parse_tool_calls(
+        tool_calls: Optional[List[List[ChoiceDeltaToolCall]]],
+    ) -> Optional[List[ChatCompletionMessageToolCall]]:
+        """Parse and flatten tool calls from Groq streaming chunks.
+
+        This method processes tool calls received from Groq's streaming API chunks,
+        flattening the nested structure and converting them into a standardized
+        ChatCompletionMessageToolCall format. It handles potential None values
+        and empty lists in the input structure.
+
+        Args:
+            tool_calls (Optional[List[List[ChoiceDeltaToolCall]]]): A nested list of
+                tool calls from streaming chunks. The outer list represents different
+                chunks, while the inner list contains the tool calls for each chunk.
+                Can be None if no tool calls are present.
+
+        Returns:
+            Optional[List[ChatCompletionMessageToolCall]]: A flattened list of
+                standardized tool calls, each containing an id, type, and function
+                with name and arguments. Returns None if no valid tool calls are found
+                or if the input is None.
+        """
+        if not tool_calls:
+            return None
+
+        # Flatten the list and filter out None entries
+        flattened_tool_calls = [
+            tool_call
+            for sublist in tool_calls
+            if sublist is not None
+            for tool_call in sublist
+            if tool_call is not None
+        ]
+
+        if not flattened_tool_calls:
+            return None
+
+        return [
+            ChatCompletionMessageToolCall(
+                id=tool_call.id,
+                type=tool_call.type,
+                function=Function(  
+                    name=tool_call.function.name,
+                    arguments=tool_call.function.arguments,
+                )
+            )
+            for tool_call in flattened_tool_calls
+        ]
+
+    @staticmethod
+    def parse_chunks_to_response(
+        content: str, 
+        usage_data: Optional[CompletionUsage], 
+        tool_calls: Optional[List[List[ChoiceDeltaToolCall]]],
+    ) -> ChatCompletion:
         """Create a response object from streaming chunks for parsing.
         
         This method constructs a response object compatible with the parse_completion
@@ -142,20 +214,26 @@ class GroqUtils:
                 represents the complete response text.
             usage_data (Optional[CompletionUsage]): Usage information from the final chunk
                 containing token counts and other usage metrics.
+            tool_calls (Optional[List[ChoiceDeltaToolCall]]): List of tool calls from the chunks.
             
         Returns:
             Response: Response object with proper attributes that can be processed
                 by parse_completion() method. Contains choices, usage, and
                 standard response metadata.
         """
-        
+        converted_tool_calls = GroqUtils.parse_tool_calls(tool_calls)
+
         return ChatCompletion(
             id=f"streaming-response-{uuid.uuid4()}",
             created=int(time.time()),
             choices=[Choice(
                 index=0,
-                message=ChatCompletionMessage(role="assistant", content=content),
-                finish_reason="stop"
+                message=ChatCompletionMessage(
+                    role="assistant",
+                    content=content,
+                    tool_calls=converted_tool_calls,
+                ),
+                finish_reason="stop",
             )],
             usage=usage_data,
             model="",
@@ -264,4 +342,5 @@ class GroqUtils:
                                         mime_type="image",
                                     ))
         except Exception as e:
+            generation.error({ "message": str(e) })
             scribe().warning(f"[MaximSDK] Error adding image attachments: {e}")

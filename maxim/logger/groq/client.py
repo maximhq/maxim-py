@@ -98,13 +98,21 @@ def instrument_groq(logger: Logger) -> None:
                 GroqUtils.add_image_attachments_from_messages(generation, messages or [])
 
             except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
                 scribe().warning(
                     f"[MaximSDK][GroqInstrumentation] Error in generating content: {e}",
                 )
 
-            # Call the original Groq API method
-            response = create_func(self, *args, **kwargs)
-
+            try:
+                # Call the original Groq API method
+                response = create_func(self, *args, **kwargs)
+            except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
+                # We will raise the error back to the caller and not handle it here
+                raise
+            
             # Process response and log results
             try:
                 if generation is not None:
@@ -119,6 +127,8 @@ def instrument_groq(logger: Logger) -> None:
                                 trace.set_output("")
                             trace.end()
             except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
                 scribe().warning(
                     f"[MaximSDK][GroqInstrumentation] Error in logging generation: {e}"
                 )
@@ -192,12 +202,20 @@ def instrument_groq(logger: Logger) -> None:
                 GroqUtils.add_image_attachments_from_messages(generation, messages or [])
 
             except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
                 scribe().warning(
                     f"[MaximSDK][GroqInstrumentation] Error in generating content: {e}",
                 )
 
-            # Call the original Groq API method
-            response = await create_func(self, *args, **kwargs)
+            try:
+                # Call the original Groq API method
+                response = await create_func(self, *args, **kwargs)
+            except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
+                # We will raise the error back to the caller and not handle it here
+                raise
 
             # Process response and log results
             try:
@@ -213,6 +231,8 @@ def instrument_groq(logger: Logger) -> None:
                                 trace.set_output("")
                             trace.end()
             except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
                 scribe().warning(
                     f"[MaximSDK][GroqInstrumentation] Error in logging generation: {e}",
                 )
