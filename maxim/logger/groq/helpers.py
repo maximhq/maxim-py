@@ -6,10 +6,11 @@ It handles both synchronous and asynchronous streaming operations, accumulating
 content and usage data to provide complete logging information.
 """
 
-from groq._streaming import Stream, AsyncStream
-from groq.types.chat import ChatCompletionChunk
 from typing import Optional
 from collections.abc import Generator, AsyncGenerator
+
+from groq._streaming import Stream, AsyncStream
+from groq.types.chat import ChatCompletionChunk
 
 from .utils import GroqUtils
 from ..logger import Generation, Trace
@@ -69,25 +70,36 @@ class GroqHelpers:
 
         accumulated_content = ""
         final_usage = None
-        
+        collected_chunks: list[ChatCompletionChunk] = []
+        tool_calls = []
+
         try:
             for chunk in stream:
                 # Accumulate content from chunks
+                collected_chunks.append(chunk)
+                yield chunk
+
+            for chunk in collected_chunks:
                 if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
                     if hasattr(delta, 'content') and delta.content:
                         accumulated_content += delta.content
-                
+
                 # Collect usage data from chunks
-                if hasattr(chunk, 'x_groq') and chunk.x_groq and hasattr(chunk.x_groq, 'usage') and chunk.x_groq.usage:
+                if (
+                    hasattr(chunk, 'x_groq') and chunk.x_groq and
+                    hasattr(chunk.x_groq, 'usage') and chunk.x_groq.usage
+                ):
                     final_usage = chunk.x_groq.usage
                 elif hasattr(chunk, 'usage') and chunk.usage:
                     final_usage = chunk.usage
-                
-                yield chunk
-            
+
+                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                    if chunk.choices[0].delta.tool_calls:
+                        tool_calls.append(chunk.choices[0].delta.tool_calls)
+
             # After stream is complete, log the accumulated result
-            response_to_parse = GroqUtils.parse_chunks_to_response(accumulated_content, final_usage)
+            response_to_parse = GroqUtils.parse_chunks_to_response(accumulated_content, final_usage, tool_calls)
             generation.result(GroqUtils.parse_completion(response_to_parse))
             
             if is_local_trace and trace is not None:
@@ -95,6 +107,7 @@ class GroqHelpers:
                 trace.end()
                 
         except Exception as e:
+            generation.error({"message": str(e)})
             scribe().warning(
                 f"[MaximSDK][GroqInstrumentation] Error in streaming generation: {e}",
             )
@@ -137,25 +150,40 @@ class GroqHelpers:
     
         accumulated_content = ""
         final_usage = None
+        collected_chunks: list[ChatCompletionChunk] = []
+        tool_calls = []
     
         try:
             async for chunk in stream:
                 # Accumulate content from chunks
+                collected_chunks.append(chunk)
+                yield chunk
+                
+            for chunk in collected_chunks:
                 if hasattr(chunk, "choices") and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
                     if hasattr(delta, "content") and delta.content:
                         accumulated_content += delta.content
                 
                 # Collect usage data from chunks
-                if hasattr(chunk, 'x_groq') and chunk.x_groq and hasattr(chunk.x_groq, 'usage') and chunk.x_groq.usage:
+                if (
+                    hasattr(chunk, 'x_groq') and chunk.x_groq and
+                    hasattr(chunk.x_groq, 'usage') and chunk.x_groq.usage
+                ):
                     final_usage = chunk.x_groq.usage
                 elif hasattr(chunk, "usage") and chunk.usage:
                     final_usage = chunk.usage
-                
-                yield chunk
-            
+
+                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                    if chunk.choices[0].delta.tool_calls:
+                        tool_calls.append(chunk.choices[0].delta.tool_calls)
+
             # Create a proper response object with real attributes
-            response_to_parse = GroqUtils.parse_chunks_to_response(accumulated_content, final_usage)
+            response_to_parse = GroqUtils.parse_chunks_to_response(
+                accumulated_content,
+                final_usage,
+                tool_calls,
+            )
             generation.result(GroqUtils.parse_completion(response_to_parse))
             
             if is_local_trace and trace is not None:
@@ -163,6 +191,7 @@ class GroqHelpers:
                 trace.end()
                 
         except Exception as e:
+            generation.error({"message": str(e)})
             scribe().warning(
                 f"[MaximSDK][GroqInstrumentation] Error in async streaming generation: {e}",
             )
