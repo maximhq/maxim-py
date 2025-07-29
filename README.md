@@ -62,6 +62,11 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.9.13
+
+- fix: Fixes tool call parsing for streaming
+- fix: Some minor fixes in OpenAI, Fireworks wrappers.
+
 ### 3.9.12
 
 - feat: Adds one line integration for Fireworks Build SDK
