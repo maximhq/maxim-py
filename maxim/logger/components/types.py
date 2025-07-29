@@ -2,7 +2,6 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
-import traceback
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
@@ -121,7 +120,6 @@ class CommitLog:
                     try:
                         json.dumps({key: value}, cls=CustomEncoder)
                     except Exception:
-                        traceback.print_exc()
                         problematic_keys.append(key)
 
                 # Remove only the problematic keys

@@ -99,13 +99,23 @@ def instrument_together(logger: Logger) -> None:
                 TogetherUtils.add_image_attachments_from_messages(generation, messages or [])
 
             except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
                 scribe().warning(
                     f"[MaximSDK][TogetherInstrumentation] Error in generating content: {e}",
                 )
 
             # Remove extra_headers from kwargs before sending to Together AI
             clean_kwargs = {k: v for k, v in kwargs.items() if k != "extra_headers"}
-            response = create_func(self, *args, **clean_kwargs)
+            try:
+                response = create_func(self, *args, **clean_kwargs)
+            except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
+                scribe().warning(
+                    f"[MaximSDK][TogetherInstrumentation] Error in generating content: {e}",
+                )
+                raise
 
             # Process response and log results
             try:
@@ -121,6 +131,8 @@ def instrument_together(logger: Logger) -> None:
                                 trace.set_output("")
                             trace.end()
             except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
                 scribe().warning(
                     f"[MaximSDK][TogetherInstrumentation] Error in logging generation: {e}",
                 )
@@ -194,13 +206,23 @@ def instrument_together(logger: Logger) -> None:
                 TogetherUtils.add_image_attachments_from_messages(generation, messages or [])
 
             except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
                 scribe().warning(
                     f"[MaximSDK][TogetherInstrumentation] Error in generating content: {e}",
                 )
 
             # Remove extra_headers from kwargs before sending to Together AI
             clean_kwargs = {k: v for k, v in kwargs.items() if k != "extra_headers"}
-            response = await create_func(self, *args, **clean_kwargs)
+            try:
+                response = await create_func(self, *args, **clean_kwargs)
+            except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
+                scribe().warning(
+                    f"[MaximSDK][TogetherInstrumentation] Error in generating content: {e}",
+                )
+                raise
 
             # Process response and log results
             try:
@@ -216,6 +238,8 @@ def instrument_together(logger: Logger) -> None:
                                 trace.set_output("")
                             trace.end()
             except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
                 scribe().warning(
                     f"[MaximSDK][TogetherInstrumentation] Error in logging generation: {e}",
                 )
