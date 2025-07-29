@@ -95,6 +95,7 @@ class FireworksHelpers:
                 trace.end()
 
         except Exception as e:
+            generation.error({"message": str(e)})
             scribe().warning(
                 f"[MaximSDK][FireworksInstrumentation] Error in logging generation: {e}",
             )
@@ -166,6 +167,7 @@ class FireworksHelpers:
                 trace.end()
 
         except Exception as e:
+            generation.error({"message": str(e)})
             scribe().warning(
                 f"[MaximSDK][FireworksInstrumentation] Error in logging generation: {e}",
             )

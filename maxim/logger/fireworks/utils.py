@@ -259,6 +259,7 @@ class FireworksUtils:
                                         name="User Image",
                                     ))
         except Exception as e:
+            generation.error({"message": str(e)})
             scribe().warning(f"[MaximSDK] Error adding image attachments: {e}")
             
     @staticmethod
