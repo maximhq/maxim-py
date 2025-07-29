@@ -9,7 +9,12 @@ from typing import Union
 
 from crewai import LLM, Agent, Crew, Flow, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
-from crewai.tools.agent_tools import BaseTool
+
+try:
+    from crewai.tools import BaseTool
+except ImportError:
+    # Backward compatibility for older versions
+    from crewai.tools.agent_tools.agent_tools import BaseTool
 
 from ...logger import (
     Generation,
@@ -167,6 +172,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
 
             global _global_maxim_trace
             global _task_span_ids
+            global _last_llm_usages
 
             # Combine args and kwargs into a dictionary for processing
             bound_args = {}
@@ -725,7 +731,6 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
             if generation:
                 # Create a structured result compatible with GenerationResult
                 # Retrieve usage data captured by the callback
-                global _last_llm_usages  # Ensure access to the global
 
                 prompt_tokens = 0
                 completion_tokens = 0

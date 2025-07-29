@@ -4,7 +4,7 @@
 <img src="https://cdn.getmaxim.ai/third-party/sdk.png">
 </div>
 
-This is Python SDK for enabling Maxim observability. [Maxim](https://www.getmaxim.ai?ref=npm) is an enterprise grade evaluation and observability platform.
+This is Python SDK for enabling Maxim observability. [Maxim](https://www.getmaxim.ai) is an enterprise grade evaluation and observability platform.
 
 ## How to integrate
 
@@ -45,14 +45,12 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 | ---------- | ----------- | -------- | ----------------- |
 | ✅         | ✅          | ⛔️      | ⛔️               |
 
-
 ### LiveKit (Alpha)
 
-| Provider | Audio | ToolCalls | Video | 
-| ---------- | ---------- | ----------- | -------- 
-| OpenAI (RealtimeAPI)  | ✅         | ⛔️          | ⛔️      
-| Gemini (RealtimeAPI)  | ✅         | ⛔️          | ⛔️      
-
+| Provider             | Audio | ToolCalls | Video |
+| -------------------- | ----- | --------- | ----- |
+| OpenAI (RealtimeAPI) | ✅    | ⛔️       | ⛔️   |
+| Gemini (RealtimeAPI) | ✅    | ⛔️       | ⛔️   |
 
 # Setting up this repository
 
@@ -61,6 +59,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 3. Run `uv sync`.
 
 ## Version changelog
+
+### 3.9.14
+
+- chore: Import fixes for crewai integration.
 
 ### 3.9.13
 
@@ -95,7 +97,7 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ### 3.9.6
 
-- improvement: Increased connection pool max size to 20 for more connections at high throughput. 
+- improvement: Increased connection pool max size to 20 for more connections at high throughput.
 - improvement: Moves network stack from requests to httpx for better stability
 
 ### 3.9.5
@@ -116,7 +118,7 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ### 3.9.1
 
-- fix: Fixes `enable_prompt_management` method bug. 
+- fix: Fixes `enable_prompt_management` method bug.
 
 ### 3.9.0
 
@@ -127,7 +129,7 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ### 3.8.5
 
-- chore: Adds session_id and room_id 
+- chore: Adds session_id and room_id
 
 ### 3.8.4
 
@@ -165,6 +167,7 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 - feat: LiveKit one line integration (alpha)
 
 ### 3.7.1
+
 - fix: Signal registration only happens if the current thread is main thread
 
 ### 3.7.0
@@ -376,7 +379,7 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 - feat: Adds new flow to trigger test runs via Python SDK
 - fix: Minor bug fixes
 
-### v3.0.1 [Breaking changes](https://www.getmaxim.ai/docs/sdk/upgrading-to-v3)
+### v3.0.1 [Breaking changes](https://www.getmaxim.ai/docs/sdk/python/upgrading-to-v3)
 
 - beta release
 - feat: New decorators support for tracing, langchain and langgraph
@@ -405,7 +408,7 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ### v3.0.0rc1
 
-- Check [upgrade steps](https://www.getmaxim.ai/docs/sdk/upgrading-to-v3)
+- Check [upgrade steps](https://www.getmaxim.ai/docs/sdk/python/upgrading-to-v3)
 - feat: Adds new decorators flow to simplify tracing
 - chore: apiKey and baseUrl parameters in MaximConfig are now api_key and base_url respectively.
 
