@@ -1,11 +1,16 @@
-import copy
 import threading
 from concurrent.futures import Executor, ThreadPoolExecutor
 from datetime import datetime, timezone
 from io import BytesIO
+from typing import Any, Optional
 from uuid import uuid4
+from livekit.agents.types import NOT_GIVEN
+from livekit.plugins.openai.llm import _LLMOptions
+
+from livekit.agents.llm import LLM
 
 from .store import (
+    LLMUsage,
     SessionStoreEntry,
     Turn,
     get_livekit_callback,
@@ -53,13 +58,11 @@ class SameThreadExecutor(Executor):
 _thread_pool_executor = ThreadPoolExecutor(max_workers=1)
 _thread_pool_lock = threading.Lock()
 
-
 def get_thread_pool_executor() -> ThreadPoolExecutor:
     """Get the global thread pool executor for processing."""
     if _thread_pool_executor is None:
         raise ValueError("Thread pool executor is not initialized")
     return _thread_pool_executor
-
 
 def shutdown_thread_pool_executor(wait=True):
     """Shutdown the global thread pool executor."""
@@ -149,3 +152,34 @@ def start_new_turn(session_info: SessionStoreEntry):
                 exc_info=True,
             )
     return current_turn
+
+def extract_llm_usage(session_id: str, llm: Optional[LLM]) -> Optional[LLMUsage]:
+    if llm is None:
+        return None
+
+    if hasattr(llm, "_events") and llm._events is not None:
+        events = llm._events or getattr(llm, "_events", None)
+        if isinstance(events, dict) and "metrics_collected" in events:
+            session_info = get_session_store().get_session_by_agent_session_id(
+                session_id,
+            )
+            if session_info is not None:
+                turn = session_info.current_turn
+                if turn is not None:
+                    return turn.usage
+    return None
+
+def extract_llm_model_parameters(llm: Optional[_LLMOptions]) -> Optional[dict[str, Any]]:
+    """
+    Extract the model parameters from the LLM object.
+    """
+    if llm is None:
+        return None
+    model_parameters = {}
+    if llm.temperature is not None and llm.temperature != NOT_GIVEN:
+        model_parameters["temperature"] = llm.temperature
+    if llm.max_completion_tokens is not None and llm.max_completion_tokens != NOT_GIVEN:
+        model_parameters["max_completion_tokens"] = llm.max_completion_tokens
+    if llm.tool_choice is not None and llm.tool_choice != NOT_GIVEN:
+        model_parameters["tool_choice"] = llm.tool_choice
+    return model_parameters

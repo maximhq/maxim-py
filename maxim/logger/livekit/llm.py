@@ -3,7 +3,6 @@ import inspect
 import traceback
 
 from ...scribe import scribe
-from .store import get_session_store
 
 llm_f_skip_list = []
 

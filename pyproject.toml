@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maxim-py"
-version = "3.10.0"
+version = "3.10.1"
 description = "A package that allows you to use the Maxim Python Library to interact with the Maxim Platform."
 readme = "README.md"
 requires-python = ">=3.9.20"
@@ -41,7 +41,7 @@ dev = [
   "langchain==0.3.25",
   "livekit>=1.0.8",
   "livekit-agents[openai]>=1.0.22",
-  "livekit-agents[google]~=1.0",
+  "livekit-agents[google,silero]~=1.0",
   "livekit-api>=1.0.2",
   "portkey-ai>=1.13.0",
   "requests>=2.32.3",
@@ -55,4 +55,5 @@ dev = [
   "together>=1.4.6",
   "groq>=0.30.0",
   "fireworks-ai>=0.17.9",
+  "livekit-plugins-noise-cancellation~=0.2",
 ]

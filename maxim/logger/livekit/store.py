@@ -5,10 +5,11 @@ from datetime import datetime
 from enum import Enum
 from io import BytesIO
 from threading import Lock
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, TypedDict, Union
 
 from livekit.agents import AgentSession
 from livekit.agents.llm import RealtimeSession
+from livekit.rtc import AudioFrame
 
 from ...scribe import scribe
 from ..components import FileDataAttachment
@@ -21,6 +22,10 @@ class SessionState(Enum):
     GREETING = 1
     STARTED = 2
 
+class LLMUsage(TypedDict):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 @dataclass
 class Turn:
@@ -33,6 +38,7 @@ class Turn:
     turn_input_audio_buffer: BytesIO
     turn_output_audio_buffer: BytesIO
     trace_id: Optional[str] = None
+    usage: Optional[LLMUsage] = None
 
 @dataclass
 class SessionStoreEntry:
@@ -186,10 +192,14 @@ class LiveKitSessionStore:
 
     def close_session(self, session_info: SessionStoreEntry):
         with self._lock:
-            scribe().debug(f"[MaximSDK] Closing session {session_info.mx_session_id}")
             session_id = session_info.mx_session_id
             index = session_info.conversation_buffer_index
+            if session_id is None:
+                scribe().warning("[MaximSDK] Session ID not found for closing session")
+                return
+            scribe().debug(f"[MaximSDK] Closing session {session_info.mx_session_id}")
 
+            # Might require a null check here
             get_maxim_logger().session_add_attachment(
                 session_id,
                 FileDataAttachment(
@@ -211,3 +221,37 @@ _session_store = LiveKitSessionStore()
 def get_session_store():
     """Get the global session store instance."""
     return _session_store
+
+class TTSStore:
+    """ 
+    Adding an additional store for TTS audio data.
+    This is done as TTS does not have a session reference.
+    """
+    def __init__(self):
+        self.tts_store: dict[int, list[AudioFrame]] = {}
+        self._lock = Lock()
+
+    def add_tts_audio_data(self, tts_id: int, tts_data: list[AudioFrame]):
+        """ Add TTS audio data to the store. """
+        with self._lock:
+            if tts_id not in self.tts_store:
+                self.tts_store[tts_id] = []
+            self.tts_store[tts_id].extend(tts_data)
+
+    def get_tts_audio_data(self, tts_id: int) -> Optional[list[AudioFrame]]:
+        """ Get TTS audio data from the store. """
+        with self._lock:
+            if tts_id in self.tts_store:
+                return self.tts_store[tts_id]
+
+    def clear_tts_audio_data(self, tts_id: int):
+        """ Clear TTS audio data from the store. """
+        with self._lock:
+            if tts_id in self.tts_store:
+                del self.tts_store[tts_id]
+
+_tts_store = TTSStore()
+
+def get_tts_store():
+    """ Get the global TTS store instance. """
+    return _tts_store

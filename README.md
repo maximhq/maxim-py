@@ -60,6 +60,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.10.1
+
+- **feat** Added STT-LLM-TTS pipeline tracing integration for livekit
+
 ### 3.10.0
 
 - **feat**: Added comprehensive multimodal content support for vision-enabled models

@@ -1,6 +1,7 @@
 import functools
 import inspect
 import traceback
+import time
 import uuid
 import weakref
 from datetime import datetime, timezone
@@ -8,8 +9,16 @@ from io import BytesIO
 
 from livekit.agents import Agent, AgentSession
 from livekit.agents.voice.events import FunctionToolsExecutedEvent
+from livekit.plugins.openai.llm import _LLMOptions
 from livekit.protocol.models import Room
-from livekit.agents.vad import VADEvent
+
+from maxim.logger.components.attachment import FileDataAttachment
+from maxim.logger.components.generation import (
+    GenerationConfigDict,
+    GenerationResult,
+    GenerationResultChoice,
+)
+from maxim.logger.utils import pcm16_to_wav_bytes
 
 from ...scribe import scribe
 from .store import (
@@ -19,8 +28,9 @@ from .store import (
     get_livekit_callback,
     get_maxim_logger,
     get_session_store,
+    get_tts_store,
 )
-from .utils import get_thread_pool_executor
+from .utils import extract_llm_model_parameters, extract_llm_usage, get_thread_pool_executor
 
 
 def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
@@ -77,6 +87,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     tags["session_id"] = str(id(self))
     if agent is not None:
         tags["agent_id"] = str(id(agent))
+
     trace = session.trace(
         {
             "id": trace_id,
@@ -86,6 +97,26 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
             "tags": tags,
         }
     )
+
+    current_turn_id = str(uuid.uuid4())
+    if self.stt is not None or self.tts is not None:
+        # Only add generation if we are not in realtime session
+        llm_opts: _LLMOptions = self.llm._opts
+        if llm_opts is not None:
+            model = llm_opts.model
+            model_parameters = extract_llm_model_parameters(llm_opts)
+        else:
+            model = None
+            model_parameters = None
+        trace.generation(GenerationConfigDict(
+            id=current_turn_id,
+            model=model if model is not None else "unknown",
+            model_parameters=model_parameters if model_parameters is not None else {},
+            messages=[{"role": "user", "content": agent.instructions}],
+            provider="livekit",
+            name="Greeting turn",
+        ))
+
     callback = get_livekit_callback()
     if callback is not None:
         try:
@@ -94,8 +125,9 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
             scribe().warning(
                 f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}"
             )
+
     current_turn = Turn(
-        turn_id=str(uuid.uuid4()),
+        turn_id=current_turn_id,
         turn_sequence=0,
         turn_timestamp=datetime.now(timezone.utc),
         is_interrupted=False,
@@ -126,8 +158,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
         ),
     )
 
-
-def intercept_update_agent_state(self, new_state):
+def intercept_update_agent_state(self: AgentSession, new_state):
     """
     This function is called when the agent state is updated.
     """
@@ -142,7 +173,7 @@ def intercept_update_agent_state(self, new_state):
         )
 
 
-def intercept_generate_reply(self, instructions):
+def intercept_generate_reply(self: AgentSession, instructions):
     """
     This function is called when the agent generates a reply.
     """
@@ -156,7 +187,7 @@ def intercept_generate_reply(self, instructions):
         trace.set_input(instructions)
 
 
-def intercept_user_state_changed(self, new_state):
+def intercept_user_state_changed(self: AgentSession, new_state):
     """
     This function is called when the user state is changed.
     """
@@ -174,7 +205,7 @@ def intercept_user_state_changed(self, new_state):
         )
 
 
-def handle_tool_call_executed(self, event: FunctionToolsExecutedEvent):
+def handle_tool_call_executed(self: AgentSession, event: FunctionToolsExecutedEvent):
     """
     This function is called when the agent executes a tool call.
     """
@@ -202,6 +233,112 @@ def handle_tool_call_executed(self, event: FunctionToolsExecutedEvent):
                 tool_output = output.output
                 break
         tool_call.result(tool_output)
+        
+
+def handle_agent_response_complete(self: AgentSession, response_text):
+    """Handle agent response completion and attach output audio"""
+    try:
+        session_info = get_session_store().get_session_by_agent_session_id(
+            id(self)
+        )
+        if session_info is None:
+            return
+
+        if session_info.rt_session_id is not None:
+            return
+
+        turn = session_info.current_turn
+        if turn is None:
+            return
+
+        llm_opts: _LLMOptions = self.llm._opts
+        if llm_opts is not None:
+            model = llm_opts.model
+            model_parameters = extract_llm_model_parameters(llm_opts)
+        else:
+            model = None
+            model_parameters = None
+
+        usage = extract_llm_usage(id(self), self.llm)
+
+        tts_id = id(self.tts) if self.tts is not None else None
+        tts_audio_frames = get_tts_store().get_tts_audio_data(tts_id) if tts_id is not None else None
+
+        if tts_audio_frames is not None and len(tts_audio_frames) > 0:
+            for frame in tts_audio_frames:
+                turn.turn_output_audio_buffer.write(frame.data)
+                session_info.conversation_buffer.write(frame.data)
+
+        get_tts_store().clear_tts_audio_data(tts_id)
+
+        if response_text:
+            turn.turn_output_transcription = response_text
+
+            # Add output audio attachment if we have a generation and audio
+            if (
+                turn.turn_output_audio_buffer is not None
+                and turn.turn_output_audio_buffer.tell() > 0
+            ):
+                get_maxim_logger().generation_add_attachment(
+                    turn.turn_id,
+                    FileDataAttachment(
+                        data=pcm16_to_wav_bytes(
+                            turn.turn_output_audio_buffer.getvalue()
+                        ),
+                        tags={"attach-to": "output"},
+                        name="Agent Audio Response",
+                        timestamp=int(time.time()),
+                    ),
+                )
+
+            # Update trace output
+            trace = get_session_store().get_current_trace_for_agent_session(
+                id(self)
+            )
+            if trace is not None:
+                trace.set_output(response_text)
+
+            choices: list[GenerationResultChoice] = []
+            choice: GenerationResultChoice = {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "audio", "transcript": response_text}],
+                    "tool_calls": [],
+                },
+            }
+            choices.append(choice)
+            result = GenerationResult(
+                id=str(uuid.uuid4()),
+                object="tts.response",
+                created=int(time.time()),
+                model=model if model is not None else "unknown",
+                choices=choices,
+                usage=usage if usage is not None else {},
+            )
+            try:
+                get_maxim_logger().generation_result(turn.turn_id, result)
+                get_maxim_logger().generation_set_model(
+                    turn.turn_id,
+                    model if model is not None else "unknown"
+                )
+                get_maxim_logger().generation_set_model_parameters(
+                    turn.turn_id,
+                    model_parameters if model_parameters is not None else {}
+                )
+            except Exception as e:
+                scribe().warning(
+                    f"[MAXIM SDK] Error adding generation result; error={e!s}\n{traceback.format_exc()}"
+                )
+
+            session_info.current_turn = turn
+            get_session_store().set_session(session_info)
+
+    except Exception as e:
+        scribe().warning(
+            f"[Internal][{self.__class__.__name__}] agent response handling failed; error={e!s}\n{traceback.format_exc()}"
+        )
 
 
 def intercept_metrics_collected(self, event):
@@ -210,8 +347,7 @@ def intercept_metrics_collected(self, event):
     """
     pass
 
-
-def pre_hook(self, hook_name, args, kwargs):
+def pre_hook(self: AgentSession, hook_name, args, kwargs):
     try:
         if hook_name == "start":
             room = kwargs.get("room")
@@ -238,6 +374,7 @@ def pre_hook(self, hook_name, args, kwargs):
             )
         elif hook_name == "emit":
             if args[0] == "metrics_collected":
+                # We do not need to handle this as it is to be handled in the agent activity
                 pass
             elif args[0] == "_on_metrics_collected":
                 pass
@@ -265,11 +402,28 @@ def pre_hook(self, hook_name, args, kwargs):
         )
 
 
-def post_hook(self, result, hook_name, args, kwargs):
+def post_hook(self: AgentSession, result, hook_name, args, kwargs):
     try:
         if hook_name == "emit":
             if args[0] == "metrics_collected":
                 pass
+        elif hook_name == "_conversation_item_added":
+            if args and len(args) > 0:
+                item = args[0]
+                if (
+                    hasattr(item, "role")
+                    and item.role == "assistant"
+                    and hasattr(item, "content")
+                    and item.content
+                ):
+                    content = (
+                        item.content[0]
+                        if isinstance(item.content, list)
+                        else str(item.content)
+                    )
+                    get_thread_pool_executor().submit(
+                        handle_agent_response_complete, self, content
+                    )
         else:
             scribe().debug(
                 f"[Internal][{self.__class__.__name__}] {hook_name} completed; result={result}"

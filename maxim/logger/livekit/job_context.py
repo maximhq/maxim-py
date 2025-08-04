@@ -12,7 +12,7 @@ from .store import get_session_store
 def intercept_participant_available(self: JobContext, participant):
     if not participant:
         return
-    trace = get_session_store().get_current_trace_for_room_id(id(self.room))
+    trace = get_session_store().get_current_trace_for_room_id(str(id(self.room)))
     if trace is None:
         return
     trace.event(

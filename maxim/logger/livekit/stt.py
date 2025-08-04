@@ -1,20 +1,18 @@
 import functools
 import inspect
-import time
 import traceback
 from io import BytesIO
-from uuid import uuid4
+
+from livekit.agents.stt import STT
 
 from ...scribe import scribe
-from ..components import FileDataAttachment
-from ..utils import pcm16_to_wav_bytes
-from .store import get_session_store, get_maxim_logger
+from .store import get_session_store
 from .utils import get_thread_pool_executor, start_new_turn
 
 stt_f_skip_list = []
 
 
-def handle_stt_audio_input(self, audio_frames):
+def handle_stt_audio_input(self: STT, audio_frames):
     """Handle STT audio input - trigger new turn if needed and buffer audio"""
     try:
         # Get session info from agent session
@@ -71,7 +69,7 @@ def handle_stt_audio_input(self, audio_frames):
         )
 
 
-def handle_stt_result(self, result, generation_id=None):
+def handle_stt_result(self: STT, result):
     """Handle STT transcription result"""
     try:
         if result is None:
@@ -118,7 +116,7 @@ def handle_stt_result(self, result, generation_id=None):
         )
 
 
-def pre_hook(self, hook_name, args, kwargs):
+def pre_hook(self: STT, hook_name, args, kwargs):
     """Pre-hook for STT methods"""
     try:
         if hook_name in ["transcribe", "arecognize", "recognize"]:
@@ -137,7 +135,7 @@ def pre_hook(self, hook_name, args, kwargs):
         )
 
 
-def post_hook(self, result, hook_name, args, kwargs):
+def post_hook(self: STT, result, hook_name):
     """Post-hook for STT methods"""
     try:
         if hook_name in ["transcribe", "arecognize", "recognize"]:
@@ -171,7 +169,7 @@ def instrument_stt_init(orig, name, class_name):
             )
             raise
         finally:
-            post_hook(self, result, name, args, kwargs)
+            post_hook(self, result, name)
 
     return functools.wraps(orig)(wrapper)
 
@@ -195,7 +193,7 @@ def instrument_stt(orig, name):
                 )
                 raise
             finally:
-                post_hook(self, result, name, args, kwargs)
+                post_hook(self, result, name)
 
         wrapper = async_wrapper
     else:
@@ -212,7 +210,7 @@ def instrument_stt(orig, name):
                 )
                 raise
             finally:
-                post_hook(self, result, name, args, kwargs)
+                post_hook(self, result, name)
 
         wrapper = sync_wrapper
     return functools.wraps(orig)(wrapper)
