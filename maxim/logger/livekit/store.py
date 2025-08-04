@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from io import BytesIO
 from threading import Lock
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, TypedDict, Union
 
 from livekit.agents import AgentSession
 from livekit.agents.llm import RealtimeSession
@@ -21,6 +21,10 @@ class SessionState(Enum):
     GREETING = 1
     STARTED = 2
 
+class LLMUsage(TypedDict):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 @dataclass
 class Turn:
@@ -33,6 +37,7 @@ class Turn:
     turn_input_audio_buffer: BytesIO
     turn_output_audio_buffer: BytesIO
     trace_id: Optional[str] = None
+    usage: Optional[LLMUsage] = None
 
 @dataclass
 class SessionStoreEntry:
@@ -190,6 +195,7 @@ class LiveKitSessionStore:
             session_id = session_info.mx_session_id
             index = session_info.conversation_buffer_index
 
+            # Might require a null check here
             get_maxim_logger().session_add_attachment(
                 session_id,
                 FileDataAttachment(
