@@ -60,6 +60,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.9.13
+
+- feat: Adds support for STT and TTS models in Livekit
+
 ### 3.9.14
 
 - chore: Import fixes for crewai integration.
