@@ -1,7 +1,49 @@
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypedDict, Union
+from typing import Any, Dict, List, Optional, TypedDict, Union, Literal
+
+
+# Type definitions for multimodal content support
+class ImageURL(TypedDict):
+    """
+    This class represents an image URL.
+    """
+
+    url: str
+    detail: Optional[str]
+
+
+class CompletionRequestTextContent(TypedDict):
+    """
+    Represents text content in a completion request.
+
+    Attribute:
+        type: Content type identifier, always "text"
+        text: The text content
+    """
+
+    type: Literal["text"]  # "text"
+    text: str
+
+
+class CompletionRequestImageUrlContent(TypedDict):
+    """
+    Represents an image URL with optional detail level for vision-enabled models.
+
+    Attribute:
+        type: Content type identifier, always "image_url"
+        image_url: Image URL configuration with url and optional detail
+    """
+
+    type: Literal["image_url"]  # "image_url"
+    image_url: ImageURL
+
+
+# Union type for all possible content types
+CompletionRequestContent = Union[
+    CompletionRequestTextContent, CompletionRequestImageUrlContent
+]
 
 
 @dataclass
@@ -42,16 +84,57 @@ class ToolCall:
 class Message:
     """
     This class represents a message of a LLM response choice.
+
+    Supports both string content and multimodal content
+    including text and images for vision-enabled models.
     """
 
     role: str
-    content: str
+    content: Union[str, List[CompletionRequestContent]]
     tool_calls: Optional[List[ToolCall]] = None
 
     @staticmethod
     def from_dict(obj: Dict[str, Any]):
         role = obj["role"]
         content = obj["content"]
+
+        # Handle both string content (backward compatibility) and array content (multimodal)
+        if isinstance(content, str):
+            # String content - keep as is for backward compatibility
+            pass
+        elif isinstance(content, list):
+            # Array content - validate and convert to proper CompletionRequestContent objects
+            validated_content = []
+            for item in content:
+                if not isinstance(item, dict) or "type" not in item:
+                    raise TypeError("Invalid content item: missing 'type' field")
+
+                if item["type"] == "text":
+                    if "text" not in item:
+                        raise TypeError("Text content missing required 'text' field")
+                    validated_content.append(
+                        CompletionRequestTextContent(
+                            type=item["type"], text=item["text"]
+                        )
+                    )
+                elif item["type"] == "image_url":
+                    if "image_url" not in item or "url" not in item["image_url"]:
+                        raise TypeError("Image content missing required fields")
+                    validated_content.append(
+                        CompletionRequestImageUrlContent(
+                            type=item["type"],
+                            image_url=ImageURL(
+                                url=item["image_url"]["url"],
+                                detail=item["image_url"].get("detail", "auto"),
+                            ),
+                        )
+                    )
+                else:
+                    raise TypeError(f"Unsupported content type: {item['type']}")
+            content = validated_content
+        else:
+            raise TypeError(f"Content must be string or list, got: {type(content).__name__}")
+
         tool_calls = (
             [ToolCall.from_dict(t) for t in obj["toolCalls"]]
             if "toolCalls" in obj
@@ -129,15 +212,6 @@ class PromptResponse:
         )
 
 
-class ImageURL(TypedDict):
-    """
-    This class represents an image URL.
-    """
-
-    url: str
-    detail: Optional[str]
-
-
 class ChatCompletionMessageImageContent(TypedDict):
     """
     This class represents an image content of a chat completion message.
@@ -189,15 +263,6 @@ class Tool(TypedDict):
     function: Function
 
 
-class ImageUrls(TypedDict):
-    """
-    This class represents an image URLs.
-    """
-
-    url: str
-    detail: str
-
-
 # Note: Any changes here should be done in RunnablePrompt as well
 @dataclass
 class Prompt:
@@ -212,6 +277,7 @@ class Prompt:
     model_parameters: Dict[str, Union[str, int, bool, Dict, None]]
     model: Optional[str] = None
     provider: Optional[str] = None
+    deployment_id: Optional[str] = None
     tags: Optional[Dict[str, Union[str, int, bool, None]]] = None
 
     @staticmethod
@@ -224,6 +290,7 @@ class Prompt:
             model_parameters=data["modelParameters"],
             model=data.get("model"),
             provider=data.get("provider"),
+            deployment_id=data.get("deploymentId"),
             tags=data.get("tags"),
         )
 
@@ -320,6 +387,7 @@ class PromptVersionConfig:
     modelParameters: Dict[str, Union[str, int, bool, Dict, None]]
     model: str
     provider: str
+    deployment_id: Optional[str] = None
     tags: Optional[Dict[str, Union[str, int, bool, None]]] = None
 
     @staticmethod
@@ -330,6 +398,7 @@ class PromptVersionConfig:
             modelParameters=obj["modelParameters"],
             model=obj["model"],
             provider=obj["provider"],
+            deployment_id=obj.get("deploymentId"),
             tags=obj.get("tags", None),
         )
 
