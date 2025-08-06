@@ -9,6 +9,7 @@ class VariableType(str):
 
     TEXT = "text"
     JSON = "json"
+    # TODO: Add variable type for files/images
 
 
 @dataclass
@@ -99,6 +100,37 @@ class DatasetEntry:
                 "payload": self.expectedOutput.payload,
             }
         return return_dict
+
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> "DatasetEntry":
+        """
+        Create a DatasetEntry from a dictionary.
+        
+        Args:
+            data: Dictionary containing the dataset entry data
+            
+        Returns:
+            DatasetEntry: The created dataset entry
+            
+        Raises:
+            KeyError: If required input field is missing
+            ValueError: If data format is invalid
+        """
+        if not isinstance(data, dict):
+            raise ValueError("Input data must be a dictionary")
+        
+        if "input" not in data:
+            raise KeyError("Required 'input' field is missing")
+        
+        input_var = Variable.from_json(data["input"])
+        context_var = Variable.from_json(data["context"]) if "context" in data else None
+        expected_output_var = Variable.from_json(data["expectedOutput"]) if "expectedOutput" in data else None
+        
+        return cls(
+            input=input_var,
+            context=context_var,
+            expectedOutput=expected_output_var
+        )
 
 
 InputColumn = Literal["INPUT"]
