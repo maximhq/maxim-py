@@ -60,6 +60,17 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.10.0
+
+- **feat**: Added comprehensive multimodal content support for vision-enabled models
+  - **MULTIMODAL**: Full support for text and image content in prompt messages
+  - **TYPES**: New `CompletionRequestContent`, `CompletionRequestTextContent`, `CompletionRequestImageUrlContent` types
+  - **ENHANCED**: Updated `Message` class to handle both string and multimodal content arrays
+- **feat**: Added `deployment_id` support to prompt configurations
+  - **ENHANCEMENT**: Optional `deployment_id` field now available in `Prompt`, `RunnablePrompt`, and `PromptVersionConfig` classes for prompts with `Azure` provider
+- **improvement**: Enhanced `RunnablePrompt.run()` with proper `image_urls` parameter support
+  - **MULTIMODAL**: Better integration for vision-enabled model workflows
+
 ### 3.9.14
 
 - chore: Import fixes for crewai integration.

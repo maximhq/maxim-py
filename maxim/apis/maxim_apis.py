@@ -26,7 +26,7 @@ from ..models import (
     ExecuteWorkflowForDataResponse,
     Folder,
     HumanEvaluationConfig,
-    ImageUrls,
+    ImageURL,
     PromptResponse,
     RunType,
     SignedURLResponse,
@@ -507,7 +507,7 @@ class MaximAPI:
         self,
         prompt_version_id: str,
         input: str,
-        image_urls: Optional[List[ImageUrls]],
+        image_urls: Optional[List[ImageURL]],
         variables: Optional[dict[str, str]],
     ) -> Optional[PromptResponse]:
         """

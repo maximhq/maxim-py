@@ -4,25 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maxim-py"
-version = "3.9.14"
+version = "3.10.0"
 description = "A package that allows you to use the Maxim Python Library to interact with the Maxim Platform."
 readme = "README.md"
 requires-python = ">=3.9.20"
-dependencies = [
-    "typing-extensions",
-    "filetype",
-    "httpx>=0.28.1",
-]
-authors = [
-  { name = "Maxim Engineering", email = "eng@getmaxim.ai" }
-]
+dependencies = ["typing-extensions", "filetype", "httpx>=0.28.1"]
+authors = [{ name = "Maxim Engineering", email = "eng@getmaxim.ai" }]
 keywords = ["python", "prompts", "logs", "workflow", "testing"]
 classifiers = [
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Operating System :: Unix",
   "Operating System :: MacOS :: MacOS X",
-  "Operating System :: Microsoft :: Windows"
+  "Operating System :: Microsoft :: Windows",
 ]
 
 [dependency-groups]

@@ -470,11 +470,14 @@ class Maxim:
             version=prompt_version.version,
             messages=prompt_version.config.messages if prompt_version.config else [],
             tags=prompt_version.config.tags if prompt_version.config else {},
-            model_parameters=prompt_version.config.modelParameters
-            if prompt_version.config
-            else {},
+            model_parameters=(
+                prompt_version.config.modelParameters if prompt_version.config else {}
+            ),
             model=prompt_version.config.model if prompt_version.config else None,
             provider=prompt_version.config.provider if prompt_version.config else None,
+            deployment_id=(
+                prompt_version.config.deployment_id if prompt_version.config else None
+            ),
         )
 
     def __format_prompt_chain(
@@ -945,15 +948,19 @@ class Maxim:
             try:
                 exists = self.maxim_api.does_log_repository_exist(logger.id)
                 if not exists:
-                    scribe().warning(f"[MaximSDK] Log repository not found: {logger.id}. We will be dropping all logs.")
+                    scribe().warning(
+                        f"[MaximSDK] Log repository not found: {logger.id}. We will be dropping all logs."
+                    )
                     if self.raise_exceptions:
                         raise ValueError(f"Log repository not found: {logger.id}")
                     return
                 scribe().debug(f"[MaximSDK] Log repository found: {logger.id}")
             except Exception as e:
-                scribe().error(f"[MaximSDK] Failed to check repository existence: {str(e)}")
+                scribe().error(
+                    f"[MaximSDK] Failed to check repository existence: {str(e)}"
+                )
                 if self.raise_exceptions:
-                    raise            
+                    raise
 
         thread = threading.Thread(target=check)
         thread.daemon = True
