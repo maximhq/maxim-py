@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Literal, Optional, TypeVar, Union
-
+from ..logger.components.attachment import Attachment, FileAttachment, FileDataAttachment, UrlAttachment
 
 class VariableType(str):
     """
@@ -9,8 +9,193 @@ class VariableType(str):
 
     TEXT = "text"
     JSON = "json"
-    # TODO: Add variable type for files/images
+    FILE = "file"
 
+
+@dataclass
+class Variable:
+    """
+    This class represents a variable.
+    """
+    type: Literal["text", "json", "file"]
+    payload: Union[str, Dict[str, Any], List[Attachment]]
+    
+    def to_json(self) -> Dict[str, Any]:
+        """Convert the Variable to a JSON-serializable dictionary."""
+        return {"type": self.type, "payload": self.payload}
+    
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> "Variable":
+        """Create a Variable from a JSON dictionary.
+        
+        Args:
+            data: Dictionary containing the variable data with 'type' and 'payload' keys
+            
+        Returns:
+            Variable: The created variable instance
+            
+        Raises:
+            ValueError: If the data format is invalid or required fields are missing
+        """
+        if not isinstance(data, dict):
+            raise ValueError("Input data must be a dictionary")
+        
+        if "type" not in data:
+            raise ValueError("Required 'type' field is missing")
+        
+        if "payload" not in data:
+            raise ValueError("Required 'payload' field is missing")
+        
+        var_type = data["type"]
+        payload = data["payload"]
+        
+        # Validate type
+        if var_type not in ["text", "json", "file"]:
+            raise ValueError(f"Invalid variable type: {var_type}. Must be one of 'text', 'json', 'file'")
+        
+        # Validate payload based on type
+        if var_type == "text":
+            if not isinstance(payload, str):
+                raise ValueError("Payload for 'text' type must be a string")
+        elif var_type == "json":
+            if not isinstance(payload, dict):
+                raise ValueError("Payload for 'json' type must be a dictionary")
+        elif var_type == "file":
+            if not isinstance(payload, list):
+                raise ValueError("Payload for 'file' type must be a list of attachments")
+            # Note: We could add more validation for attachment objects here if needed
+        
+        return cls(type=var_type, payload=payload)
+
+@dataclass
+class VariableFileAttachment:
+    """
+    This class represents a variable file attachment.
+    """
+    id: str
+    url: str
+    hosted: bool
+    prefix: Optional[str]
+    props: Dict[str, Any]
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "id": self.id,
+            "url": self.url if not self.hosted else "",
+            "hosted": self.hosted,
+            "prefix": self.prefix,
+            "props": self.props,
+        }
+
+@dataclass
+class FileVariablePayload:
+    """
+    This class represents a file variable payload.
+    """
+    text: Optional[str]
+    files: List[VariableFileAttachment]
+    entryId: Optional[str] = None
+
+@dataclass
+class DatasetEntry:
+    """
+    This class represents a dataset entry.
+    """
+    entry: Dict[str, Variable]
+    @classmethod
+    def from_dict(cls, data_dict: Dict[str, Any]) -> "DatasetEntry":
+        """
+        Convert a single dictionary to a DatasetEntry object.
+        
+        Args:
+            data_dict: Dictionary representing a dataset entry
+            
+        Returns:
+            DatasetEntry: DatasetEntry object
+            
+        Raises:
+            ValueError: If the data format is invalid
+        """
+        if not isinstance(data_dict, dict):
+            raise ValueError("Input must be a dictionary")
+        
+        # Convert the entry dictionary to Variables
+        variables = {}
+        for column_name, value in data_dict.items():
+            # Determine the type based on the value
+            if isinstance(value, str):
+                var_type = "text"
+                payload = value
+            elif isinstance(value, dict):
+                var_type = "json"
+                payload = value
+            elif isinstance(value, list) and all(isinstance(item, (FileAttachment, FileDataAttachment, UrlAttachment)) for item in value):
+                # Check for List[Attachment]
+                var_type = "file"
+                payload = value
+            else:
+                # Default to text for unknown types
+                var_type = "text"
+                payload = str(value)
+
+            variables[column_name] = Variable(type=var_type, payload=payload)
+
+        return cls(entry=variables)
+
+
+@dataclass
+class DatasetEntryWithRowNo:
+    """
+    This class represents a dataset entry with a row number.
+    """
+    row_no: int
+    column_name: str
+    type: Literal["text", "json", "file"]
+    payload: Union[str, Dict[str, Any], List[Attachment]]
+
+    @classmethod
+    def from_dataset_entry(cls, dataset_entry: DatasetEntry, row_no: int) -> List["DatasetEntryWithRowNo"]:
+        """
+        Convert a DatasetEntry to a list of DatasetEntryWithRowNo objects.
+        
+        Args:
+            dataset_entry: The DatasetEntry to convert
+            row_no: The row number to assign
+            
+        Returns:
+            List[DatasetEntryWithRowNo]: List of DatasetEntryWithRowNo objects, one for each column
+            
+        Raises:
+            ValueError: If the dataset entry is invalid
+        """
+        if not isinstance(dataset_entry, DatasetEntry):
+            raise ValueError("Input must be a DatasetEntry object")
+        
+        result = []
+        for column_name, variable in dataset_entry.entry.items():
+            result.append(cls(
+                row_no=row_no,
+                column_name=column_name,
+                type=variable.type,
+                payload=variable.payload
+            ))
+        
+        return result
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert the DatasetEntryWithRowNo to a dictionary.
+        
+        Returns:
+            Dict[str, Any]: Dictionary representation with rowNo, columnName, type, and value
+        """
+        return {
+            "rowNo": self.row_no,
+            "columnName": self.column_name,
+            "type": self.type,
+            "value": [] if self.type == "file" else self.payload
+        }
 
 @dataclass
 class DatasetRow:
@@ -30,107 +215,6 @@ class DatasetRow:
     @classmethod
     def dict_to_class(cls, data: Dict[str, Any]) -> "DatasetRow":
         return cls(id=data["id"], data=data["data"])
-
-
-class Variable:
-    """
-    This class represents a variable.
-    """
-
-    def __init__(
-        self, type_: str, payload: Dict[str, Union[str, int, bool, float, List[str]]]
-    ):
-        """
-        This class represents a variable.
-
-        Args:
-            type_: The type of the variable.
-            payload: The payload of the variable.
-        """
-
-        self.type = type_
-        self.payload = payload
-
-    def to_json(self):
-        return {"type": self.type, "payload": self.payload}
-
-    @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> "Variable":
-        return cls(type_=data["type"], payload=data["payload"])
-
-
-class DatasetEntry:
-    """
-    This class represents a dataset entry.
-    """
-
-    def __init__(
-        self,
-        input: Variable,
-        context: Optional[Variable] = None,
-        expectedOutput: Optional[Variable] = None,
-    ):
-        """
-        This class represents a dataset entry.
-
-        Args:
-            input: The input variable.
-            context: The context variable.
-            expectedOutput: The expected output variable.
-        """
-        self.input = input
-        self.context = context
-        self.expectedOutput = expectedOutput
-
-    def to_json(self):
-        return_dict = {}
-        if self.input is not None:
-            return_dict["input"] = {
-                "type": self.input.type,
-                "payload": self.input.payload,
-            }
-        if self.context is not None:
-            return_dict["context"] = {
-                "type": self.context.type,
-                "payload": self.context.payload,
-            }
-        if self.expectedOutput is not None:
-            return_dict["expectedOutput"] = {
-                "type": self.expectedOutput.type,
-                "payload": self.expectedOutput.payload,
-            }
-        return return_dict
-
-    @classmethod
-    def from_json(cls, data: Dict[str, Any]) -> "DatasetEntry":
-        """
-        Create a DatasetEntry from a dictionary.
-        
-        Args:
-            data: Dictionary containing the dataset entry data
-            
-        Returns:
-            DatasetEntry: The created dataset entry
-            
-        Raises:
-            KeyError: If required input field is missing
-            ValueError: If data format is invalid
-        """
-        if not isinstance(data, dict):
-            raise ValueError("Input data must be a dictionary")
-        
-        if "input" not in data:
-            raise KeyError("Required 'input' field is missing")
-        
-        input_var = Variable.from_json(data["input"])
-        context_var = Variable.from_json(data["context"]) if "context" in data else None
-        expected_output_var = Variable.from_json(data["expectedOutput"]) if "expectedOutput" in data else None
-        
-        return cls(
-            input=input_var,
-            context=context_var,
-            expectedOutput=expected_output_var
-        )
 
 
 InputColumn = Literal["INPUT"]

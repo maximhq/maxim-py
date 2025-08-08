@@ -14,6 +14,7 @@ from .models.prompt_chain import PromptChainRuleGroupType
 
 from .apis import MaximAPI
 from .cache import MaximCache, MaximInMemoryCache
+from .dataset import add_entries as add_dataset_entries
 from .filter_objects import (
     IncomingQuery,
     QueryObject,
@@ -1005,6 +1006,23 @@ class Maxim:
             Optional[PromptResponse]: The completion response if successful, None otherwise
         """
         return self.maxim_api.run_prompt(model, messages, tools, **kwargs)
+
+    def add_dataset_entries(self, dataset_id: str, dataset_entries):
+        """
+        Add entries to a dataset.
+
+        Args:
+            dataset_id (str): The ID of the dataset to add entries to
+            dataset_entries: List of dataset entries to add. Can be DatasetEntry objects or dictionaries.
+
+        Returns:
+            dict[str, Any]: Response data from the API
+
+        Raises:
+            TypeError: If entry type is not DatasetEntry or dict
+            Exception: If API call fails
+        """
+        return add_dataset_entries(self.maxim_api, dataset_id, dataset_entries)
 
     def cleanup(self):
         """
