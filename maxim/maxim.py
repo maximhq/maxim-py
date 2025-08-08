@@ -14,6 +14,7 @@ from .models.prompt_chain import PromptChainRuleGroupType
 
 from .apis import MaximAPI
 from .cache import MaximCache, MaximInMemoryCache
+from .dataset import add_entries as _add_dataset_entries
 from .filter_objects import (
     IncomingQuery,
     QueryObject,
@@ -23,6 +24,7 @@ from .filter_objects import (
 )
 from .logger import Logger, LoggerConfig, LoggerConfigDict
 from .models import (
+    DatasetEntry,
     ChatCompletionMessage,
     Folder,
     FolderEncoder,
@@ -1005,6 +1007,28 @@ class Maxim:
             Optional[PromptResponse]: The completion response if successful, None otherwise
         """
         return self.maxim_api.run_prompt(model, messages, tools, **kwargs)
+
+    def add_dataset_entries(
+        self,
+        dataset_id: str,
+        dataset_entries: list[DatasetEntry | dict[str, Any]],
+    ) -> dict[str, Any]:
+        """
+        Add entries to a dataset.
+
+        Args:
+            dataset_id (str): The ID of the dataset to add entries to
+            dataset_entries (list[DatasetEntry | dict[str, Any]]): Entries to add.
+                Note: For file-type variables, pass typed attachments
+                (FileAttachment, FileDataAttachment, UrlAttachment), not dicts.
+        Returns:
+            dict[str, Any]: Response data from the API
+
+        Raises:
+            TypeError: If entry type is not DatasetEntry or dict[str, Any]
+            Exception: If API call fails
+        """
+        return _add_dataset_entries(self.maxim_api, dataset_id, dataset_entries)
 
     def cleanup(self):
         """

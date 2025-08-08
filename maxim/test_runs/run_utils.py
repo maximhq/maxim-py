@@ -2,6 +2,7 @@ import asyncio
 from typing import Awaitable, List, Optional, Dict
 
 from maxim.evaluators.base_evaluator import BaseEvaluator
+from maxim.logger.components.attachment import UrlAttachment
 
 from ..models.dataset import DataStructure, LocalData, Variable
 from ..models.evaluator import (
@@ -20,16 +21,25 @@ def get_variables_from_row(
     variables = {}
     for column_name, column_type in data_structure.items():
         if column_type == "FILE_URL_VARIABLE":
+            url_val = row.get(column_name)
+            if url_val is None:
+                continue
+            url_str = str(url_val).strip()
+            if not url_str:
+                continue
             variables[column_name] = Variable(
-                type_="file", payload={"files": [{"url": row[column_name]}]}
+                type="file",
+                payload=[UrlAttachment(url=url_str)],
             )
         elif column_type in ("VARIABLE", "NULLABLE_VARIABLE"):
             # Skip nullable variables with None values to avoid invalid payloads
-            if column_type == "NULLABLE_VARIABLE" and row[column_name] is None:
+            val = row.get(column_name)
+            if column_type == "NULLABLE_VARIABLE" and val is None:
                 continue
             variables[column_name] = Variable(
-                type_="text", payload={"text": row[column_name]}
-            )
+                type="text",
+                payload="" if val is None else str(val),
+             )
     return variables
 
 

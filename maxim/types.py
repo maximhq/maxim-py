@@ -12,6 +12,9 @@ from .logger import (
     ToolCallError,
     Trace,
     TraceConfig,
+    FileAttachment,
+    FileDataAttachment,
+    UrlAttachment,
 )
 from .models import (
     DatasetEntry,
@@ -44,5 +47,8 @@ __all__ = [
     "DatasetEntry",
     "DatasetRow",
     "Evaluator",
+    "FileAttachment",
+    "FileDataAttachment",
+    "UrlAttachment",
 ]
 # type: ignore
