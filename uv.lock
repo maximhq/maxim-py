@@ -1978,9 +1978,7 @@ wheels = [
 
 [[package]]
 name = "maxim-py"
-
-version = "3.10.0"
-
+version = "3.10.1"
 source = { editable = "." }
 dependencies = [
     { name = "filetype" },
