@@ -62,7 +62,7 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ### 3.10.1
 
-- fix: Fixes add dataset entry input handling
+- Breaking change: `DatasetEntry` and `Variable` classes can now accept files.
 
 ### 3.10.0
 
