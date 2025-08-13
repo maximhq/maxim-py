@@ -133,6 +133,25 @@ class ToolCall(BaseContainer):
         self.description = final_config.get("description", None)
         self.tags = final_config.get("tags", None)
 
+    def add_metric(self, name: str, value: float) -> None:
+        """
+        Add a metric to this tool call.
+        """
+        self._commit("update", {"metrics": {"name": name, "value": value}})
+
+    @staticmethod
+    def add_metric_(writer: LogWriter, id: str, name: str, value: float):
+        """
+        Add a metric to the tool call.
+        """
+        BaseContainer._commit_(
+            writer,
+            Entity.TOOL_CALL,
+            id,
+            "update",
+            {"metrics": {"name": name, "value": value}},
+        )
+
     def update(self, data: Dict[str, Any]):
         """
         Update the tool call.

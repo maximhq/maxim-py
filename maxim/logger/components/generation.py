@@ -256,10 +256,10 @@ def get_generation_error_config_dict(
     """Convert a generation error to a generation error dict else return the error.
 
     Args:
-        config: Either a TraceConfig object or a TraceConfigDict dictionary.
+        config: Either a GenerationConfig object or a GenerationConfigDict dictionary.
 
     Returns:
-        A TraceConfigDict dictionary representation of the config.
+        A GenerationConfigDict dictionary representation of the config.
     """
     return (
         GenerationErrorTypedDict(
@@ -307,11 +307,11 @@ class Generation(BaseContainer):
     @staticmethod
     def set_provider_(writer: LogWriter, id: str, provider: str):
         """
-        Static method to set the provider for a trace.
+        Static method to set the provider for a generation.
 
         Args:
             writer: The LogWriter instance to use.
-            id: The ID of the trace to set the provider for.
+            id: The ID of the generation to set the provider for.
             provider: The provider to set.
         """
         if provider not in valid_providers:
@@ -324,7 +324,7 @@ class Generation(BaseContainer):
 
     def set_provider(self, provider: str):
         """
-        Set the provider for this trace.
+        Set the provider for this generation.
 
         Args:
             provider: The provider to set.
@@ -338,11 +338,11 @@ class Generation(BaseContainer):
     @staticmethod
     def set_model_(writer: LogWriter, id: str, model: str):
         """
-        Static method to set the model for a trace.
+        Static method to set the model for a generation.
 
         Args:
             writer: The LogWriter instance to use.
-            id: The ID of the trace to set the model for.
+            id: The ID of the generation to set the model for.
             model: The model to set.
         """
         BaseContainer._commit_(
@@ -351,7 +351,7 @@ class Generation(BaseContainer):
 
     def set_model(self, model: str):
         """
-        Set the model for this trace.
+        Set the model for this generation.
 
         Args:
             model: The model to set.
@@ -359,14 +359,37 @@ class Generation(BaseContainer):
         self.model = model
         self._commit("update", {"model": model})
 
+    def add_metric(self, name: str, value: float) -> None:
+        """
+        Add a metric to this generation.
+
+        Args:
+            name: The name of the metric.
+            value: The value of the metric.
+        """
+        self._commit("update", {"metrics": {"name": name, "value": value}})
+
+    @staticmethod
+    def add_metric_(writer: LogWriter, id: str, name: str, value: float):
+        """
+        Static method to add a metric to a generation.
+        """
+        Generation._commit_(
+            writer,
+            Entity.GENERATION,
+            id,
+            "update",
+            {"metrics": {"name": name, "value": value}},
+        )
+
     @staticmethod
     def add_message_(writer: LogWriter, id: str, message: GenerationRequestMessage):
         """
-        Static method to add a message to a trace.
+        Static method to add a message to a generation.
 
         Args:
             writer: The LogWriter instance to use.
-            id: The ID of the trace to add the message to.
+            id: The ID of the generation to add the message to.
             message: The message to add.
         """
         if "content" not in message or "role" not in message:
@@ -384,7 +407,7 @@ class Generation(BaseContainer):
 
     def add_message(self, message: GenerationRequestMessage) -> None:
         """
-        Add a message to this trace.
+        Add a message to this generation.
 
         Args:
             message: The message to add.
@@ -400,11 +423,11 @@ class Generation(BaseContainer):
         writer: LogWriter, id: str, model_parameters: Dict[str, Any]
     ):
         """
-        Static method to set the model parameters for a trace.
+        Static method to set the model parameters for a generation.
 
         Args:
             writer: The LogWriter instance to use.
-            id: The ID of the trace to set the model parameters for.
+            id: The ID of the generation to set the model parameters for.
             model_parameters: The model parameters to set.
         """
         model_parameters = parse_model_parameters(model_parameters)
@@ -418,7 +441,7 @@ class Generation(BaseContainer):
 
     def set_model_parameters(self, model_parameters: Dict[str, Any]):
         """
-        Set the model parameters for this trace.
+        Set the model parameters for this generation.
 
         Args:
             model_parameters: The model parameters to set.
@@ -431,7 +454,7 @@ class Generation(BaseContainer):
         self, attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment]
     ):
         """
-        Add an attachment to this trace.
+        Add an attachment to this generation.
 
         Args:
             attachment: The attachment to add.
@@ -445,7 +468,7 @@ class Generation(BaseContainer):
         attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment],
     ):
         """
-        Static method to add an attachment to a trace.
+        Static method to add an attachment to a generation.
 
         Args:
             writer: The LogWriter instance to use.
@@ -465,11 +488,11 @@ class Generation(BaseContainer):
         writer: LogWriter, id: str, result: Union[GenerationResult, Dict[str, Any]]
     ):
         """
-        Static method to add a result to a trace.
+        Static method to add a result to a generation.
 
         Args:
             writer: The LogWriter instance to use.
-            id: The ID of the trace to add the result to.
+            id: The ID of the generation to add the result to.
             result: The result to add.
         """
         try:
@@ -499,12 +522,12 @@ class Generation(BaseContainer):
     @staticmethod
     def end_(writer: LogWriter, id: str, data: Optional[Dict[str, Any]] = None):
         """
-        Static method to end a trace.
+        Static method to end a generation.
 
         Args:
             writer: The LogWriter instance to use.
-            id: The ID of the trace to end.
-            data: The data to add to the trace.
+            id: The ID of the generation to end.
+            data: The data to add to the generation.
         """
         if data is None:
             data = {}
@@ -521,11 +544,11 @@ class Generation(BaseContainer):
     @staticmethod
     def add_tag_(writer: LogWriter, id: str, key: str, value: str):
         """
-        Static method to add a tag to a trace.
+        Static method to add a tag to a generation.
 
         Args:
             writer: The LogWriter instance to use.
-            id: The ID of the trace to add the tag to.
+            id: The ID of the generation to add the tag to.
             key: The key of the tag to add.
             value: The value of the tag to add.
         """
@@ -680,7 +703,7 @@ class Generation(BaseContainer):
 
     def result(self, result: Any):
         """
-        Add a result to this trace.
+        Add a result to this generation.
 
         Args:
             result: The result to add.
@@ -700,7 +723,7 @@ class Generation(BaseContainer):
 
     def error(self, error: Union[GenerationError, GenerationErrorTypedDict]):
         """
-        Add an error to this trace.
+        Add an error to this generation.
 
         Args:
             error: The error to add.
@@ -732,11 +755,11 @@ class Generation(BaseContainer):
         error: Union[GenerationError, GenerationErrorTypedDict],
     ):
         """
-        Static method to add an error to a trace.
+        Static method to add an error to a generation.
 
         Args:
             writer: The LogWriter instance to use.
-            id: The ID of the trace to add the error to.
+            id: The ID of the generation to add the error to.
             error: The error to add.
         """
         final_error = get_generation_error_config_dict(error)
@@ -771,10 +794,10 @@ class Generation(BaseContainer):
 
     def data(self) -> Dict[str, Any]:
         """
-        Get the data for this trace.
+        Get the data for this generation.
 
         Returns:
-            A dictionary containing the data for this trace.
+            A dictionary containing the data for this generation.
         """
         base_data = super().data()
         return {
