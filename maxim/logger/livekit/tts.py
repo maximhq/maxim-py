@@ -1,18 +1,17 @@
+import asyncio
 import functools
 import inspect
-import time
 import traceback
-from io import BytesIO
-from uuid import uuid4
+from typing import Optional
+
+from livekit.agents.tts import TTS, ChunkedStream, SynthesizedAudio
+from livekit.agents.utils.aio import Chan
 
 from ...scribe import scribe
-from ..components import FileDataAttachment
-from ..utils import pcm16_to_wav_bytes
-from .store import get_session_store, get_maxim_logger
+from .store import get_session_store, get_tts_store
 from .utils import get_thread_pool_executor
 
 tts_f_skip_list = []
-
 
 def handle_tts_text_input(self, text):
     """Handle TTS text input - store transcription to current turn (created by start_new_turn)"""
@@ -49,58 +48,73 @@ def handle_tts_text_input(self, text):
         )
 
 
-def handle_tts_result(self, result):
+def handle_tts_result(self: TTS, result: Optional[ChunkedStream]) -> Optional[bytes]:
     """Handle TTS synthesis result with audio output"""
+    if result is None:
+        return None
+
+    tts_id = id(self)
+    event_ch = result._event_ch
+
     try:
-        if result is None:
-            return
+        target_loop = None
+        if hasattr(event_ch, '_loop') and event_ch._loop.is_running():
+            target_loop = event_ch._loop
 
-        # Get session info from agent session
-        session_info = None
-        if hasattr(self, "_session") and self._session is not None:
-            session_info = get_session_store().get_session_by_agent_session_id(
-                id(self._session)
-            )
-
-        if session_info is None:
-            return
-
-        turn = session_info.current_turn
-        if turn is None:
-            return
-
-        # Extract audio data from result
-        audio_data = None
-        if hasattr(result, "data"):
-            audio_data = result.data
-        elif hasattr(result, "audio"):
-            audio_data = result.audio
-        elif hasattr(result, "content"):
-            audio_data = result.content
-
-        if audio_data:
-            # Buffer audio output
-            if turn.turn_output_audio_buffer is None:
-                turn.turn_output_audio_buffer = BytesIO()
-            turn.turn_output_audio_buffer.write(audio_data)
-            session_info.conversation_buffer.write(audio_data)
-
-            # Audio attachment will be handled in agent_activity.py when turn completes
-
-            session_info.current_turn = turn
-            get_session_store().set_session(session_info)
-
-            # Update trace output if available
-            trace = get_session_store().get_current_trace_for_agent_session(
-                id(self._session)
-            )
-            if trace is not None and turn.turn_output_transcription:
-                trace.set_output(turn.turn_output_transcription)
+        if target_loop is None:
+            return None
+        return _run_channel_processing(result, target_loop, tts_id)
 
     except Exception as e:
-        scribe().warning(
-            f"[Internal][TTS] Result handling failed: {e!s}\n{traceback.format_exc()}"
+        scribe().error(f"[Internal][TTS] Result handling failed: {e!s}\n{traceback.format_exc()}")
+        return None
+
+def _run_channel_processing(
+        result: ChunkedStream,
+        loop: asyncio.AbstractEventLoop, tts_id: int
+    ) -> Optional[bytes]:
+    """Run channel processing using an existing event loop"""
+
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            _process_audio_events(result._event_ch, tts_id),
+            loop
         )
+        return future.result(timeout=60.0)
+
+    except asyncio.TimeoutError:
+        scribe().warning("[Internal][TTS] Processing timed out after 60 seconds")
+        future.cancel()
+        return None
+    except Exception as e:
+        scribe().error(f"[Internal][TTS] Async processing failed: {e!s}")
+        return None
+
+
+async def _process_audio_events(
+        event_channel: Chan[SynthesizedAudio],
+        tts_id: int
+    ) -> Optional[bytes]:
+    """Process audio events from the TTS stream"""
+    event_frames = []
+
+    try:
+        async for event in event_channel:
+            if event.frame is not None and event.frame.data:
+                event_frames.append(event.frame)
+
+        if event_frames and len(event_frames) > 0:
+            get_tts_store().add_tts_audio_data(tts_id, event_frames)
+        else:
+            scribe().warning("[Internal][TTS] No audio data collected from events")
+            return None
+
+    except asyncio.CancelledError:
+        scribe().debug("[Internal][TTS] Audio processing cancelled")
+        raise  # Re-raise to properly handle cancellation
+    except Exception as e:
+        scribe().error(f"[Internal][TTS] Error processing audio events: {e!s}")
+        return None
 
 
 def pre_hook(self, hook_name, args, kwargs):
@@ -125,7 +139,8 @@ def post_hook(self, result, hook_name, args, kwargs):
     try:
         if hook_name in ["synthesize", "asynthesize", "speak"]:
             # Handle synthesis result
-            get_thread_pool_executor().submit(handle_tts_result, self, result)
+            new_stream = result._tee
+            get_thread_pool_executor().submit(handle_tts_result, self, new_stream)
         else:
             scribe().debug(
                 f"[Internal][{self.__class__.__name__}] {hook_name} completed; result_type={type(result).__name__}"
