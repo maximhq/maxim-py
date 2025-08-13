@@ -3,6 +3,7 @@ import functools
 import importlib
 import inspect
 import logging
+import traceback
 import uuid
 from time import time
 from typing import Union
@@ -53,6 +54,18 @@ def get_log_level(debug: bool) -> int:
     """
     return logging.DEBUG if debug else logging.WARNING
 
+class MaximEvalConfig:
+    """Maxim eval config.
+
+    This class represents a maxim eval config.
+    """
+
+    evaluators: list[str]
+    additional_variables: list[dict[str, str]]
+
+    def __init__(self):
+        self.evaluators = []
+        self.additional_variables = []
 
 class MaximUsageCallback:
     """Maxim usage callback.
@@ -441,11 +454,28 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
 
                 span_id = str(uuid.uuid4())
 
+                eval_config = MaximEvalConfig()
+                if (
+                    hasattr(self, "config")
+                    and self.config is not None
+                    and isinstance(self.config, dict)
+                ):
+                    maxim_config = self.config.get("maxim-eval", {})
+                    if maxim_config is not None and isinstance(maxim_config, dict):
+                        eval_config.evaluators = maxim_config.get("evaluators", [])
+                        eval_config.additional_variables = maxim_config.get("additional_variables", [])
+
+                    # avoid passing maxim-eval config to the original method
+                    self.config.pop("maxim-eval", None)  # Using pop to safely remove the key
+
                 agent_span_config = SpanConfigDict(
                     {
                         "id": span_id,
                         "name": f"Agent: {self.role}",
-                        "tags": {"agent_id": str(getattr(self, "id", ""))},
+                        "tags": {
+                            "agent_id": str(getattr(self, "id", "")),
+                            "evaluators_attached": "true" if eval_config.evaluators else "false"
+                        },
                     }
                 )
 
@@ -523,6 +553,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                         )
                     if isinstance(self.llm, LLM):
                         setattr(self.llm, "_span", span)
+                        setattr(self.llm, "_eval_config", eval_config)
 
                     # Check for tools in both agent's tools attribute and in execute_task arguments
                     tools_to_set_context = []
@@ -544,19 +575,20 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                             kwargs.get("tools", None) if kwargs else None
                         )
                         if tools_from_kwargs:
-                            if isinstance(tools_from_kwargs, list):
-                                # Filter for BaseTool instances from kwargs list
-                                for tool in tools_from_kwargs:
-                                    if (
-                                        isinstance(tool, BaseTool)
-                                        and tool not in tools_to_set_context
-                                    ):
-                                        tools_to_set_context.append(tool)
-                            elif (
-                                isinstance(tools_from_kwargs, BaseTool)
-                                and tools_from_kwargs not in tools_to_set_context
-                            ):
-                                tools_to_set_context.append(tools_from_kwargs)
+                            if tools_from_kwargs is not None:
+                                if isinstance(tools_from_kwargs, list):
+                                    # Filter for BaseTool instances from kwargs list
+                                    for tool in tools_from_kwargs:
+                                        if (
+                                            isinstance(tool, BaseTool)
+                                            and tool not in tools_to_set_context
+                                        ):
+                                            tools_to_set_context.append(tool)
+                                elif (
+                                    isinstance(tools_from_kwargs, BaseTool)
+                                    and tools_from_kwargs not in tools_to_set_context
+                                ):
+                                    tools_to_set_context.append(tools_from_kwargs)
 
                         # Check args for tools (usually after task argument)
                         if len(args) > 1 and isinstance(args[1], (list, BaseTool)):
@@ -582,6 +614,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                         )
                         for tool in tools_to_set_context:
                             setattr(tool, "_span", span)
+                            setattr(tool, "_eval_config", eval_config)
 
             elif isinstance(self, LLM):
                 span = getattr(self, "_span", None)
@@ -628,6 +661,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
 
                     generation = planner_span.generation(llm_generation_config)
 
+                setattr(self, "_input", args[0])
             elif isinstance(self, BaseTool):
                 span = getattr(self, "_span", None)
                 if not isinstance(span, Span):
@@ -646,25 +680,24 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                                 "tags": {"span_id": span.id},
                             }
                         )
-                        tool_call.input(processed_inputs["query"])
+                        setattr(tool_call, "_input", processed_inputs.get("query", ""))
+                        tool_call.input(processed_inputs.get("query", ""))
                     else:
                         scribe().debug(f"[MaximSDK] TOOL: {self.name} [{tool_id}]")
 
                         tool_details = extract_tool_details(self.description)
+                        tool_args = str(tool_details["args"]) if tool_details["args"] is not None else str(processed_inputs)
                         tool_call = span.tool_call(
                             {
                                 "id": tool_id,
                                 "name": f"{tool_details['name'] or self.name}",
                                 "description": tool_details["description"]
                                 or self.description,
-                                "args": (
-                                    str(tool_details["args"])
-                                    if tool_details["args"] is not None
-                                    else str(processed_inputs)
-                                ),
+                                "args": tool_args,
                                 "tags": {"tool_id": tool_id, "span_id": span.id},
                             }
                         )
+                        setattr(tool_call, "_input", tool_args)
 
                     span = None
                 else:
@@ -676,6 +709,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                 # Call the original method (bound to self)
                 output = original_method.__get__(self, self.__class__)(*args, **kwargs)
             except Exception as e:
+                traceback.print_exc()
                 scribe().error(f"[MaximSDK] {type(e).__name__} in {final_op_name}")
 
                 if tool_call:
@@ -721,12 +755,35 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     scribe().debug(f"[MaximSDK] Failed to process output: {e}")
 
             if tool_call:
+                if hasattr(self, "_eval_config") and \
+                    isinstance(self._eval_config, MaximEvalConfig):
+                    # Create a new dictionary for evaluation variables
+                    eval_vars = {}
+                    # Add any existing variables from config
+                    for var_dict in self._eval_config.additional_variables:
+                        eval_vars.update(var_dict)
+                    # Add input and output
+                    if hasattr(tool_call, "_input"):
+                        eval_vars["input"] = str(tool_call._input)
+                    eval_vars["output"] = processed_output
+
+                    # Evaluate with the variables
+                    current_eval_config = getattr(self, "_eval_config", None)
+                    if current_eval_config:
+                        current_evaluators = current_eval_config.evaluators
+                    else:
+                        current_evaluators = self._eval_config.evaluators
+                    
+                    if len(current_evaluators) > 0:
+                        tool_call.evaluate().with_evaluators(*current_evaluators).with_variables(eval_vars)
+
                 if isinstance(tool_call, Retrieval):
                     tool_call.output(processed_output)
                     scribe().debug("[MaximSDK] RAG: Completed retrieval")
                 else:
                     tool_call.result(processed_output)
                     scribe().debug("[MaximSDK] TOOL: Completed tool call")
+
 
             if generation:
                 # Create a structured result compatible with GenerationResult
@@ -749,6 +806,31 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
                     scribe().debug(
                         f"[MaximSDK] GEN: Using default token usage (0). Captured data: {usage_data}"
                     )
+
+                # Important to set and retrieve internal variables
+                if hasattr(self, "_eval_config") and \
+                    isinstance(self._eval_config, MaximEvalConfig):
+                    # Create a new dictionary for evaluation variables
+                    eval_vars = {}
+                    # Add any existing variables from config
+                    for var_dict in self._eval_config.additional_variables:
+                        eval_vars.update(var_dict)
+                    # Add input and output
+                    if hasattr(generation, "_input"):
+                        eval_vars["input"] = str(generation._input)
+                    eval_vars["output"] = str(processed_output)
+
+                    # Evaluate with the variables
+                    current_eval_config = getattr(self, "_eval_config", None)
+                    if current_eval_config:
+                        current_evaluators = current_eval_config.evaluators
+                    else:
+                        current_evaluators = self._eval_config.evaluators
+                    
+                    if len(current_evaluators) > 0:
+                        generation.evaluate().with_evaluators(*current_evaluators).with_variables(eval_vars)
+                    else:
+                        scribe().warning("[MaximSDK] No evaluators found for generation")
 
                 result = {
                     "id": f"gen_{generation.id}",
@@ -833,7 +915,7 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
     for method_name in agent_methods_to_patch:
         if hasattr(Agent, method_name):
             original_method = getattr(Agent, method_name)
-            op_name = f"crewai.Crew.{method_name}"
+            op_name = f"crewai.Agent.{method_name}"
             wrapper = make_maxim_wrapper(
                 original_method,
                 op_name,
