@@ -2,6 +2,9 @@ import enum
 import json
 from typing import Any, Dict, List, Optional
 
+from openai.types.chat import ChatCompletionMessageToolCall
+from openai.types.chat.chat_completion_message_tool_call import Function
+
 from ...scribe import scribe
 from .core import (
     validate_content,
@@ -21,8 +24,15 @@ def parse_function_call(function_call_data):
     Returns:
         The parsed function call.
     """
-    validate_type(function_call_data.name, str, "name")
-    validate_type(function_call_data.arguments, str, "arguments")
+    if isinstance(function_call_data, Function):
+        validate_type(function_call_data.name, str, "name")
+        validate_type(function_call_data.arguments, str, "arguments")
+    else:
+        if function_call_data.get("name") is not None:
+            validate_type(function_call_data.get("name"), str, "name")
+        else:
+            validate_type(function_call_data.name, str, "name")
+
     return function_call_data
 
 
@@ -36,9 +46,20 @@ def parse_tool_calls(tool_calls_data):
     Returns:
         The parsed tool calls.
     """
-    validate_type(tool_calls_data.id, str, "id")
-    validate_type(tool_calls_data.type, str, "type")
-    parse_function_call(tool_calls_data.function)
+    if isinstance(tool_calls_data, ChatCompletionMessageToolCall):
+        validate_type(tool_calls_data.id, str, "id")
+        validate_type(tool_calls_data.type, str, "type")
+        parse_function_call(tool_calls_data.function)
+    else:
+        if tool_calls_data.get("id") is not None:
+            validate_type(tool_calls_data.get("id"), str, "id")
+        else:
+            validate_type(tool_calls_data.id, str, "id")
+        if tool_calls_data.get("type") is not None:
+            validate_type(tool_calls_data.get("type"), str, "type")
+        if tool_calls_data.get("function") is not None:
+            parse_function_call(tool_calls_data.get("function"))
+
     return tool_calls_data
 
 
