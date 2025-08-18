@@ -57,4 +57,7 @@ dev = [
   "fireworks-ai>=0.17.9",
   "livekit-plugins-noise-cancellation~=0.2",
   "crewai==0.130.0",
+  "llama-index-core>=0.12.49",
+  "llama-index-llms-openai>=0.4.7",
+  "tavily-python>=0.7.9",
 ]
