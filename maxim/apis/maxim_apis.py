@@ -690,14 +690,14 @@ class MaximAPI:
             raise Exception(e) from e
 
     def add_dataset_entries(
-        self, dataset_id: str, dataset_entries: List[DatasetEntry]
+        self, dataset_id: str, dataset_entries: List[Union[DatasetEntry, Dict[str, Any]]]
     ) -> dict[str, Any]:
         """
         Add entries to a dataset.
 
         Args:
             dataset_id: The ID of the dataset
-            dataset_entries: List of dataset entries to add
+            dataset_entries: List of dataset entries to add (can be DatasetEntry objects or dictionaries)
 
         Returns:
             dict[str, Any]: Response from the API
@@ -706,13 +706,24 @@ class MaximAPI:
             Exception: If the request fails
         """
         try:
+            # Convert all entries to DatasetEntry objects for consistency
+            converted_entries = []
+            for entry in dataset_entries:
+                if isinstance(entry, DatasetEntry):
+                    converted_entries.append(entry)
+                elif isinstance(entry, dict):
+                    # Convert dictionary to DatasetEntry object
+                    converted_entries.append(DatasetEntry.from_json(entry))
+                else:
+                    raise TypeError(f"Invalid entry type: {type(entry).__name__}. Expected DatasetEntry or dict.")
+            
             res = self.__make_network_call(
                 method="POST",
                 endpoint="/api/sdk/v3/datasets/entries",
                 body=json.dumps(
                     {
                         "datasetId": dataset_id,
-                        "entries": [entry.to_json() for entry in dataset_entries],
+                        "entries": [entry.to_json() for entry in converted_entries],
                     }
                 ),
             )
