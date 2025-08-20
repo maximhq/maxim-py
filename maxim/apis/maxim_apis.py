@@ -1,6 +1,8 @@
 import contextlib
 import json
+import mimetypes
 import time
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Union
 
 import httpx
@@ -15,11 +17,19 @@ from httpx import (
     TimeoutException,
 )
 
+from maxim.models.dataset import DatasetEntryWithRowNo
+from maxim.models.dataset import FileVariablePayload, VariableFileAttachment
+from maxim.logger.components.attachment import (
+    Attachment,
+    FileDataAttachment,
+    UrlAttachment,
+    FileAttachment,
+)
+
 
 from ..models import (
     AgentResponse,
     ChatCompletionMessage,
-    DatasetEntry,
     DatasetRow,
     Evaluator,
     ExecutePromptForDataResponse,
@@ -39,6 +49,8 @@ from ..models import (
     Variable,
     VersionAndRulesWithPromptChainId,
     VersionAndRulesWithPromptId,
+    DatasetAttachmentUploadURL,
+
 )
 from ..scribe import scribe
 from ..version import current_version
@@ -689,45 +701,231 @@ class MaximAPI:
         except Exception as e:
             raise Exception(e) from e
 
-    def add_dataset_entries(
-        self, dataset_id: str, dataset_entries: List[Union[DatasetEntry, Dict[str, Any]]]
-    ) -> dict[str, Any]:
+    def upload_dataset_entry_attachments(self, dataset_id: str, entry_id: str, entry: DatasetEntryWithRowNo) -> Optional[FileVariablePayload]:
         """
-        Add entries to a dataset.
+        Get upload URL for an attachment and upload the file to the server.
+        """
+
+        # Process each attachment in the entry
+        file_attachments = []
+        for attachment in entry.payload:
+            try:
+                file_data, mime_type, size = self._process_attachment(attachment)
+                
+                # Validate MIME type
+                if not mime_type or mime_type == "application/octet-stream":
+                    # Try to infer MIME type from any available hint
+                    hint = (
+                        getattr(attachment, "name", None)
+                        or getattr(attachment, "path", None)
+                        or getattr(attachment, "url", None)
+                    )
+                    if hint:
+                        inferred_type, _ = mimetypes.guess_type(hint)
+                        if inferred_type:
+                            mime_type = inferred_type
+                # For uploads, reject unknown/generic MIME
+                if isinstance(attachment, (FileDataAttachment, FileAttachment)) and (
+                    not mime_type or mime_type == "application/octet-stream"
+                ):
+                    raise ValueError(
+                        f"Unrecognized/unsafe MIME type for upload: {getattr(attachment, 'name', getattr(attachment, 'path', 'attachment'))}"
+                    )
+
+                # Get upload URL for dataset attachment
+                if isinstance(attachment, (FileDataAttachment, FileAttachment)):
+                    upload_response = self.get_upload_url_for_dataset_attachment(
+                        dataset_id=dataset_id,
+                        entry_id=entry_id,
+                        key=attachment.id,
+                        column_id = entry.column_id,
+                        mime_type=mime_type,
+                        size=size,
+                    )
+                    upload_success = self.upload_to_signed_url(upload_response["url"], file_data, mime_type)
+
+                    if not upload_success:
+                        raise Exception(f"Failed to upload file {attachment.name} to signed URL")
+                    # Create VariableFileAttachment with hosted=True
+                    file_attachment = VariableFileAttachment(
+                        id=attachment.id,
+                        url="",
+                        hosted=True,
+                        prefix=upload_response["key"],
+                        props={ 
+                            "size": size,
+                            "type": mime_type,
+                        },
+                    )
+                else:
+                    file_attachment = VariableFileAttachment(
+                        id=attachment.id,
+                        url=attachment.url,
+                        hosted=False,
+                        prefix="",
+                        props={ 
+                            "size": size,
+                            "type": mime_type,
+                        },
+                    )
+                
+                file_attachments.append(file_attachment)
+            except Exception as e:
+                # Log the error but continue processing other attachments
+                scribe().error(
+                    f"Failed to process attachment "
+                    f"id={getattr(attachment, 'id', 'unknown')} "
+                    f"name={getattr(attachment, 'name', getattr(attachment, 'path', getattr(attachment, 'url', 'unknown')))}: {e}"
+                )
+                continue
+        
+        # Create FileVariablePayload for this entry
+        if file_attachments:
+            file_payload = FileVariablePayload(
+                text=entry.column_name,
+                files=file_attachments,
+                entry_id=entry_id,
+            )
+            return file_payload
+        
+        return None
+
+    def _process_attachment(self, attachment: Attachment) -> tuple[bytes, str, int]:
+        """
+        Process an attachment and return file data, MIME type, and size.
+        
+        Args:
+            attachment: The attachment to process (UrlAttachment, FileDataAttachment, or FileAttachment)
+            
+        Returns:
+            tuple: (file_data, mime_type, size)
+            
+        Raises:
+            TypeError: If attachment type is not supported
+            ValueError: If attachment data is invalid
+            Exception: For network or file I/O errors
+        """
+        if isinstance(attachment, UrlAttachment):
+            return self._process_url_attachment(attachment)
+        if isinstance(attachment, (FileDataAttachment, FileAttachment)):
+            return self._process_file_attachment(attachment)
+        raise TypeError(f"Invalid attachment type: {type(attachment).__name__}")
+
+    def _process_url_attachment(self, attachment: UrlAttachment) -> tuple[bytes, str, int]:
+        """
+        Probe a URL attachment (HEAD) to get metadata without downloading content.
+        
+        Args:
+            attachment: The URL attachment to process
+            
+        Returns:
+            tuple: (file_data, mime_type, size)
+        """
+        try:
+            with self.connection_pool.get_client() as client:
+                # Validate URL
+                parsed = urlparse(attachment.url or "")
+                if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                    raise ValueError(f"Invalid URL: {attachment.url!s}")
+                
+                # Get file info from HEAD request
+                head_response = client.head(attachment.url, timeout=30.0)
+                head_response.raise_for_status()
+                
+                mime_type = head_response.headers.get('content-type', 'application/octet-stream')
+                content_length = head_response.headers.get('content-length')
+                size = 0
+                if content_length:
+                    try:
+                        size = int(content_length)
+                    except ValueError:
+                        size = 0
+                return b"", mime_type, size
+                
+        except Exception as e:
+            raise Exception(f"Failed to process URL attachment via HEAD {attachment.url!s}: {e}") from e
+
+    def _process_file_attachment(self, attachment: Union[FileDataAttachment, FileAttachment]) -> tuple[bytes, str, int]:
+        """
+        Process a file attachment (FileDataAttachment or FileAttachment).
+        
+        Args:
+            attachment: The file attachment to process
+            
+        Returns:
+            tuple: (file_data, mime_type, size)
+        """
+        try:
+            MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
+            if isinstance(attachment, FileDataAttachment):
+                file_data = attachment.data
+                mime_type = attachment.mime_type or 'application/octet-stream'
+                size = len(file_data)
+                if size > MAX_FILE_SIZE_BYTES:
+                    raise ValueError(f"File size exceeds the maximum allowed size of {MAX_FILE_SIZE_BYTES} bytes")
+            else:  # FileAttachment
+                import os
+                if not os.path.exists(attachment.path):
+                    raise FileNotFoundError(f"File not found: {attachment.path}")
+                
+                size = os.path.getsize(attachment.path)
+                if size > MAX_FILE_SIZE_BYTES:
+                    raise ValueError(f"File size exceeds the maximum allowed size of {MAX_FILE_SIZE_BYTES} bytes")
+                mime_type = attachment.mime_type or 'application/octet-stream'
+                with open(attachment.path, 'rb') as f:
+                    file_data = f.read()
+            
+            return file_data, mime_type, size
+            
+        except Exception as e:
+            attachment_name = getattr(attachment, "name", "unknown")
+            raise Exception(f"Failed to process file attachment {attachment_name}: {e}") from e
+
+    def get_upload_url_for_dataset_attachment(self, dataset_id: str, entry_id: str, key: str, column_id:Optional[str], mime_type: str = "application/octet-stream", size: int = 0) -> DatasetAttachmentUploadURL:
+        """
+        Get a signed URL for uploading a file.
 
         Args:
-            dataset_id: The ID of the dataset
-            dataset_entries: List of dataset entries to add (can be DatasetEntry objects or dictionaries)
+            dataset_id: The dataset identifier
+            entry_id: The entry identifier within the dataset
+            key: The key (filename) for the upload
+            column_id: The column identifier within the dataset
+            mime_type: The MIME type of the file
+            size: The size of the file in bytes
 
         Returns:
-            dict[str, Any]: Response from the API
+            DatasetAttachmentUploadURL: A dict containing the signed PUT URL and storage key
 
         Raises:
             Exception: If the request fails
         """
         try:
-            # Convert all entries to DatasetEntry objects for consistency
-            converted_entries = []
-            for entry in dataset_entries:
-                if isinstance(entry, DatasetEntry):
-                    converted_entries.append(entry)
-                elif isinstance(entry, dict):
-                    # Convert dictionary to DatasetEntry object
-                    converted_entries.append(DatasetEntry.from_json(entry))
-                else:
-                    raise TypeError(f"Invalid entry type: {type(entry).__name__}. Expected DatasetEntry or dict.")
-            
+            payload = {
+                "datasetId": dataset_id,
+                "entryId": entry_id,
+                "file": {
+                    "id": key,
+                    "type": mime_type,
+                    "size": size,
+                },
+            }
+            if column_id is not None:
+                payload["columnId"] = column_id
+                
             res = self.__make_network_call(
-                method="POST",
-                endpoint="/api/sdk/v3/datasets/entries",
-                body=json.dumps(
-                    {
-                        "datasetId": dataset_id,
-                        "entries": [entry.to_json() for entry in converted_entries],
-                    }
-                ),
+                method="PUT",
+                endpoint="/api/sdk/v4/datasets/entries/attachments/",
+                body=json.dumps(payload),
             )
-            return json.loads(res.decode())
+            
+            json_response = json.loads(res.decode())
+            if "error" in json_response:
+                raise Exception(json_response["error"]["message"])
+
+            return {
+                "url": json_response["data"]["url"],
+                "key": json_response["data"]["key"],
+            }
         except httpx.HTTPStatusError as e:
             if e.response is not None:
                 try:
@@ -742,8 +940,6 @@ class MaximAPI:
                         raise Exception(error_data["error"]["message"]) from e
                 except (ValueError, KeyError):
                     pass
-            raise Exception(e) from e
-        except Exception as e:
             raise Exception(e) from e
 
     def get_dataset_total_rows(self, dataset_id: str) -> int:
@@ -1576,3 +1772,89 @@ class MaximAPI:
         if last_exception:
             raise Exception(f"File upload failed: {last_exception}")
         raise Exception("File upload failed for unknown reasons")
+
+    def create_dataset_entries(self, dataset_id: str, entries: list[dict[str, Any]]) -> dict[str, Any]:
+        """
+        Create dataset entries via API.
+
+        Args:
+            dataset_id: The ID of the dataset to add entries to
+            entries: List of dataset entries to add
+
+        Returns:
+            dict[str, Any]: Response data from the API
+
+        Raises:
+            Exception: If the request fails
+        """
+        try:
+            res = self.__make_network_call(
+                method="POST",
+                endpoint="/api/sdk/v4/datasets/entries",
+                body=json.dumps({
+                    "datasetId": dataset_id,
+                    "entries": entries,
+                }),
+            )
+            response_data = json.loads(res.decode())
+            if "error" in response_data:
+                raise Exception(response_data["error"]["message"])
+            return response_data
+        except httpx.HTTPStatusError as e:
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
+            raise Exception(e) from e
+        except Exception as e:
+            raise Exception(e) from e
+
+    def update_dataset_entries(self, dataset_id: str, updates: list[dict[str, Any]]) -> None:
+        """
+        Update dataset entries with file attachments.
+
+        Args:
+            dataset_id: The ID of the dataset
+            updates: List of updates to apply
+
+        Raises:
+            Exception: If the request fails
+        """
+        try:
+            res = self.__make_network_call(
+                method="PUT",
+                endpoint="/api/sdk/v4/datasets/entries",
+                body=json.dumps({
+                    "datasetId": dataset_id,
+                    "updates": updates,
+                }),
+            )
+            response_data = json.loads(res.decode())
+            if "error" in response_data:
+                raise Exception(response_data["error"]["message"])
+        except httpx.HTTPStatusError as e:
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
+            raise Exception(e) from e
+        except Exception as e:
+            raise Exception(f"Failed to update dataset entries with attachments: {e!s}") from e

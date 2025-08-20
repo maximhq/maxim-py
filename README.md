@@ -60,6 +60,11 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.10.3
+
+- **feat** Added file support to `add_dataset_entries`
+- **Breaking Change** Updated dataclasses of `Variables` and `DatasetEntry`
+
 ### 3.10.2
 
 - feat: Adds node-level evals support for CrewAI

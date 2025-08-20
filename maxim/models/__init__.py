@@ -6,6 +6,7 @@ from .dataset import (
     DataValue,
     Variable,
     VariableType,
+    DatasetAttachmentUploadURL,
 )
 from .evaluator import (
     Evaluator,
@@ -155,4 +156,5 @@ __all__ = [
     "ConsoleLogger",
     "RunResult",
     "AgentResponse",
+    "DatasetAttachmentUploadURL",
 ]
