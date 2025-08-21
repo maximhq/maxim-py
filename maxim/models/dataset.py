@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from typing import Any, Callable, Literal, Optional, TypeVar, TypedDict, Union
 from ..logger.components.attachment import Attachment, FileAttachment, FileDataAttachment, UrlAttachment
@@ -89,7 +89,7 @@ class VariableFileAttachment:
     url: str
     hosted: bool
     prefix: Optional[str] = None
-    props: dict[str, Any]
+    props: dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
