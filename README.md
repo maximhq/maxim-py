@@ -60,6 +60,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.10.4
+
+- feat: Disables internal logs for LiveKit
+
 ### 3.10.3
 
 - **feat** Added file support to `add_dataset_entries`
