@@ -1011,7 +1011,7 @@ class Maxim:
     def add_dataset_entries(
         self,
         dataset_id: str,
-        dataset_entries: list[DatasetEntry | dict[str, Any]],
+        dataset_entries: list[Union[DatasetEntry, dict[str, Any]]],
     ) -> dict[str, Any]:
         """
         Add entries to a dataset.

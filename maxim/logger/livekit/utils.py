@@ -176,10 +176,10 @@ def extract_llm_model_parameters(llm: Optional[_LLMOptions]) -> Optional[dict[st
     if llm is None:
         return None
     model_parameters = {}
-    if llm.temperature is not None and llm.temperature != NOT_GIVEN:
+    if hasattr(llm, "temperature") and llm.temperature is not None and llm.temperature != NOT_GIVEN:
         model_parameters["temperature"] = llm.temperature
-    if llm.max_completion_tokens is not None and llm.max_completion_tokens != NOT_GIVEN:
+    if hasattr(llm, "max_completion_tokens") and llm.max_completion_tokens is not None and llm.max_completion_tokens != NOT_GIVEN:
         model_parameters["max_completion_tokens"] = llm.max_completion_tokens
-    if llm.tool_choice is not None and llm.tool_choice != NOT_GIVEN:
+    if hasattr(llm, "tool_choice") and llm.tool_choice is not None and llm.tool_choice != NOT_GIVEN:
         model_parameters["tool_choice"] = llm.tool_choice
     return model_parameters

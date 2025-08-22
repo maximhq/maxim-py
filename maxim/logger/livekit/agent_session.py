@@ -99,14 +99,13 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     )
 
     current_turn_id = str(uuid.uuid4())
-    if self.stt is not None or self.tts is not None:
+    if self.stt is not None or self.tts is not None or self._agent.stt is not None or self._agent.tts is not None:
         # Only add generation if we are not in realtime session
-        llm_opts: _LLMOptions = self.llm._opts
+        llm_opts: _LLMOptions = self.llm._opts if self.llm is not None else self._agent.llm._opts
+        model = self.llm.model if self.llm is not None else self._agent.llm.model
         if llm_opts is not None:
-            model = llm_opts.model
             model_parameters = extract_llm_model_parameters(llm_opts)
         else:
-            model = None
             model_parameters = None
         trace.generation(GenerationConfigDict(
             id=current_turn_id,
@@ -251,15 +250,15 @@ def handle_agent_response_complete(self: AgentSession, response_text):
         if turn is None:
             return
 
-        llm_opts: _LLMOptions = self.llm._opts
+        llm_opts: _LLMOptions = self.llm._opts if self.llm is not None else self._agent.llm._opts
         if llm_opts is not None:
-            model = llm_opts.model
             model_parameters = extract_llm_model_parameters(llm_opts)
         else:
-            model = None
             model_parameters = None
 
-        usage = extract_llm_usage(id(self), self.llm)
+        model = self.llm.model if self.llm is not None else self._agent.llm.model
+
+        usage = extract_llm_usage(id(self), self.llm if self.llm is not None else self._agent.llm)
 
         tts_id = id(self.tts) if self.tts is not None else None
         tts_audio_frames = get_tts_store().get_tts_audio_data(tts_id) if tts_id is not None else None
@@ -315,7 +314,7 @@ def handle_agent_response_complete(self: AgentSession, response_text):
                 created=int(time.time()),
                 model=model if model is not None else "unknown",
                 choices=choices,
-                usage=usage if usage is not None else {},
+                usage=usage if usage is not None else { "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0 },
             )
             try:
                 get_maxim_logger().generation_result(turn.turn_id, result)
