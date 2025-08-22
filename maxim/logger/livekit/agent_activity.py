@@ -168,12 +168,11 @@ def handle_final_transcript(self, event):
             )
             return
 
-        llm_opts: _LLMOptions = self.llm._opts
+        llm_opts: _LLMOptions = self.llm._opts if self.llm is not None else self._agent.llm._opts
+        model = self.llm.model if self.llm is not None else self._agent.llm.model
         if llm_opts is not None:
-            model = llm_opts.model
             model_parameters = extract_llm_model_parameters(llm_opts)
         else:
-            model = None
             model_parameters = None
 
         # Extract transcript
@@ -336,12 +335,9 @@ def handle_metrics_collected(self: AgentActivity, metrics: AgentMetrics):
         return
 
     usage = {}
-    if metrics.completion_tokens is not None:
-        usage["completion_tokens"] = metrics.completion_tokens
-    if metrics.prompt_tokens is not None:
-        usage["prompt_tokens"] = metrics.prompt_tokens
-    if metrics.total_tokens is not None:
-        usage["total_tokens"] = metrics.total_tokens
+    usage["completion_tokens"] = 0 if metrics.completion_tokens is None else metrics.completion_tokens
+    usage["prompt_tokens"] = 0 if metrics.prompt_tokens is None else metrics.prompt_tokens
+    usage["total_tokens"] = 0 if metrics.total_tokens is None else metrics.total_tokens
 
     turn.usage = usage
 

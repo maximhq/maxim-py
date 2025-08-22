@@ -26,21 +26,21 @@ class Variable:
     """
     type: Literal["text", "json", "file"]
     payload: Union[str, dict[str, Any], list[Attachment]]
-    
+
     def to_json(self) -> dict[str, Any]:
         """Convert the Variable to a dict; for type 'file', payload contains Attachment instances and may not be JSON-serializable."""
         return {"type": self.type, "payload": self.payload}
-    
+
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> "Variable":
         """Create a Variable from a JSON-like dictionary.
-        
+
         Args:
             data: Dictionary containing the variable data with 'type' and 'payload' keys
-            
+
         Returns:
             Variable: The created variable instance
-            
+
         Raises:
             ValueError/TypeError: If the data format is invalid or required fields are missing.
             Note: For type 'file', payload must be a list of typed Attachment objects
@@ -88,9 +88,9 @@ class VariableFileAttachment:
     id: str
     url: str
     hosted: bool
-    prefix: Optional[str] = None
     props: dict[str, Any]
-    
+    prefix: Optional[str] = None
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {k: v for k, v in {
@@ -120,19 +120,19 @@ class DatasetEntry:
     def from_dict(cls, data_dict: dict[str, Any]) -> "DatasetEntry":
         """
         Convert a single dictionary to a DatasetEntry object.
-        
+
         Args:
             data_dict: Dictionary representing a dataset entry
-            
+
         Returns:
             DatasetEntry: DatasetEntry object
-            
+
         Raises:
-            TypeError: If data_dict is not a dict   
+            TypeError: If data_dict is not a dict
         """
         if not isinstance(data_dict, dict):
             raise TypeError("data_dict must be a dict")
-        
+
         variables = {}
         for column_name, value in data_dict.items():
             if isinstance(value, str):
@@ -170,14 +170,14 @@ class DatasetEntryWithRowNo:
     def from_dataset_entry(cls, dataset_entry: DatasetEntry, row_no: int) -> list["DatasetEntryWithRowNo"]:
         """
         Convert a DatasetEntry to a list of DatasetEntryWithRowNo objects.
-        
+
         Args:
             dataset_entry: The DatasetEntry to convert
             row_no: The row number to assign
-            
+
         Returns:
             list[DatasetEntryWithRowNo]: One object per column
-            
+
         Raises:
             TypeError: If dataset_entry is not a DatasetEntry
         """
@@ -191,13 +191,13 @@ class DatasetEntryWithRowNo:
                 type=variable.type,
                 payload=variable.payload,
             ))
-        
+
         return result
 
     def to_dict(self) -> dict[str, Any]:
         """
         Convert the DatasetEntryWithRowNo to a dictionary.
-        
+
         Returns:
             dict[str, Any]: Dictionary with rowNo, columnName, type, and value
         """

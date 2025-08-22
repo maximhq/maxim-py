@@ -709,9 +709,11 @@ class MaximAPI:
         # Process each attachment in the entry
         file_attachments = []
         for attachment in entry.payload:
+            if isinstance(attachment, str):
+                continue
             try:
                 file_data, mime_type, size = self._process_attachment(attachment)
-                
+
                 # Validate MIME type
                 if not mime_type or mime_type == "application/octet-stream":
                     # Try to infer MIME type from any available hint
@@ -752,7 +754,7 @@ class MaximAPI:
                         url="",
                         hosted=True,
                         prefix=upload_response["key"],
-                        props={ 
+                        props={
                             "size": size,
                             "type": mime_type,
                         },
@@ -763,12 +765,12 @@ class MaximAPI:
                         url=attachment.url,
                         hosted=False,
                         prefix="",
-                        props={ 
+                        props={
                             "size": size,
                             "type": mime_type,
                         },
                     )
-                
+
                 file_attachments.append(file_attachment)
             except Exception as e:
                 # Log the error but continue processing other attachments
@@ -778,7 +780,7 @@ class MaximAPI:
                     f"name={getattr(attachment, 'name', getattr(attachment, 'path', getattr(attachment, 'url', 'unknown')))}: {e}"
                 )
                 continue
-        
+
         # Create FileVariablePayload for this entry
         if file_attachments:
             file_payload = FileVariablePayload(
@@ -787,19 +789,19 @@ class MaximAPI:
                 entry_id=entry_id,
             )
             return file_payload
-        
+
         return None
 
     def _process_attachment(self, attachment: Attachment) -> tuple[bytes, str, int]:
         """
         Process an attachment and return file data, MIME type, and size.
-        
+
         Args:
             attachment: The attachment to process (UrlAttachment, FileDataAttachment, or FileAttachment)
-            
+
         Returns:
             tuple: (file_data, mime_type, size)
-            
+
         Raises:
             TypeError: If attachment type is not supported
             ValueError: If attachment data is invalid
@@ -814,10 +816,10 @@ class MaximAPI:
     def _process_url_attachment(self, attachment: UrlAttachment) -> tuple[bytes, str, int]:
         """
         Probe a URL attachment (HEAD) to get metadata without downloading content.
-        
+
         Args:
             attachment: The URL attachment to process
-            
+
         Returns:
             tuple: (file_data, mime_type, size)
         """
@@ -827,11 +829,11 @@ class MaximAPI:
                 parsed = urlparse(attachment.url or "")
                 if parsed.scheme not in ("http", "https") or not parsed.netloc:
                     raise ValueError(f"Invalid URL: {attachment.url!s}")
-                
+
                 # Get file info from HEAD request
                 head_response = client.head(attachment.url, timeout=30.0)
                 head_response.raise_for_status()
-                
+
                 mime_type = head_response.headers.get('content-type', 'application/octet-stream')
                 content_length = head_response.headers.get('content-length')
                 size = 0
@@ -874,9 +876,9 @@ class MaximAPI:
                 mime_type = attachment.mime_type or 'application/octet-stream'
                 with open(attachment.path, 'rb') as f:
                     file_data = f.read()
-            
+
             return file_data, mime_type, size
-            
+
         except Exception as e:
             attachment_name = getattr(attachment, "name", "unknown")
             raise Exception(f"Failed to process file attachment {attachment_name}: {e}") from e
@@ -911,13 +913,13 @@ class MaximAPI:
             }
             if column_id is not None:
                 payload["columnId"] = column_id
-                
+
             res = self.__make_network_call(
                 method="PUT",
                 endpoint="/api/sdk/v4/datasets/entries/attachments/",
                 body=json.dumps(payload),
             )
-            
+
             json_response = json.loads(res.decode())
             if "error" in json_response:
                 raise Exception(json_response["error"]["message"])

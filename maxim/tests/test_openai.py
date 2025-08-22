@@ -24,7 +24,7 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.logger = Maxim().logger()
+        self.logger = Maxim({ "base_url": baseUrl }).logger()
 
     async def test_async_chat_completions(self):
         client = MaximOpenAIClient(
@@ -50,17 +50,17 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
             max_tokens=1000,
             stream=True,
         )
-        
+
         # Collect all chunks
         chunks = []
         async for chunk in response:
             chunks.append(chunk)
             if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
                 print(chunk.choices[0].delta.content, end="", flush=True)
-        
+
         # Verify we got some content
         self.assertTrue(len(chunks) > 0, "No chunks received from the stream")
-        
+
         # Flush the logger and verify logging
         self.logger.flush()
 
@@ -432,7 +432,7 @@ class TestOpenAI(unittest.TestCase):
             seed=seed_value,
             max_tokens=1000,
         )
-        
+
         response2 = client.chat.completions.create(
             messages=[{"role": "user", "content": "Generate a random number between 1 and 100"}],
             model="gpt-4o",
