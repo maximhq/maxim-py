@@ -36,11 +36,6 @@ _global_maxim_trace: contextvars.ContextVar[Union[Trace, None]] = (
     contextvars.ContextVar("maxim_trace_context_var", default=None)
 )
 
-# Keep track of the current generation id for capturing provider usage
-_current_generation_id: contextvars.ContextVar[Union[str, None]] = (
-    contextvars.ContextVar("maxim_smolagents_generation_id", default=None)
-)
-
 
 def get_log_level(debug: bool) -> int:
     """Set logging level based on debug flag."""
@@ -53,6 +48,49 @@ class MaximEvalConfig:
     def __init__(self):
         self.evaluators = []
         self.additional_variables = []
+
+
+class MaximUsageCallback:
+    """Maxim usage callback for Smolagents.
+
+    This class represents a usage callback that captures token usage
+    from any LLM provider response.
+    """
+
+    def __init__(self, generation_id: str):
+        """Initialize a usage callback."""
+        self.generation_id = generation_id
+
+    def log_success_event(self, kwargs, response_obj, start_time, end_time):
+        """Log a success event.
+
+        Args:
+            kwargs: The kwargs.
+            response_obj: The response object.
+            start_time: The start time.
+            end_time: The end time.
+        """
+        global _last_llm_usages
+        usage_info = response_obj.get("usage")
+        if usage_info:
+            if isinstance(usage_info, dict):
+                _last_llm_usages[self.generation_id] = usage_info
+            elif hasattr(usage_info, "prompt_tokens"):
+                _last_llm_usages[self.generation_id] = {
+                    "prompt_tokens": getattr(usage_info, "prompt_tokens", 0),
+                    "completion_tokens": getattr(usage_info, "completion_tokens", 0),
+                    "total_tokens": getattr(usage_info, "total_tokens", 0),
+                }
+            else:
+                _last_llm_usages[self.generation_id] = None  # Couldn't parse
+            scribe().debug(
+                f"[MaximSDK] Smolagents callback captured usage: {_last_llm_usages[self.generation_id] is not None}"
+            )
+        else:
+            _last_llm_usages[self.generation_id] = None
+            scribe().debug(
+                "[MaximSDK] Smolagents callback did not find usage info in response_obj"
+            )
 
 
 def extract_smolagents_messages_and_params(agent, task, *args, **kwargs):
@@ -85,41 +123,6 @@ def extract_smolagents_messages_and_params(agent, task, *args, **kwargs):
     return messages, model_parameters
 
 
-def extract_model_info(agent):
-    """Extract model name and provider from Smolagents agent."""
-    model_name = "unknown"
-    provider = "smolagents"
-    
-    if hasattr(agent, 'model'):
-        model = agent.model
-        # Try to get model name from various attributes
-        if hasattr(model, 'model_id'):
-            model_name = model.model_id
-        elif hasattr(model, 'model_name'):
-            model_name = model.model_name
-        elif hasattr(model, 'name'):
-            model_name = model.name
-        
-        # Try to determine provider from model class name
-        model_class_name = model.__class__.__name__.lower()
-        if 'openai' in model_class_name:
-            provider = "openai"
-        elif 'anthropic' in model_class_name:
-            provider = "anthropic"
-        elif 'litellm' in model_class_name:
-            provider = "litellm"
-        elif 'inference' in model_class_name:
-            provider = "huggingface"
-        elif 'transformers' in model_class_name:
-            provider = "transformers"
-        elif 'azure' in model_class_name:
-            provider = "azure_openai"
-        elif 'bedrock' in model_class_name:
-            provider = "amazon_bedrock"
-    
-    return model_name, provider
-
-
 def to_serializable_dict(obj):
     """Convert object to JSON-serializable dict."""
     import enum
@@ -149,7 +152,35 @@ def to_serializable_dict(obj):
 
 def log_agent_execution(trace: Any, generation: Any, agent: Any, result: Any) -> None:
     """Log Smolagents execution results to trace."""
-    model_name, provider = extract_model_info(agent)
+    # Get model info directly from agent's model (same as crewai approach)
+    model_name = "unknown"
+    provider = "smolagents"
+    
+    if hasattr(agent, 'model') and agent.model:
+        model = agent.model
+        # Get model name directly
+        model_name = str(getattr(model, "model_id", getattr(model, "model_name", getattr(model, "name", "unknown"))))
+        
+        # Get provider directly (same simple logic as crewai)
+        if hasattr(model, "is_anthropic") and model.is_anthropic:
+            provider = "anthropic"
+        elif hasattr(model, "is_openai") and model.is_openai:
+            provider = "openai"
+        elif hasattr(model, "is_google") and model.is_google:
+            provider = "google"
+        elif hasattr(model, "is_huggingface") and model.is_huggingface:
+            provider = "huggingface"
+        else:
+            # Fallback: try to infer from model class name
+            model_class_name = model.__class__.__name__.lower()
+            if 'openai' in model_class_name:
+                provider = "openai"
+            elif 'anthropic' in model_class_name:
+                provider = "anthropic"
+            elif 'huggingface' in model_class_name or 'inference' in model_class_name:
+                provider = "huggingface"
+            elif 'google' in model_class_name or 'gemini' in model_class_name:
+                provider = "google"
     
     # Handle different result types
     if hasattr(result, '__dict__'):
@@ -159,27 +190,23 @@ def log_agent_execution(trace: Any, generation: Any, agent: Any, result: Any) ->
     else:
         result_dict = {"content": str(result)}
     
-    # Extract usage information if available from result, else from captured provider usage
+    # Extract usage information from captured callback data
     prompt_tokens = 0
     completion_tokens = 0
     total_tokens = 0
 
-    usage: Optional[dict] = None
-    if 'usage' in result_dict and isinstance(result_dict['usage'], dict):
-        usage = result_dict['usage']
-    
-    # Fallback to captured usage via provider monkey-patching
-    try:
-        gen_id = getattr(generation, 'id', None)
-        if usage is None and gen_id:
-            usage = _last_llm_usages.get(gen_id)
-    except Exception:
-        pass
-
-    if isinstance(usage, dict):
-        prompt_tokens = usage.get('prompt_tokens', 0)
-        completion_tokens = usage.get('completion_tokens', 0)
-        total_tokens = usage.get('total_tokens', 0)
+    usage_data = _last_llm_usages.get(generation.id)
+    if usage_data and isinstance(usage_data, dict):
+        prompt_tokens = usage_data.get("prompt_tokens", 0)
+        completion_tokens = usage_data.get("completion_tokens", 0)
+        total_tokens = usage_data.get("total_tokens", 0)
+        scribe().debug(
+            f"[MaximSDK] Smolagents: Using captured token usage: P={prompt_tokens}, C={completion_tokens}, T={total_tokens}"
+        )
+    else:
+        scribe().debug(
+            f"[MaximSDK] Smolagents: Using default token usage (0). Captured data: {usage_data}"
+        )
     
     # Create result data compatible with Maxim format
     result_data = {
@@ -312,7 +339,36 @@ def make_smolagents_wrapper(
         # Create generation for LLM tracking
         generation_id = str(uuid.uuid4())
         messages, model_parameters = extract_smolagents_messages_and_params(self, task, *args, **kwargs)
-        model_name, provider = extract_model_info(self)
+        
+        # Get model info directly (same as crewai approach)
+        model_name = "unknown"
+        provider = "smolagents"
+        
+        if hasattr(self, 'model') and self.model:
+            model = self.model
+            # Get model name directly
+            model_name = str(getattr(model, "model_id", getattr(model, "model_name", getattr(model, "name", "unknown"))))
+            
+            # Get provider directly (same simple logic as crewai)
+            if hasattr(model, "is_anthropic") and model.is_anthropic:
+                provider = "anthropic"
+            elif hasattr(model, "is_openai") and model.is_openai:
+                provider = "openai"
+            elif hasattr(model, "is_google") and model.is_google:
+                provider = "google"
+            elif hasattr(model, "is_huggingface") and model.is_huggingface:
+                provider = "huggingface"
+            else:
+                # Fallback: try to infer from model class name
+                model_class_name = model.__class__.__name__.lower()
+                if 'openai' in model_class_name:
+                    provider = "openai"
+                elif 'anthropic' in model_class_name:
+                    provider = "anthropic"
+                elif 'huggingface' in model_class_name or 'inference' in model_class_name:
+                    provider = "huggingface"
+                elif 'google' in model_class_name or 'gemini' in model_class_name:
+                    provider = "google"
         
         generation_config = GenerationConfigDict({
             "id": generation_id,
@@ -325,8 +381,9 @@ def make_smolagents_wrapper(
         
         generation = trace.generation(generation_config)
 
-        # Make current generation id available to provider-level monkey patches
-        gen_ctx_token = _current_generation_id.set(generation_id)
+        # Set generation ID on the agent's model for callback attachment
+        if hasattr(self, 'model') and self.model:
+            setattr(self.model, "_maxim_generation_id", generation_id)
         
         # Attach trace to tools for instrumentation
         attach_trace_to_tools(self, trace)
@@ -406,14 +463,53 @@ def make_smolagents_wrapper(
             raise e
         
         finally:
-            # Reset generation context var
+            # Clean up usage data
             try:
-                _current_generation_id.reset(gen_ctx_token)
+                _last_llm_usages.pop(generation.id, None)
             except Exception:
                 pass
             scribe().debug(f"――― End: {base_op_name} ―――\n")
     
     return smolagents_wrapper
+
+
+def instrument_smolagents_llm_callback():
+    """Instrument Smolagents LLM models to attach usage callbacks."""
+    try:
+        # Patch the base model classes to attach callbacks
+        from smolagents.models import InferenceClientModel, HfApiModel, OpenAIServerModel
+        
+        # Common callback attachment function
+        def attach_callback_to_model(model_class):
+            if hasattr(model_class, '__call__') and not getattr(model_class, '_maxim_callback_patched', False):
+                original_call = model_class.__call__
+                
+                def wrapped_call(self, messages, *args, **kwargs):
+                    # Get generation ID if set
+                    generation_id = getattr(self, '_maxim_generation_id', None)
+                    
+                    # Create callback if generation ID is available
+                    callbacks = kwargs.get('callbacks', [])
+                    if generation_id and isinstance(callbacks, list):
+                        callback = MaximUsageCallback(generation_id)
+                        callbacks.append(callback)
+                        kwargs['callbacks'] = callbacks
+                    
+                    return original_call(self, messages, *args, **kwargs)
+                
+                model_class.__call__ = wrapped_call
+                setattr(model_class, '_maxim_callback_patched', True)
+                scribe().info(f"[MaximSDK][Smolagents] {model_class.__name__} patched for callback attachment")
+        
+        # Patch common model classes
+        for model_class in [InferenceClientModel, HfApiModel, OpenAIServerModel]:
+            try:
+                attach_callback_to_model(model_class)
+            except Exception:
+                pass
+                
+    except Exception as e:
+        scribe().warning(f"[MaximSDK][Smolagents] Failed to patch LLM callbacks: {e}")
 
 
 def instrument_smolagents(maxim_logger_instance: Logger, debug: bool = False):
@@ -424,6 +520,7 @@ def instrument_smolagents(maxim_logger_instance: Logger, debug: bool = False):
     - CodeAgent.run
     - ToolCallingAgent.run  
     - Tool execution methods
+    - LLM models to attach usage callbacks (provider-agnostic)
     
     Args:
         maxim_logger_instance (Logger): Maxim Logger instance for tracing
@@ -497,37 +594,8 @@ def instrument_smolagents(maxim_logger_instance: Logger, debug: bool = False):
     # Instrument tool execution
     instrument_smolagents_tools()
 
-    # Instrument OpenAI python client to capture usage when used via OpenAIServerModel
-    try:
-        import openai  # type: ignore
-
-        if not getattr(openai, "_maxim_usage_patched", False):
-            original_chat = openai.resources.chat.completions.Completions.create
-
-            def wrapped_create(self, *args, **kwargs):  # type: ignore
-                response = original_chat(self, *args, **kwargs)
-                try:
-                    gen_id = _current_generation_id.get()
-                    if gen_id and hasattr(response, "usage"):
-                        usage_obj = getattr(response, "usage", None)
-                        if usage_obj is not None:
-                            # openai>=1.0 usage has prompt_tokens, completion_tokens, total_tokens
-                            usage = {
-                                "prompt_tokens": int(getattr(usage_obj, "prompt_tokens", 0) or 0),
-                                "completion_tokens": int(getattr(usage_obj, "completion_tokens", 0) or 0),
-                                "total_tokens": int(getattr(usage_obj, "total_tokens", 0) or 0),
-                            }
-                            _last_llm_usages[str(gen_id)] = usage
-                except Exception:
-                    pass
-                return response
-
-            openai.resources.chat.completions.Completions.create = wrapped_create  # type: ignore
-            setattr(openai, "_maxim_usage_patched", True)
-            scribe().info("[MaximSDK][Smolagents] OpenAI client patched for usage capture")
-    except Exception:
-        # OpenAI package not present; ignore
-        pass
+    # Instrument LLM models to attach usage callbacks
+    instrument_smolagents_llm_callback()
     
     # Mark as patched
     setattr(MultiStepAgent, "_maxim_patched", True)
