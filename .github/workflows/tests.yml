@@ -48,7 +48,7 @@ jobs:
 
       - name: Run main tests (excluding CrewAI)
         run: |
-          uv run pytest maxim/tests/ -v --ignore=tests/integrations/crewai/ --ignore=tests/test_livekit.py --ignore=tests/test_livekit_realtime.py
+          uv run pytest maxim/tests/ -v --ignore=maxim/tests/integrations/crewai/ --ignore=maxim/tests/test_livekit.py --ignore=maxim/tests/test_livekit_realtime.py
 
       - name: Restore pyproject.toml
         run: |
