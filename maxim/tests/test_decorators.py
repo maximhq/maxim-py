@@ -1,24 +1,22 @@
 import concurrent.futures
-import json
 import logging
 import os
-import time
 import unittest
 from uuid import uuid4
+from dotenv import load_dotenv
+load_dotenv()
 
 from flask import Flask, request
-from langchain.chat_models.openai import ChatOpenAI
+from langchain_openai import ChatOpenAI
 
-from .. import Config, Maxim
-from ..decorators import current_retrieval, current_trace, retrieval, span, trace
-from ..decorators.langchain import langchain_callback, langchain_llm_call
-from ..logger import LoggerConfig
-from ..tests.mock_writer import inject_mock_writer
+from maxim import Maxim
+from maxim.decorators import current_retrieval, current_trace, retrieval, span, trace
+from maxim.decorators.langchain import langchain_callback, langchain_llm_call
+from maxim.tests.mock_writer import inject_mock_writer
 
 # Note: This file had a hardcoded path that may not work in all environments
 # Let's use environment variables instead
 logging.basicConfig(level=logging.INFO)
-env = "beta"
 
 openAIKey = os.getenv("OPENAI_API_KEY")
 apiKey = os.getenv("MAXIM_API_KEY")

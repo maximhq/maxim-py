@@ -6,13 +6,12 @@ import unittest
 from dotenv import load_dotenv
 from uuid import uuid4
 
-from maxim import Config, Maxim
+from maxim import Maxim
 from maxim.logger import (
     Feedback,
     FileAttachment,
     GenerationConfig,
     GenerationError,
-    LoggerConfig,
     RetrievalConfig,
     SessionConfig,
     SpanConfig,
@@ -32,6 +31,8 @@ baseUrl = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
 
 class TestLoggerInitialization(unittest.TestCase):
     def setUp(self):
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
         self.maxim = Maxim({"base_url": baseUrl})
 
     def test_initialize_logger_if_log_repository_exists(self):
@@ -40,7 +41,7 @@ class TestLoggerInitialization(unittest.TestCase):
 
     def test_should_throw_error_if_log_repository_does_not_exist(self):
         with self.assertRaises(Exception) as context:
-            self.maxim.logger()
+            self.maxim.logger({"id": "test"})
         self.assertTrue("Log repository not found" in str(context.exception))
 
 

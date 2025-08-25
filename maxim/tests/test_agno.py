@@ -1,6 +1,5 @@
 import unittest
 import os
-from uuid import uuid4
 
 from maxim.logger import Logger
 from maxim.logger.agno import instrument_agno

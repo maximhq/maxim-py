@@ -11,6 +11,9 @@ from maxim import Maxim
 from maxim.logger.portkey import MaximPortkeyClient, instrument_portkey
 from maxim.tests.mock_writer import inject_mock_writer
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Create a mock logger for testing
 portkey_api_key = os.getenv("PORTKEY_API_KEY")
 portkey_virtual_key = os.getenv("PORTKEY_VIRTUAL_KEY")
@@ -34,7 +37,8 @@ class TestPortkeyIntegration(unittest.TestCase):
     def test_instrument_portkey_sync(self):
         client = instrument_portkey(
             portkey_ai.Portkey(
-                api_key=portkey_api_key, virtual_key=portkey_virtual_key
+                api_key=portkey_api_key,
+                provider=portkey_virtual_key,
             ),
             self.logger,
         )
@@ -71,7 +75,8 @@ class TestPortkeyIntegration(unittest.TestCase):
         """Test Portkey integration with tool calls (synchronous)."""
         # Create a Portkey client and instrument it
         portkey_client = portkey_ai.Portkey(
-            api_key=portkey_api_key, virtual_key=portkey_virtual_key
+            api_key=portkey_api_key,
+            provider=portkey_virtual_key,
         )
         instrumented_client = MaximPortkeyClient(portkey_client, self.logger)
 
@@ -200,7 +205,8 @@ class TestPortkeyIntegration(unittest.TestCase):
 
     def test_portkey_multiple_tool_calls(self):
         portkey_client = portkey_ai.Portkey(
-            api_key=portkey_api_key, virtual_key=portkey_virtual_key
+            api_key=portkey_api_key,
+            provider=portkey_virtual_key,
         )
         instrumented_client = MaximPortkeyClient(portkey_client, self.logger)
         tools = [
@@ -324,7 +330,8 @@ class TestPortkeyIntegration(unittest.TestCase):
         """Test Portkey integration with tool calls (asynchronous)."""
         # Create an async Portkey client and instrument it
         async_portkey_client = portkey_ai.AsyncPortkey(
-            api_key=portkey_api_key, virtual_key=portkey_virtual_key
+            api_key=portkey_api_key,
+            provider=portkey_virtual_key,
         )
         instrumented_client = MaximPortkeyClient(async_portkey_client, self.logger)
 
@@ -392,7 +399,8 @@ class TestPortkeyIntegration(unittest.TestCase):
     def test_tool_call_without_tools_parameter(self):
         """Test normal conversation without tools."""
         portkey_client = portkey_ai.Portkey(
-            api_key=portkey_api_key, virtual_key=portkey_virtual_key
+            api_key=portkey_api_key,
+            provider=portkey_virtual_key,
         )
         instrumented_client = MaximPortkeyClient(portkey_client, self.logger)
         trace_id = str(uuid.uuid4())

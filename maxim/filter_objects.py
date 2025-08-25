@@ -75,10 +75,16 @@ def parse_incoming_query(incoming_query: str) -> List[RuleType]:
                     value = bool(value)
                     parsed = True
                 if not parsed:
-                    if type(value) == bool:
+                    try:
+                        value = int(value)
+                        parsed = True
+                    except ValueError:
+                        pass
+                if not parsed:
+                    if isinstance(value, bool):
                         value = bool(value)
                         parsed = True
-                    elif type(value) is int:
+                    elif isinstance(value, int):
                         value = int(value)
                         parsed = True
                 if not parsed:

@@ -1,18 +1,19 @@
-import json
 import logging
 import os
 import unittest
 from uuid import uuid4
 
+from dotenv import load_dotenv
 from openai import AzureOpenAI
 
-from .. import Config, Maxim
-from ..logger import GenerationConfig, LoggerConfig, TraceConfig
-from ..tests.mock_writer import inject_mock_writer
+from maxim import Maxim
+from maxim.logger import GenerationConfig, TraceConfig
+from maxim.tests.mock_writer import inject_mock_writer
+
+load_dotenv()
 
 # Use environment variables instead of hardcoded config file
 logging.basicConfig(level=logging.INFO)
-env = "beta"
 
 openaiKey = os.getenv("OPENAI_API_KEY")
 apiKey = os.getenv("MAXIM_API_KEY")
@@ -29,7 +30,7 @@ class TestLoggingUsingAzureOpenAI(unittest.TestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.maxim = Maxim()
+        self.maxim = Maxim({ "base_url": baseUrl })
         self.logger = self.maxim.logger()
         self.mock_writer = inject_mock_writer(self.logger)
 
@@ -38,7 +39,7 @@ class TestLoggingUsingAzureOpenAI(unittest.TestCase):
             self.skipTest("Azure OpenAI credentials not available")
 
         self.client = AzureOpenAI(
-            api_version="2023-07-01-preview",
+            api_version="2024-08-01-preview",
             api_key=azureApiKey,
             azure_endpoint=azureEndpoint,
         )
@@ -51,15 +52,20 @@ class TestLoggingUsingAzureOpenAI(unittest.TestCase):
         generation = trace.generation(
             GenerationConfig(
                 id=str(uuid4()),
-                model="text-davinci-002",
+                model="gpt-4o",
                 provider="azure",
                 model_parameters={"temperature": 0.7, "max_tokens": 100},
             )
         )
 
-        completion = self.client.completions.create(
-            model="text-davinci-002",
-            prompt="Translate the following English text to French: 'Hello, how are you?'",
+        completion = self.client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Translate the following English text to French: 'Hello, how are you?'",
+                },
+            ],
             max_tokens=100,
             temperature=0.7,
         )
@@ -92,7 +98,7 @@ class TestLoggingUsingAzureOpenAI(unittest.TestCase):
         generation = trace.generation(
             GenerationConfig(
                 id=str(uuid4()),
-                model="text-davinci-002",
+                model="gpt-4o",
                 provider="azure",
                 model_parameters={
                     "temperature": 0.5,
@@ -102,9 +108,14 @@ class TestLoggingUsingAzureOpenAI(unittest.TestCase):
             )
         )
 
-        completion = self.client.completions.create(
-            model="text-davinci-002",
-            prompt="Write a short sentence about artificial intelligence",
+        completion = self.client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Write a short sentence about artificial intelligence",
+                },
+            ],
             max_tokens=50,
             temperature=0.5,
             stop=[".", "\n"],

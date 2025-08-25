@@ -1,22 +1,18 @@
-import json
 import os
 import unittest
 
 from maxim.maxim import Config, Maxim
 from maxim.models import QueryBuilder, VariableType
+from dotenv import load_dotenv
 
-# reading testConfig.json and setting the values
-
-with open(str(f"{os.getcwd()}/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
+load_dotenv()
 
 # local config using prod environment
-env = "prod"
-apiKey = data[env]["apiKey"]
-promptId = data[env]["promptId"]
-baseUrl = data[env]["baseUrl"]
-folderID = data[env]["folderId"]
-promptChainId = data[env]["promptChainVersionId"]
+apiKey = os.getenv("MAXIM_API_KEY")
+promptId = os.getenv("MAXIM_PROMPT_ID")
+baseUrl = os.getenv("MAXIM_BASE_URL")
+folderID = os.getenv("MAXIM_FOLDER_ID")
+promptChainId = os.getenv("MAXIM_PROMPT_CHAIN_ID")
 
 
 class TestPromptChains(unittest.TestCase):
@@ -47,7 +43,7 @@ class TestPromptChains(unittest.TestCase):
     def test_getPromptChain_with_deployment_variables(self):
         promptChain = self.maxim.get_prompt_chain(
             promptChainId,
-            QueryBuilder().and_().deployment_var("Environment", "prod").build(),
+            QueryBuilder().and_().deployment_var("Environment", "Prod").build(),
         )
         if promptChain is None:
             raise Exception("Prompt chain not found")
@@ -56,7 +52,7 @@ class TestPromptChains(unittest.TestCase):
     def test_prompt_chain_run(self) -> None:
         promptChain = self.maxim.get_prompt_chain(
             promptChainId,
-            QueryBuilder().and_().deployment_var("Environment", "prod").build(),
+            QueryBuilder().and_().deployment_var("Environment", "Prod").build(),
         )
         if promptChain is None:
             raise Exception("Prompt chain not found")
