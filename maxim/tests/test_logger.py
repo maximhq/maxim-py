@@ -27,10 +27,12 @@ logging.basicConfig(level=logging.INFO)
 # Set global log level to debug
 logging.getLogger().setLevel(logging.DEBUG)
 
+baseUrl = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
+
 
 class TestLoggerInitialization(unittest.TestCase):
     def setUp(self):
-        self.maxim = Maxim()
+        self.maxim = Maxim({"base_url": baseUrl})
 
     def test_initialize_logger_if_log_repository_exists(self):
         logger = self.maxim.logger()
@@ -46,7 +48,7 @@ class TestLogging(unittest.TestCase):
     def setUp(self):
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.maxim = Maxim()
+        self.maxim = Maxim({"base_url": baseUrl})
 
     def tearDown(self) -> None:
         self.maxim.cleanup()
@@ -87,7 +89,7 @@ class TestCreatingSession(unittest.TestCase):
     def setUp(self):
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.maxim = Maxim()
+        self.maxim = Maxim({"base_url": baseUrl})
 
     def tearDown(self) -> None:
         self.maxim.cleanup()

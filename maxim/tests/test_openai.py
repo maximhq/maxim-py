@@ -194,7 +194,7 @@ class TestOpenAI(unittest.TestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
 
     def test_chat_completions(self):
         client = OpenAI(api_key=openaiApiKey)

@@ -34,7 +34,7 @@ class TestDecoratorForOpenAI(unittest.TestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
         self.mock_writer = inject_mock_writer(self.logger)
 
     def test_openai_chat_one(self):
@@ -85,7 +85,7 @@ class TestDecoratorsForFlask(unittest.TestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.maxim = Maxim()
+        self.maxim = Maxim({"base_url": baseUrl})
         self.logger = self.maxim.logger()
         self.mock_writer = inject_mock_writer(self.logger)
 

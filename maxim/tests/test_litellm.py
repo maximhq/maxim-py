@@ -39,7 +39,7 @@ class TestLiteLLM(unittest.TestCase):
         # Clear any existing LiteLLM callbacks before setting up new ones
         litellm.callbacks = []
 
-        self.maxim = Maxim()
+        self.maxim = Maxim({"base_url": baseUrl})
         self.logger = self.maxim.logger()
         self.mock_writer = inject_mock_writer(self.logger)
         callback = MaximLiteLLMTracer(self.logger)
@@ -218,7 +218,7 @@ class TestLiteLLMAsync(unittest.IsolatedAsyncioTestCase):
         # Clear any existing LiteLLM callbacks before setting up new ones
         litellm.callbacks = []
 
-        self.maxim = Maxim()
+        self.maxim = Maxim({"base_url": baseUrl})
         self.logger = self.maxim.logger()
         self.mock_writer = inject_mock_writer(self.logger)
         callback = MaximLiteLLMTracer(self.logger)

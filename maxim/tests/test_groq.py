@@ -27,7 +27,7 @@ class TestGroq(unittest.TestCase):
         if not groqApiKey:
             self.skipTest("GROQ_API_KEY environment variable is not set")
 
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
         
         # Initialize Groq client with instrumentation
         self.client = Groq(api_key=groqApiKey)
@@ -643,7 +643,7 @@ class TestGroqAsync(unittest.IsolatedAsyncioTestCase):
         if not groqApiKey:
             self.skipTest("GROQ_API_KEY environment variable is not set")
         
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
         
         # Initialize async Groq client with instrumentation
         self.async_client = AsyncGroq(api_key=groqApiKey)
