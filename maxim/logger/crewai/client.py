@@ -117,20 +117,22 @@ def make_handle_non_streaming_wrapper(original_method):
     """
 
     @functools.wraps(original_method)
-    def handle_non_streaming_wrapper(
-        self,
-        params: dict,
-        callbacks: Union[list, None] = None,
-        available_functions: Union[dict, None] = None,
-    ):
+    def handle_non_streaming_wrapper(self, *args, **kwargs):
         _maxim_generation_id = getattr(self, "_maxim_generation_id", None)
         if not isinstance(_maxim_generation_id, str):
             scribe().warning(
                 "[MaximSDK] No generation ID found for LLM call. Skipping usage capture."
             )
-            return original_method(self, params, callbacks, available_functions)
+            return original_method(self, *args, **kwargs)
 
         custom_callback = MaximUsageCallback(_maxim_generation_id)
+
+        # Try to find callbacks in args or kwargs
+        callbacks = None
+        if len(args) > 1:
+            callbacks = args[1]
+        elif 'callbacks' in kwargs:
+            callbacks = kwargs['callbacks']
 
         # Ensure callbacks is a list and add our custom one
         current_callbacks = callbacks if callbacks is not None else []
@@ -141,8 +143,26 @@ def make_handle_non_streaming_wrapper(original_method):
             current_callbacks = []
         current_callbacks.append(custom_callback)
 
+        # Update callbacks in the arguments
+        if len(args) > 1:
+            # Update in positional arguments
+            args_list = list(args)
+            args_list[1] = current_callbacks
+            args = tuple(args_list)
+        elif 'callbacks' in kwargs:
+            # Update in keyword arguments
+            kwargs['callbacks'] = current_callbacks
+        else:
+            # Add as keyword argument if not present
+            kwargs['callbacks'] = current_callbacks
+
+        # Debug logging to understand the call signature
+        scribe().debug(f"[MaximSDK] _handle_non_streaming_response called with {len(args)} args and {len(kwargs)} kwargs")
+        scribe().debug(f"[MaximSDK] Args: {args}")
+        scribe().debug(f"[MaximSDK] Kwargs keys: {list(kwargs.keys())}")
+
         # Call the original method with the augmented callbacks
-        result = original_method(self, params, current_callbacks, available_functions)
+        result = original_method(self, *args, **kwargs)
         return result
 
     return handle_non_streaming_wrapper
@@ -708,6 +728,19 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
             try:
                 # Call the original method (bound to self)
                 output = original_method.__get__(self, self.__class__)(*args, **kwargs)
+            except TypeError as e:
+                # Handle signature mismatch errors
+                if "takes from" in str(e) and "positional arguments but" in str(e):
+                    scribe().warning(f"[MaximSDK] Method signature mismatch in {final_op_name}: {e}")
+                    scribe().warning("[MaximSDK] Attempting to call original method directly...")
+                    try:
+                        # Try calling the original method directly without binding
+                        output = original_method(*args, **kwargs)
+                    except Exception as e2:
+                        scribe().error(f"[MaximSDK] Direct call also failed: {e2}")
+                        raise e  # Re-raise the original exception
+                else:
+                    raise e
             except Exception as e:
                 traceback.print_exc()
                 scribe().error(f"[MaximSDK] {type(e).__name__} in {final_op_name}")
@@ -889,12 +922,17 @@ def instrument_crewai(maxim_logger: Logger, debug: bool = False):
 
     # --- 0. Patch LLM._handle_non_streaming_response to capture usage ---
     if LLM is not None and hasattr(LLM, "_handle_non_streaming_response"):
-        original_handle_method = getattr(LLM, "_handle_non_streaming_response")
-        wrapper_handle = make_handle_non_streaming_wrapper(original_handle_method)
-        setattr(LLM, "_handle_non_streaming_response", wrapper_handle)
-        scribe().info(
-            "[MaximSDK] Patched crewai.LLM._handle_non_streaming_response to capture usage."
-        )
+        try:
+            original_handle_method = getattr(LLM, "_handle_non_streaming_response")
+            wrapper_handle = make_handle_non_streaming_wrapper(original_handle_method)
+            setattr(LLM, "_handle_non_streaming_response", wrapper_handle)
+            scribe().info(
+                "[MaximSDK] Patched crewai.LLM._handle_non_streaming_response to capture usage."
+            )
+        except Exception as e:
+            scribe().warning(
+                f"[MaximSDK] Failed to patch _handle_non_streaming_response: {e}. Usage tracking may not work."
+            )
 
     # --- 1. Patch Crew Methods ---
     crew_methods_to_patch = ["kickoff"]

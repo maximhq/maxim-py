@@ -105,7 +105,10 @@ def dictify(
                 result[attr] = REDACTED_VALUE
                 continue
             try:
-                val = getattr(obj, attr)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=DeprecationWarning)
+                    warnings.filterwarnings("ignore", category=UserWarning)
+                    val = getattr(obj, attr)
                 if callable(val):
                     continue
                 if maxdepth == 0 or depth < maxdepth:
@@ -127,10 +130,18 @@ def stringify(obj: Any, limit: int = MAX_STR_LEN) -> str:
     """This is a fallback for objects that we don't have a better way to serialize."""
     rep = None
     try:
-        rep = repr(obj)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.filterwarnings("ignore", category=UserWarning)
+            rep = repr(obj)
+    except RecursionError:
+        rep = f"<{type(obj).__name__}: RecursionError>"
     except Exception:
         try:
-            rep = str(obj)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=DeprecationWarning)
+                warnings.filterwarnings("ignore", category=UserWarning)
+                rep = str(obj)
         except Exception:
             rep = f"<{type(obj).__name__}: {id(obj)}>"
     if isinstance(rep, str):
