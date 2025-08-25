@@ -60,6 +60,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.10.6
+
+- feat: Added smolagents single line integration for observability
+
 ### 3.10.5
 
 - feat: Adds `Agent` instrumentation for LiveKit
