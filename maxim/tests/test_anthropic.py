@@ -20,7 +20,6 @@ apiKey = os.getenv("MAXIM_API_KEY")
 baseUrl = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
 repoId = os.getenv("MAXIM_LOG_REPO_ID")
 
-
 class TestAnthropicWithMockWriter(unittest.TestCase):
     """Test class demonstrating how to use MockLogWriter for verification."""
 
@@ -28,7 +27,7 @@ class TestAnthropicWithMockWriter(unittest.TestCase):
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
         # Create logger and patch its writer
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
         self.mock_writer = inject_mock_writer(self.logger)
 
     def test_messages_with_mock_writer_verification(self):

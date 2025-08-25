@@ -12,9 +12,10 @@ from maxim.logger.portkey import MaximPortkeyClient, instrument_portkey
 from maxim.tests.mock_writer import inject_mock_writer
 
 # Create a mock logger for testing
-logger = Maxim().logger()
 portkey_api_key = os.getenv("PORTKEY_API_KEY")
 portkey_virtual_key = os.getenv("PORTKEY_VIRTUAL_KEY")
+baseUrl = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
+logger = Maxim({"base_url": baseUrl}).logger()
 
 
 # Set up global logger state to debug for testing
@@ -27,7 +28,7 @@ class TestPortkeyIntegration(unittest.TestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
         self.mock_writer = inject_mock_writer(self.logger)
 
     def test_instrument_portkey_sync(self):
