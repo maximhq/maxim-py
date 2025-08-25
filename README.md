@@ -63,6 +63,7 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 ### 3.10.6
 
 - feat: Added smolagents single line integration for observability
+- fix: Fixes CrewAI Single Line Integration, modified `handle_non_streaming_wrapper` function signature as expected by crewai
 
 ### 3.10.5
 
