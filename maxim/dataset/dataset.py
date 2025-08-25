@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from ..models.dataset import (
     ContextToEvaluateColumn,
     DatasetEntry,
@@ -156,7 +156,7 @@ def _build_updates_for_attachments(
     return updates
 
 
-def add_entries(api: "MaximAPI", dataset_id: str, dataset_entries: list[DatasetEntry | dict[str, Any]]) -> dict[str, Any]:
+def add_entries(api: "MaximAPI", dataset_id: str, dataset_entries: list[Union[DatasetEntry, dict[str, Any]]]) -> dict[str, Any]:
     """
     Add entries to a dataset.
 

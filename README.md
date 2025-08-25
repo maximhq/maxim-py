@@ -60,7 +60,16 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
-### 3.10.3
+### 3.10.5
+
+- feat: Adds `Agent` instrumentation for LiveKit
+- fix: Fixes import breakage
+
+### 3.10.4 (💥 Yanked)
+
+- feat: Disables internal logs for LiveKit
+
+### 3.10.3 (💥 Yanked)
 
 - **feat** Added file support to `add_dataset_entries`
 - **Breaking Change** Updated dataclasses of `Variables` and `DatasetEntry`
