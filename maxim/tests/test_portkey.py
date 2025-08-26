@@ -18,8 +18,6 @@ load_dotenv()
 portkey_api_key = os.getenv("PORTKEY_API_KEY")
 portkey_virtual_key = os.getenv("PORTKEY_VIRTUAL_KEY")
 baseUrl = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
-logger = Maxim({"base_url": baseUrl}).logger()
-
 
 # Set up global logger state to debug for testing
 logging.basicConfig(level=logging.DEBUG)
