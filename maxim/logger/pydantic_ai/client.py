@@ -1,13 +1,11 @@
-"""Fixed Maxim integration for Pydantic AI agent framework."""
+"""Maxim integration for Pydantic AI agent framework."""
 
 import contextvars
 import functools
-import importlib
 import inspect
 import logging
 import traceback
 import uuid
-import asyncio
 from time import time
 from typing import Union
 
@@ -30,7 +28,7 @@ except ImportError:
     CallToolsNode = None
 
 from ...logger import (
-    Generation,
+    
     GenerationConfigDict,
     Logger,
     Retrieval,
