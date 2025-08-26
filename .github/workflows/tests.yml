@@ -35,6 +35,40 @@ jobs:
           uv sync --python 3.9
 
       - name: Run main tests (excluding CrewAI)
+        env:
+          MAXIM_API_KEY: ${{ secrets.MAXIM_API_KEY }}
+          MAXIM_BASE_URL: ${{ secrets.MAXIM_BASE_URL }}
+          MAXIM_DATASET_ID: ${{ secrets.MAXIM_DATASET_ID }}
+          MAXIM_WORKSPACE_ID: ${{ secrets.MAXIM_WORKSPACE_ID }}
+          MAXIM_LOG_REPO_ID: ${{ secrets.MAXIM_LOG_REPO_ID }}
+          MAXIM_PROMPT_CHAIN_VERSION_ID: ${{ secrets.MAXIM_PROMPT_CHAIN_VERSION_ID }}
+          MAXIM_ASSISTANT_PROMPT_VERSION_ID: ${{ secrets.MAXIM_ASSISTANT_PROMPT_VERSION_ID }}
+          MAXIM_ASSISTANT_PROMPT_CHAIN_VERSION_ID: ${{ secrets.MAXIM_ASSISTANT_PROMPT_CHAIN_VERSION_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          PORTKEY_API_KEY: ${{ secrets.PORTKEY_API_KEY }}
+          PORTKEY_VIRTUAL_KEY: ${{ secrets.PORTKEY_VIRTUAL_KEY }}
+          LLAMAINDEX_API_KEY: ${{ secrets.LLAMAINDEX_API_KEY }}
+          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          MAXIM_PROMPT_1_ID: ${{ secrets.MAXIM_PROMPT_1_ID }}
+          MAXIM_PROMPT_2_ID: ${{ secrets.MAXIM_PROMPT_2_ID }}
+          MAXIM_PROMPT_3_ID: ${{ secrets.MAXIM_PROMPT_3_ID }}
+          MAXIM_PROMPT_1_VERSION_1_ID: ${{ secrets.MAXIM_PROMPT_1_VERSION_1_ID }}
+          MAXIM_PROMPT_1_VERSION_3_ID: ${{ secrets.MAXIM_PROMPT_1_VERSION_3_ID }}
+          MAXIM_PROMPT_1_VERSION_4_ID: ${{ secrets.MAXIM_PROMPT_1_VERSION_4_ID }}
+          MAXIM_PROMPT_1_VERSION_5_ID: ${{ secrets.MAXIM_PROMPT_1_VERSION_5_ID }}
+          MAXIM_FOLDER_1_ID: ${{ secrets.MAXIM_FOLDER_1_ID }}
+          MAXIM_FOLDER_2_ID: ${{ secrets.MAXIM_FOLDER_2_ID }}
+          MAXIM_TEST_RUN_PROMPT_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_PROMPT_VERSION_ID }}
+          MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID }}
+          MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID }}
+
         run: |
           uv run pytest maxim/tests/ -v --ignore=maxim/tests/test_crewai.py --ignore=maxim/tests/test_livekit.py --ignore=maxim/tests/test_livekit_realtime.py --ignore=maxim/tests/test_agno.py
 
