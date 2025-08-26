@@ -177,8 +177,8 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
             )
             
             entry = DatasetEntry(entry={
-                "input": Variable(type="text", payload="Input with file"),
-                "files": Variable(type="file", payload=[file_attachment])
+                "input": Variable(type="text", payload={"text": "Input with file"}),
+                "files": Variable(type="file", payload={"files": [file_attachment.to_dict()]})
             })
 
             with patch.object(self.maxim.maxim_api, 'upload_to_signed_url', return_value=True):

@@ -375,7 +375,7 @@ class TestRunBuilder(Generic[T]):
         return self
 
     def with_workflow_id(
-        self, workflow_id: str, context_to_evaluate: Optional[str] = None
+        self, workflow_id: Optional[str], context_to_evaluate: Optional[str] = None
     ) -> "TestRunBuilder[T]":
         """
         Set the workflow ID for the test run. Optionally, you can also set the context to evaluate for the workflow. (Note: setting the context to evaluate will end up overriding the CONTEXT_TO_EVALUATE dataset column value)
@@ -400,8 +400,10 @@ class TestRunBuilder(Generic[T]):
             )
         if self._config.output_function is not None:
             raise ValueError(
-                "yeilds_output is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
+                "yields_output is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
             )
+        if workflow_id is None or not isinstance(workflow_id, str):
+            raise ValueError("Workflow id is required for a test run. Please provide a valid workflow id.")
         self._config.workflow = WorkflowConfig(
             id=workflow_id,
             context_to_evaluate=context_to_evaluate,

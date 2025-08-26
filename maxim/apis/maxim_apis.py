@@ -791,6 +791,12 @@ class MaximAPI:
             return file_payload
 
         return None
+    
+    def process_attachment(self, attachment: Attachment) -> tuple[bytes, str, int]:
+        """
+        Process an attachment and return file data, MIME type, and size.
+        """
+        return self._process_attachment(attachment)
 
     def _process_attachment(self, attachment: Attachment) -> tuple[bytes, str, int]:
         """
