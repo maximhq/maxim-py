@@ -60,6 +60,9 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.10.8
+- feat: Added Pydantic AI Single Line Integration
+
 ### 3.10.7
 - fix: Fixes local data test runs
 
