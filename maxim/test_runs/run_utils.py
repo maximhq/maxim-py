@@ -1,8 +1,7 @@
 import asyncio
-from typing import Awaitable, List, Optional, Dict
+from typing import Awaitable, List, Optional, Dict, Callable
 
 from maxim.evaluators.base_evaluator import BaseEvaluator
-from maxim.logger.components.attachment import UrlAttachment
 
 from ..models.dataset import DataStructure, LocalData, Variable
 from ..models.evaluator import (
@@ -16,7 +15,8 @@ async def process_awaitable(awaitable: Awaitable):
     return await awaitable
 
 def get_variables_from_row(
-    row: LocalData, data_structure: DataStructure
+    row: LocalData, 
+    data_structure: DataStructure,
 ) -> Dict[str, Variable]:
     variables = {}
     for column_name, column_type in data_structure.items():
@@ -27,9 +27,10 @@ def get_variables_from_row(
             url_str = str(url_val).strip()
             if not url_str:
                 continue
+            
             variables[column_name] = Variable(
                 type="file",
-                payload=[UrlAttachment(url=url_str)],
+                payload={"files": [{"url": url_str, "type": "url"}]},
             )
         elif column_type in ("VARIABLE", "NULLABLE_VARIABLE"):
             # Skip nullable variables with None values to avoid invalid payloads
@@ -38,8 +39,8 @@ def get_variables_from_row(
                 continue
             variables[column_name] = Variable(
                 type="text",
-                payload="" if val is None else str(val),
-             )
+                payload={"text": "" if val is None else str(val)},
+            )
     return variables
 
 

@@ -28,7 +28,17 @@ class Variable:
     payload: Union[str, dict[str, Any], list[Attachment]]
 
     def to_json(self) -> dict[str, Any]:
-        """Convert the Variable to a dict; for type 'file', payload contains Attachment instances and may not be JSON-serializable."""
+        """Convert the Variable to a JSON-like dictionary."""
+
+        if (
+            isinstance(self.payload, list)
+            and all(
+                isinstance(item, (FileAttachment, FileDataAttachment, UrlAttachment))
+                for item in self.payload
+            )
+        ):
+            return {"type": self.type, "payload": [item.to_dict() for item in self.payload]}
+
         return {"type": self.type, "payload": self.payload}
 
     @classmethod
@@ -64,17 +74,24 @@ class Variable:
             raise ValueError(f"invalid type: {var_type}")
 
         validators = {
-            "text": lambda p: isinstance(p, str),
+            # Accept either plain string or {"text": "..."} form
+            "text": lambda p: isinstance(p, str)
+            or (isinstance(p, dict) and isinstance(p.get("text"), str)),
             "json": lambda p: isinstance(p, dict),
-            "file": lambda p: isinstance(p, list) and all(
-                isinstance(item, (FileAttachment, FileDataAttachment, UrlAttachment)) for item in p
+            # Accept either List[Attachment] or {"files": [...]}
+            "file": lambda p: (
+                isinstance(p, list)
+                and all(isinstance(item, (FileAttachment, FileDataAttachment, UrlAttachment)) for item in p)
+            ) or (
+                isinstance(p, dict)
+                and isinstance(p.get("files"), list)
             ),
         }
         if not validators[var_type](payload):
             messages = {
-                "text": "payload for 'text' must be str",
+                "text": "payload for 'text' must be str or dict with key 'text'",
                 "json": "payload for 'json' must be dict",
-                "file": "payload for 'file' must be list[Attachment] with Attachment instances",
+                "file": "payload for 'file' must be List[Attachment] or dict with key 'files'",
             }
             raise TypeError(messages[var_type])
 
