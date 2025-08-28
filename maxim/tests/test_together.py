@@ -637,7 +637,7 @@ class TestTogetherAsync(unittest.IsolatedAsyncioTestCase):
         # Ensure no cached Maxim instance
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        
+
         if not togetherApiKey:
             self.skipTest("TOGETHER_API_KEY environment variable is not set")
 
@@ -663,7 +663,7 @@ class TestTogetherAsync(unittest.IsolatedAsyncioTestCase):
                     }
                 }
             )
-            
+
             # Verify response structure
             self.assertIsNotNone(response)
             self.assertTrue(hasattr(response, 'choices'))
@@ -691,7 +691,7 @@ class TestTogetherAsync(unittest.IsolatedAsyncioTestCase):
                     }
                 }
             )
-            
+
             # Consume the async stream
             full_response = ""
             chunk_count = 0
@@ -700,7 +700,7 @@ class TestTogetherAsync(unittest.IsolatedAsyncioTestCase):
                 if chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
                     full_response += content
-            
+
             # Verify we received streaming data
             self.assertGreater(chunk_count, 0, "Expected to receive streaming chunks")
             self.assertGreater(len(full_response), 0, "Expected non-empty response")
@@ -713,7 +713,7 @@ class TestTogetherAsync(unittest.IsolatedAsyncioTestCase):
         """Test async with custom trace ID"""
         try:
             trace_id = str(uuid4())
-            
+
             # First call
             response1 = await self.async_client.chat.completions.create(
                 model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
@@ -724,7 +724,7 @@ class TestTogetherAsync(unittest.IsolatedAsyncioTestCase):
                     "x-maxim-trace-id": trace_id,
                 }
             )
-            
+
             # Second call with same trace ID
             response2 = await self.async_client.chat.completions.create(
                 model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
@@ -735,14 +735,14 @@ class TestTogetherAsync(unittest.IsolatedAsyncioTestCase):
                     "x-maxim-trace-id": trace_id,
                 }
             )
-            
+
             # Verify both responses
             self.assertIsNotNone(response1)
             self.assertIsNotNone(response1.choices[0].message.content)
-            
+
             self.assertIsNotNone(response2)
             self.assertIsNotNone(response2.choices[0].message.content)
-            
+
             print("Async trace ID response 1:", response1.choices[0].message.content[:100] + "...")
             print("Async trace ID response 2:", response2.choices[0].message.content[:100] + "...")
 

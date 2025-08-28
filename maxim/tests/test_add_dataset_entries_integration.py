@@ -16,7 +16,7 @@ dotenv.load_dotenv()
 # Environment variables for integration testing
 MAXIM_API_KEY = os.getenv("MAXIM_API_KEY")
 MAXIM_BASE_URL = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
-MAXIM_DATASET_ID = os.getenv("MAXIM_DATASET_ID")  # Dataset ID for integration tests
+MAXIM_DATASET_ID = "cmesayj1f001c9ybdxwxmtilk"  # Dataset ID for integration tests
 
 
 class TestAddDatasetEntriesIntegration(unittest.TestCase):
@@ -118,7 +118,7 @@ class TestAddDatasetEntriesIntegration(unittest.TestCase):
         entries = [
             {
                 "Input": "How do I calculate the area of a circle?",
-                "Expected Output": {
+                "Test": {
                     "formula": "A = π × r²",
                     "explanation": "The area of a circle is π times the radius squared",
                     "example": "For radius 5: A = π × 25 = 78.54 square units",
@@ -129,7 +129,7 @@ class TestAddDatasetEntriesIntegration(unittest.TestCase):
             },
             {
                 "Input": "What is 15 + 27?",
-                "Expected Output": {
+                "Test": {
                     "answer": 42,
                     "method": "simple addition",
                     "step_by_step": ["15 + 27", "= 42"],
@@ -195,7 +195,7 @@ class TestAddDatasetEntriesIntegration(unittest.TestCase):
         # Create DatasetEntry objects with correct column structure
         entry1 = DatasetEntry(entry={
             "Input": Variable(type="text", payload="What is the capital of France?"),
-            "Expected Output": Variable(type="json", payload={
+            "Test": Variable(type="json", payload={
                 "answer": "Paris",
                 "confidence": 0.95,
                 "reasoning": "Paris is the capital and largest city of France",
@@ -206,7 +206,7 @@ class TestAddDatasetEntriesIntegration(unittest.TestCase):
         
         entry2 = DatasetEntry(entry={
             "Input": Variable(type="text", payload="Explain the process of photosynthesis"),
-            "Expected Output": Variable(type="json", payload={
+            "Test": Variable(type="json", payload={
                 "answer": "Photosynthesis is the process by which plants convert sunlight into energy",
                 "confidence": 0.98,
                 "key_components": ["chlorophyll", "sunlight", "carbon dioxide", "water"],
@@ -265,7 +265,7 @@ class TestAddDatasetEntriesIntegration(unittest.TestCase):
             
             entry_with_file = DatasetEntry(entry={
                 "Input": Variable(type="text", payload="Integration test with file attachment"),
-                "Expected Output": Variable(type="json", payload={
+                "Test": Variable(type="json", payload={
                     "result": "Successfully processed file attachment",
                     "file_type": "text",
                     "confidence": 0.95
@@ -283,7 +283,7 @@ class TestAddDatasetEntriesIntegration(unittest.TestCase):
             
             entry_with_data = DatasetEntry(entry={
                 "Input": Variable(type="text", payload="Integration test with binary data"),
-                "Expected Output": Variable(type="json", payload={
+                "Test": Variable(type="json", payload={
                     "result": "Successfully processed binary data",
                     "file_size_bytes": len(binary_data),
                     "confidence": 0.97
@@ -349,7 +349,7 @@ class TestAddDatasetEntriesIntegration(unittest.TestCase):
         # Create mixed entry types with correct columns
         dict_entry = {
             "Input": "What are the benefits of renewable energy?",
-            "Expected Output": {
+            "Test": {
                 "benefits": ["environmental protection", "sustainability", "cost savings"],
                 "types": ["solar", "wind", "hydro", "geothermal"],
                 "impact": "positive long-term effects on climate",
@@ -360,7 +360,7 @@ class TestAddDatasetEntriesIntegration(unittest.TestCase):
         
         dataset_entry = DatasetEntry(entry={
             "Input": Variable(type="text", payload="Explain machine learning in simple terms"),
-            "Expected Output": Variable(type="json", payload={
+            "Test": Variable(type="json", payload={
                 "definition": "Machine learning is AI that learns from data to make predictions",
                 "key_concepts": ["algorithms", "training", "predictions", "patterns"],
                 "applications": ["image recognition", "natural language processing", "recommendation systems"],

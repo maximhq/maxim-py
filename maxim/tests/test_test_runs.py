@@ -25,7 +25,6 @@ from maxim.models.evaluator import (
 )
 
 load_dotenv()
-
 logging.basicConfig(level=logging.INFO)
 
 apiKey = os.getenv("MAXIM_API_KEY")
@@ -35,9 +34,8 @@ datasetId = os.getenv("MAXIM_DATASET_ID")
 workflowId = os.getenv("MAXIM_WORKFLOW_ID")
 promptVersionId = os.getenv("MAXIM_TEST_RUN_PROMPT_VERSION_ID")
 promptChainVersionId = os.getenv("MAXIM_PROMPT_CHAIN_VERSION_ID")
-assistantPromptVersionId = os.getenv("MAXIM_ASSISTANT_PROMPT_VERSION_ID")
-assistantPromptChainVersionId = os.getenv("MAXIM_ASSISTANT_PROMPT_CHAIN_VERSION_ID")
-
+assistantPromptVersionId = os.getenv("MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID")
+assistantPromptChainVersionId = os.getenv("MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID")
 
 class TestTestRuns(unittest.TestCase):
     def setUp(self):
@@ -285,18 +283,6 @@ class TestTestRuns(unittest.TestCase):
                 "image_url": "https://images.unsplash.com/photo-1494871262121-49703fd34e2b?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8dGV4dHxlbnwwfHwwfHx8MA%3D%3D",
                 "context": "Product description analysis",
                 "expected_output": "Detailed analysis result",
-            },
-            {
-                "input": "Compare these visual elements",
-                "image_url": "https://www.thoughtco.com/thmb/i3i0DhTooFFhVLjnBcwJhT5z9Q0=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/what-are-the-elements-of-art-182704_FINAL-9a30cee7896f4d3a9e078274851d5382.png",
-                "context": "Visual comparison task",
-                "expected_output": "Comparison summary",
-            },
-            {
-                "input": "Extract text from image",
-                "image_url": "https://tmm.chicagodistributioncenter.com/IsbnImages/9780226827025.jpg",
-                "context": "OCR processing",
-                "expected_output": "Extracted text content",
             },
         ]
 

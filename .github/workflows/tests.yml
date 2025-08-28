@@ -5,11 +5,13 @@ on:
     branches: [main,beta]
   pull_request:
     branches: [main,beta]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   test-main:
     name: Test Main SDK (Python 3.9)
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
 
     steps:
       - uses: actions/checkout@v4
@@ -68,9 +70,22 @@ jobs:
           MAXIM_TEST_RUN_PROMPT_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_PROMPT_VERSION_ID }}
           MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID }}
           MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID }}
-
         run: |
-          uv run pytest maxim/tests/ -v --ignore=maxim/tests/test_crewai.py --ignore=maxim/tests/test_livekit.py --ignore=maxim/tests/test_livekit_realtime.py --ignore=maxim/tests/test_agno.py
+          uv run pytest maxim/tests/ -v --ignore=maxim/tests/test_crewai.py --ignore=maxim/tests/test_livekit.py --ignore=maxim/tests/test_livekit_realtime.py --ignore=maxim/tests/test_agno.py --junitxml=junit/main-test-results.xml
+
+      - name: Upload main test results
+        uses: actions/upload-artifact@v4
+        if: success() || failure()    # run this step even if previous step failed
+        with:
+          name: main-test-results
+          path: junit/main-test-results.xml
+
+      - name: Publish main test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: success() || failure()    # run this step even if previous step failed
+        with:
+          junit_files: "junit/main-test-results.xml"
+          check_name: "Main Test Results"
 
       - name: Restore pyproject.toml
         run: |
@@ -79,6 +94,7 @@ jobs:
   additional-tests:
     name: Test Additional Integrations (Python 3.10)
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
 
     steps:
       - uses: actions/checkout@v4
@@ -97,4 +113,18 @@ jobs:
 
       - name: Run additional integration tests
         run: |
-          uv run pytest maxim/tests/test_crewai.py
+          uv run pytest maxim/tests/test_crewai.py --junitxml=junit/additional-test-results.xml
+
+      - name: Upload additional test results
+        uses: actions/upload-artifact@v4
+        if: success() || failure()    # run this step even if previous step failed
+        with:
+          name: additional-test-results
+          path: junit/additional-test-results.xml
+
+      - name: Publish additional test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: success() || failure()    # run this step even if previous step failed
+        with:
+          junit_files: "junit/additional-test-results.xml"
+          check_name: "Additional Test Results"

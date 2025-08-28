@@ -1,10 +1,10 @@
 import logging
 import os
 import unittest
+from dotenv import load_dotenv
 
 from maxim import Maxim
 from maxim.models import QueryBuilder
-from dotenv import load_dotenv
 load_dotenv()
 
 apiKey = os.getenv("MAXIM_API_KEY")
@@ -259,7 +259,6 @@ class TestMaximPromptManagement(unittest.TestCase):
             .build(),
         )
         self.assertEqual(len(prompts), 1)
-
 
 if __name__ == "__main__":
     unittest.main()
