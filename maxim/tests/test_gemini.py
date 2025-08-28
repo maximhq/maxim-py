@@ -13,14 +13,14 @@ from maxim.tests.mock_writer import inject_mock_writer
 dotenv.load_dotenv()
 
 geminiApiKey = os.getenv("GEMINI_API_KEY")
-
+baseUrl = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
 
 class TestAsyncGemini(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
         self.mock_writer = inject_mock_writer(self.logger)
 
     async def test_async_generate_content(self):
@@ -64,7 +64,7 @@ class TestGemini(unittest.TestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
         self.mock_writer = inject_mock_writer(self.logger)
 
     def test_generate_content(self):

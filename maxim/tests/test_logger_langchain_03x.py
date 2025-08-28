@@ -2,7 +2,6 @@
 # This file uses langchain 0.3.x
 ###########################################
 
-import json
 import logging
 import os
 import unittest
@@ -12,13 +11,11 @@ from uuid import uuid4
 from langchain.chains.llm import LLMChain
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain.prompts.chat import (
-    ChatPromptTemplate,
     HumanMessagePromptTemplate,
     SystemMessagePromptTemplate,
 )
-from langchain.schema.output_parser import StrOutputParser
-from langchain.schema.runnable import RunnableLambda, RunnableSequence
-from langchain_anthropic import AnthropicLLM, ChatAnthropic
+from langchain.schema.runnable import RunnableLambda 
+from langchain_anthropic import ChatAnthropic
 from langchain_community.llms.openai import AzureOpenAI, OpenAI
 from langchain_core.tools import tool
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
@@ -28,9 +25,9 @@ from maxim.logger.components.span import SpanConfig
 from maxim.logger.components.trace import TraceConfig
 from maxim.logger.langchain.tracer import MaximLangchainTracer
 from maxim.logger.logger import LoggerConfig
-from maxim.maxim import Config, Maxim
-
-env = "dev"
+from maxim.maxim import Maxim
+from dotenv import load_dotenv
+load_dotenv()
 
 awsAccessKeyId = os.getenv("BEDROCK_ACCESS_KEY_ID")
 awsAccessKeySecret = os.getenv("BEDROCK_SECRET_ACCESS_KEY")
@@ -60,11 +57,13 @@ def subtraction_tool(a, b):
 
 class TestLoggingUsingLangchain(unittest.TestCase):
     def setUp(self):
-        self.maxim = Maxim()
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        self.maxim = Maxim({ "base_url": baseUrl, "api_key": apiKey })
+        self.logger = self.maxim.logger(LoggerConfig(id=repoId))
 
     def test_generation_chat_prompt(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = OpenAI(callbacks=[MaximLangchainTracer(logger)], api_key=openAIKey)
+        model = OpenAI(callbacks=[MaximLangchainTracer(self.logger)], api_key=openAIKey)
         messages = [
             (
                 "system",
@@ -76,11 +75,10 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print(f"result {result}")
 
     def test_generation_chat_prompt_with_external_trace(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         trace_id = str(uuid4())
-        trace = logger.trace(TraceConfig(id=trace_id, name="pre-defined-trace"))
+        trace = self.logger.trace(TraceConfig(id=trace_id, name="pre-defined-trace"))
 
-        model = OpenAI(callbacks=[MaximLangchainTracer(logger)], api_key=openAIKey)
+        model = OpenAI(callbacks=[MaximLangchainTracer(self.logger)], api_key=openAIKey)
         messages = [
             (
                 "system",
@@ -104,8 +102,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         trace.end()
 
     def test_generation_chat_prompt_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatOpenAI(callbacks=[MaximLangchainTracer(logger)], api_key=openAIKey)
+        model = ChatOpenAI(callbacks=[MaximLangchainTracer(self.logger)], api_key=openAIKey)
         messages = [
             (
                 "system",
@@ -116,12 +113,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         model.invoke(messages)
 
     def test_generation_chat_prompt_azure_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = AzureChatOpenAI(
             api_key=azureOpenAIKey,
-            model="gpt-35-turbo-16k",
+            model="gpt-4o",
             azure_endpoint=azureOpenAIBaseUrl,
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
             api_version="2024-02-01",
         )
         messages = [
@@ -135,15 +131,14 @@ class TestLoggingUsingLangchain(unittest.TestCase):
             messages, config={"metadata": {"maxim": {"trace_tags": {"a": "asdasd"}}}}
         )
         print(result)
-        logger.flush()
+        self.logger.flush()
 
     def test_generation_chat_prompt_azure_chat_model_with_streaming(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = AzureChatOpenAI(
             api_key=azureOpenAIKey,
-            model="gpt-35-turbo-16k",
+            model="gpt-4o",
             azure_endpoint=azureOpenAIBaseUrl,
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
             api_version="2024-02-01",
             streaming=True,
         )
@@ -157,7 +152,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         for chunk in model.stream(messages):
             # print(chunk)
             pass
-        logger.flush()
+        self.logger.flush()
 
     # def test_generation_chat_prompt_bedrock_sonnet_35_chat_model(self):
     #     logger = self.maxim.logger(LoggerConfig(id=repoId))
@@ -433,50 +428,47 @@ class TestLoggingUsingLangchain(unittest.TestCase):
     #     print(f"Model response: {result}")
     #     logger.flush()
 
-    def test_generation_chat_prompt_anthropic_llm(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = AnthropicLLM(
-            api_key=anthropicApiKey,
-            model_name="claude-3-5-sonnet-20240620",
-            callbacks=[MaximLangchainTracer(logger)],
-        )
-        messages = [
-            (
-                "system",
-                "You are a helpful assistant that translates English to French. Translate the user sentence.",
-            ),
-            ("human", "How are you doing."),
-        ]
-        result = model.invoke(messages)
-        print(result)
-        logger.flush()
-
-    def test_generation_chat_prompt_anthropic_sonnet_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        model = ChatAnthropic(
-            api_key=anthropicApiKey,
-            callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-5-sonnet-20240620",
-            timeout=10,
-            stop=None,
-        )
-        messages = [
-            (
-                "system",
-                "You are a helpful assistant that translates English to French. Translate the user sentence.",
-            ),
-            ("human", "How are you doing."),
-        ]
-        result = model.invoke(messages)
-        print(f"Result = {result}")
-        logger.flush()
+    # def test_generation_chat_prompt_anthropic_llm(self):
+    #     model = AnthropicLLM(
+    #         api_key=anthropicApiKey,
+    #         model_name="claude-3-5-sonnet-20240620",
+    #         callbacks=[MaximLangchainTracer(self.logger)],
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a helpful assistant that translates English to French. Translate the user sentence.",
+    #         ),
+    #         ("human", "How are you doing."),
+    #     ]
+    #     result = model.invoke(messages)
+    #     print(result)
+    #     self.logger.flush()
+    #
+    # def test_generation_chat_prompt_anthropic_sonnet_chat_model(self):
+    #     model = ChatAnthropic(
+    #         api_key=anthropicApiKey,
+    #         callbacks=[MaximLangchainTracer(self.logger)],
+    #         model_name="claude-3-5-sonnet-20240620",
+    #         timeout=10,
+    #         stop=None,
+    #     )
+    #     messages = [
+    #         (
+    #             "system",
+    #             "You are a helpful assistant that translates English to French. Translate the user sentence.",
+    #         ),
+    #         ("human", "How are you doing."),
+    #     ]
+    #     result = model.invoke(messages)
+    #     print(f"Result = {result}")
+    #     self.logger.flush()
 
     def test_generation_chat_prompt_anthropic_sonnet_chat_model_streaming(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = ChatAnthropic(
             api_key=anthropicApiKey,
-            callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-5-sonnet-20240620",
+            callbacks=[MaximLangchainTracer(self.logger)],
+            model_name="claude-3-haiku-20240307",
             timeout=10,
             stop=None,
             stream_usage=True,
@@ -491,12 +483,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         ]
         for chunk in model.stream(messages):
             print(chunk)
-        logger.flush()
+        self.logger.flush()
 
     def test_generation_chat_prompt_openai_chat_model_with_tool_call(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = model = ChatOpenAI(
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
             api_key=openAIKey,
             model="gpt-4o-mini",
         )
@@ -510,14 +501,13 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         ]
         result = llm.invoke(messages)
         print(f"Result = {result}")
-        logger.flush()
+        self.logger.flush()
 
     def test_generation_chat_prompt_openai_chat_model_with_tool_call_with_streaming(
         self,
     ):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = model = ChatOpenAI(
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
             api_key=openAIKey,
             model="gpt-4o-mini",
             streaming=True,
@@ -533,12 +523,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
 
         for chunk in llm.stream(messages):
             print(chunk)
-        logger.flush()
+        self.logger.flush()
 
     def test_generation_chat_prompt_openai_chat_model_with_streaming(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = model = ChatOpenAI(
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
             api_key=openAIKey,
             model="gpt-4o-mini",
             streaming=True,
@@ -555,13 +544,12 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         for chunk in llm.stream(messages, stream_usage=True):
             # print(chunk)
             pass
-        logger.flush()
+        self.logger.flush()
 
     def test_generation_chat_prompt_anthropic_sonnet_chat_model_with_tool_call(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = ChatAnthropic(
             api_key=anthropicApiKey,
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
             model_name="claude-3-5-sonnet-20240620",
             timeout=10,
             stop=None,
@@ -576,13 +564,12 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         ]
         result = llm.invoke(messages)
         print(f"Result = {result}")
-        logger.flush()
+        self.logger.flush()
 
     def test_generation_chat_prompt_anthropic_3_sonnet_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = ChatAnthropic(
             api_key=anthropicApiKey,
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
             model_name="claude-3-sonnet-20240229",
             timeout=10,
             stop=None,
@@ -596,13 +583,12 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         ]
         result = model.invoke(messages)
         print(f"Result = {result}")
-        logger.flush()
+        self.logger.flush()
 
     def test_generation_chat_prompt_anthropic_haiku_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = ChatAnthropic(
             api_key=anthropicApiKey,
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
             model_name="claude-3-haiku-20240307",
             timeout=10,
             stop=None,
@@ -616,15 +602,14 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         ]
         result = model.invoke(messages)
         print(f"Result = {result}")
-        logger.flush()
+        self.logger.flush()
 
     def test_generation_chat_prompt_azure_chat_model_old_class(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = AzureOpenAI(
             api_key=azureOpenAIKey,
-            model="gpt-35-turbo-16k",
+            model="gpt-4o",
             azure_endpoint=azureOpenAIBaseUrl,
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
             api_version="2024-02-01",
         )
         messages = [
@@ -636,14 +621,13 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         ]
         result = model.invoke(messages)
         print(result)
-        logger.flush()
+        self.logger.flush()
         sleep(5)
 
     def test_generation_chat_prompt_chat_model_with_span(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        trace = logger.trace(TraceConfig(id=str(uuid4()), name="test-trace"))
+        trace = self.logger.trace(TraceConfig(id=str(uuid4()), name="test-trace"))
         span = trace.span(SpanConfig(id=str(uuid4()), name="test-span"))
-        model = ChatOpenAI(callbacks=[MaximLangchainTracer(logger)], api_key=openAIKey)
+        model = ChatOpenAI(callbacks=[MaximLangchainTracer(self.logger)], api_key=openAIKey)
         messages = [
             (
                 "system",
@@ -657,9 +641,8 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         trace.end()
 
     def test_generation_chat_prompt_chat_model_error(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = ChatOpenAI(
-            model="gpt2", callbacks=[MaximLangchainTracer(logger)], api_key=openAIKey
+            model="gpt-4o", callbacks=[MaximLangchainTracer(self.logger)], api_key=openAIKey
         )
         messages = [
             (
@@ -672,13 +655,12 @@ class TestLoggingUsingLangchain(unittest.TestCase):
             model.invoke(messages)
 
     def test_langchain_generation_with_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         llm = ChatOpenAI(
             temperature=0.7,
             model="gpt-4o",
             n=3,
             api_key=openAIKey,
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
         )
         system_template = SystemMessagePromptTemplate.from_template(
             "You are an expert in Data Science and Machine Learning"
@@ -692,13 +674,12 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print(result)
 
     def test_langchain_generation_with_azure_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         llm = AzureChatOpenAI(
             api_key=azureOpenAIKey,
-            model="gpt-35-turbo-16k",
+            model="gpt-4o",
             azure_endpoint=azureOpenAIBaseUrl,
             api_version="2024-02-01",
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
         )
         system_template = SystemMessagePromptTemplate.from_template(
             "You are an expert in Data Science and Machine Learning"
@@ -706,7 +687,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         user_template = HumanMessagePromptTemplate.from_template("{user_prompt}")
         template = ChatPromptTemplate.from_messages([system_template, user_template])
         chain = LLMChain(
-            llm=llm, prompt=template, callbacks=[MaximLangchainTracer(logger)]
+            llm=llm, prompt=template, callbacks=[MaximLangchainTracer(self.logger)]
         )
         user_prompt = "How to handle outliers in dirty datasets"
         # Run the Langchain chain with the user prompt
@@ -714,13 +695,12 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print(result)
 
     def test_langchain_generation_with_azure_multi_prompt_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         llm = AzureChatOpenAI(
             api_key=azureOpenAIKey,
-            model="gpt-35-turbo-16k",
+            model="gpt-4o",
             azure_endpoint=azureOpenAIBaseUrl,
             api_version="2024-02-01",
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
         )
 
         # Define the system message template
@@ -761,20 +741,18 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print("Data Cleaning Result:", result_cleaning)
 
     def test_langchain_tools(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         llm = ChatOpenAI(
             temperature=0.7,
             model="gpt-4o",
             n=3,
             api_key=openAIKey,
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
         )
         llm_with_tools = llm.bind_tools([addition_tool, subtraction_tool])
         query = "whats addition of 3 and 2"
         result = llm_with_tools.invoke(query)
 
     def test_langchain_tools_with_chat_openai_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         prompt = PromptTemplate(
             input_variables=["first_int", "second_int"],
             template="What is {first_int} multiplied by {second_int}?",
@@ -784,7 +762,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
             model="gpt-4o",
             n=3,
             api_key=openAIKey,
-            callbacks=[MaximLangchainTracer(logger)],
+            callbacks=[MaximLangchainTracer(self.logger)],
         ).bind_tools([addition_tool, subtraction_tool])
         # Create an LLM chain with the prompt
         llm_chain = LLMChain(llm=llm, prompt=prompt)
@@ -792,10 +770,8 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print(response)
 
     def test_custom_result_with_generation_chat_prompt(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = OpenAI(api_key=openAIKey)
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
-        trace = logger.trace(TraceConfig(id=str(uuid4()), name="test-trace"))
+        trace = self.logger.trace(TraceConfig(id=str(uuid4()), name="test-trace"))
         generation = trace.generation(
             GenerationConfig(
                 id=str(uuid4()),
@@ -823,24 +799,22 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         trace.end()
 
     def test_simple_langchain_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         llm = ChatOpenAI(temperature=0.7, model="gpt-4o", n=3, api_key=openAIKey)
         system_template = SystemMessagePromptTemplate.from_template(
             "You are an expert in Data Science and Machine Learning"
         )
         user_template = HumanMessagePromptTemplate.from_template("{user_prompt}")
         template = ChatPromptTemplate.from_messages([system_template, user_template])
-        chain = template | llm
+        chain = template.pipe(llm)
         user_prompt = "How are you"
         # Run the Langchain chain with the user prompt
         result = chain.invoke(
             {"user_prompt": user_prompt},
-            config={"callbacks": [MaximLangchainTracer(logger)]},
+            config={"callbacks": [MaximLangchainTracer(self.logger)]},
         )
         print(result)
 
     def test_multi_node_langchain_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         llm = ChatOpenAI(temperature=0.7, model="gpt-4o", n=3, api_key=openAIKey)
 
         # Define a simple function to use in the chain
@@ -855,13 +829,14 @@ class TestLoggingUsingLangchain(unittest.TestCase):
             "Summarize the following text: {capitalized_text}"
         )
 
-        # Build the multi-node chain
-        chain = {"capitalized_text": capitalize_node} | prompt_template | llm
+        # Build the multi-node chain using RunnableParallel
+        from langchain.schema.runnable import RunnablePassthrough 
+        chain = capitalize_node.pipe(prompt_template).pipe(llm)
 
         # Run the chain with input
         input_text = "This is a test of a multi-node Langchain."
         result = chain.invoke(
-            input_text, config={"callbacks": [MaximLangchainTracer(logger)]}
+            input_text, config={"callbacks": [MaximLangchainTracer(self.logger)]}
         )
 
         print(result)

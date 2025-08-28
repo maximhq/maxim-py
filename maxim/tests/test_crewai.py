@@ -22,7 +22,7 @@ class TestCrewAI(unittest.TestCase):
             "base_url": os.getenv("MAXIM_BASE_URL"),
             "debug": True,
         })
-        self.logger = self.maxim.logger({"id": os.getenv("MAXIM_LOGGER_ID")})
+        self.logger = self.maxim.logger({"id": os.getenv("MAXIM_LOG_REPO_ID")})
         
         # Instrument CrewAI with Maxim logging
         instrument_crewai(self.logger, True)

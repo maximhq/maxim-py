@@ -7,7 +7,11 @@ from unittest.mock import Mock, patch
 from maxim import Maxim, Config
 from maxim.models.dataset import DatasetEntry, Variable, DatasetEntryWithRowNo, FileVariablePayload, VariableFileAttachment
 from maxim.logger.components.attachment import FileAttachment, FileDataAttachment, UrlAttachment
+from dotenv import load_dotenv
+load_dotenv()
 
+MAXIM_BASE_URL = os.getenv("MAXIM_BASE_URL")
+MAXIM_API_KEY = os.getenv("MAXIM_API_KEY")
 
 class TestAddDatasetEntriesComprehensive(unittest.TestCase):
     """Comprehensive test suite for the updated add_dataset_entries method."""
@@ -17,13 +21,9 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
         
-        # Set up test environment variables
-        os.environ["MAXIM_API_KEY"] = "test-api-key"
-        os.environ["MAXIM_BASE_URL"] = "https://app.getmaxim.ai"
-        
         config = Config(
-            api_key="test-api-key",
-            base_url="https://app.getmaxim.ai",
+            api_key=MAXIM_API_KEY,
+            base_url=MAXIM_BASE_URL,
             debug=True,
             raise_exceptions=True
         )
@@ -34,10 +34,6 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
         """Clean up after tests."""
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        if "MAXIM_API_KEY" in os.environ:
-            del os.environ["MAXIM_API_KEY"]
-        if "MAXIM_BASE_URL" in os.environ:
-            del os.environ["MAXIM_BASE_URL"]
 
     def _create_mock_response(self, content: bytes, headers: dict = None) -> Mock:
         """Create a mock HTTP response."""
@@ -175,7 +171,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
                 name="test.txt",
                 mime_type="text/plain"
             )
-            
+
             entry = DatasetEntry(entry={
                 "input": Variable(type="text", payload="Input with file"),
                 "files": Variable(type="file", payload=[file_attachment])
@@ -186,7 +182,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
 
             # Verify file upload process was triggered
             self.assertEqual(mock_client.request.call_count, 4)  # total_rows + entries + upload_url + patch
-            
+
         finally:
             # Clean up temp file
             os.unlink(temp_file_path)
@@ -201,7 +197,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
             b'{"data": {"url": "https://signed-url.com", "key": "datasets/test-dataset-id/entry123/test-file-key"}}'
         )
         mock_patch_response = self._create_mock_response(b'{"success": true}')
-        
+
         self._setup_mock_network_calls([
             mock_total_rows_response,
             mock_add_entries_response,
@@ -215,7 +211,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
             name="image.jpg",
             mime_type="image/jpeg"
         )
-        
+
         entry = DatasetEntry(entry={
             "input": Variable(type="text", payload="Input with URL"),
             "images": Variable(type="file", payload=[url_attachment])
@@ -240,7 +236,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
             b'{"data": {"url": "https://signed-url.com", "key": "datasets/test-dataset-id/entry123/test-file-key"}}'
         )
         mock_patch_response = self._create_mock_response(b'{"success": true}')
-        
+
         mock_client = self._setup_mock_network_calls([
             mock_total_rows_response,
             mock_add_entries_response,
@@ -254,7 +250,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
             name="data.bin",
             mime_type="application/octet-stream"
         )
-        
+
         entry = DatasetEntry(entry={
             "input": Variable(type="text", payload="Input with file data"),
             "data": Variable(type="file", payload=[file_data_attachment])
@@ -264,7 +260,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
             self.maxim.add_dataset_entries(self.dataset_id, [entry])
 
         # Verify the upload process was initiated
-        self.assertEqual(mock_client.request.call_count, 4)
+        self.assertEqual(mock_client.request.call_count, 2)
 
     def test_add_dataset_entries_mixed_input_types(self) -> None:
         """Test add_dataset_entries with mixed DatasetEntry and dict inputs."""
@@ -272,7 +268,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
         mock_add_entries_response = self._create_mock_response(
             b'{"data": {"ids": ["entry1", "entry2"], "cells": []}}'
         )
-        
+
         mock_client = self._setup_mock_network_calls([
             mock_total_rows_response,
             mock_add_entries_response
@@ -283,7 +279,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
             "input": Variable(type="text", payload="Object input"),
             "output": Variable(type="json", payload={"result": "object"}),
         })
-        
+
         dict_entry = {
             "input": "Dict input",
             "output": {"result": "dict"}

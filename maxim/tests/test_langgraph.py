@@ -134,7 +134,7 @@ app = workflow.compile()
 
 flask_app = Flask(__name__)
 
-maxim = Maxim()
+maxim = Maxim({"base_url": baseUrl})
 logger = maxim.logger()
 
 

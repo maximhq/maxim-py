@@ -134,6 +134,7 @@ class MaximPortkeyChatCompletions:
                     .get("message", {})
                     .get("content", "")
                 )
+            if trace is not None:
                 trace.end()
         except Exception as e:
             scribe().warning(
@@ -201,6 +202,7 @@ class MaximAsyncPortkeyChatCompletions:
                     .get("message", {})
                     .get("content", "")
                 )
+            if trace is not None:
                 trace.end()
         except Exception as e:
             scribe().warning(

@@ -6,6 +6,7 @@ from typing import Optional
 from maxim import Maxim, Config
 from maxim.cache import MaximCache, MaximInMemoryCache
 
+baseUrl = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
 
 class FalsyCache(MaximCache):
     """A cache that evaluates to False but is not None - used to test the 'cache is not None' fix."""
@@ -50,7 +51,7 @@ class TestMaximCacheHandling(unittest.TestCase):
 
     def test_enable_prompt_management_with_none_cache(self):
         """Test enable_prompt_management with cache=None."""
-        maxim = Maxim({"api_key": "test-key", "prompt_management": False})
+        maxim = Maxim({"api_key": "test-key", "base_url": baseUrl, "prompt_management": False})
         original_cache = getattr(maxim, "_Maxim__cache")
 
         # This should work fine even with cache=None
@@ -141,7 +142,7 @@ class TestMaximInitialization(unittest.TestCase):
     def test_maxim_requires_api_key(self):
         """Test that Maxim requires an API key."""
         with self.assertRaises(ValueError) as context:
-            Maxim()
+            Maxim({"base_url": baseUrl})
 
         self.assertIn("API key is required", str(context.exception))
 
@@ -149,7 +150,7 @@ class TestMaximInitialization(unittest.TestCase):
         """Test that Maxim uses environment variable for API key."""
         os.environ["MAXIM_API_KEY"] = "test-env-key"
 
-        maxim = Maxim()
+        maxim = Maxim({"base_url": baseUrl})
 
         self.assertEqual(maxim.api_key, "test-env-key")
 
@@ -157,23 +158,23 @@ class TestMaximInitialization(unittest.TestCase):
         """Test that Maxim follows singleton pattern."""
         os.environ["MAXIM_API_KEY"] = "test-key"
 
-        maxim1 = Maxim()
+        maxim1 = Maxim({"base_url": baseUrl})
 
         with self.assertRaises(RuntimeError) as context:
-            Maxim()
+            Maxim({"base_url": baseUrl})
 
         self.assertIn("already initialized", str(context.exception))
 
     def test_maxim_default_cache_creation(self):
         """Test that Maxim creates default cache when none provided."""
-        maxim = Maxim({"api_key": "test-key"})
+        maxim = Maxim({"api_key": "test-key", "base_url": baseUrl})
 
         cache = getattr(maxim, "_Maxim__cache")
         self.assertIsInstance(cache, MaximInMemoryCache)
 
     def test_cleanup_method_stops_running(self):
         """Test that cleanup method properly sets is_running to False."""
-        maxim = Maxim({"api_key": "test-key"})
+        maxim = Maxim({"api_key": "test-key", "base_url": baseUrl})
 
         self.assertTrue(maxim.is_running)
         # Give a moment for initialization to complete
@@ -185,7 +186,7 @@ class TestMaximInitialization(unittest.TestCase):
 
     def test_cleanup_prevents_double_execution(self):
         """Test that cleanup method can be called multiple times safely."""
-        maxim = Maxim({"api_key": "test-key"})
+        maxim = Maxim({"api_key": "test-key", "base_url": baseUrl})
 
         # Give a moment for initialization to complete
         import time

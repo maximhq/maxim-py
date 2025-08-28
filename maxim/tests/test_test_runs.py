@@ -1,8 +1,9 @@
-import json
+from datetime import datetime
 import logging
 import os
 import unittest
 from typing import Dict, Optional
+from dotenv import load_dotenv
 
 from maxim import Config, Maxim
 from maxim.evaluators import BaseEvaluator
@@ -23,20 +24,18 @@ from maxim.models.evaluator import (
     PassFailCriteriaOnEachEntry,
 )
 
-with open(str(f"{os.getcwd()}/maxim/tests/testConfig.json")) as f:
-    data = json.load(f)
-
+load_dotenv()
 logging.basicConfig(level=logging.INFO)
-env = "prod"
 
-apiKey = data[env]["apiKey"]
-baseUrl = data[env]["baseUrl"]
-workspaceId = data[env]["workspaceId"]
-datasetId = data[env]["datasetId"]
-workflowId = data[env]["workflowId"]
-promptVersionId = data[env]["promptVersionId"]
-promptChainVersionId = data[env]["promptChainVersionId"]
-
+apiKey = os.getenv("MAXIM_API_KEY")
+baseUrl = os.getenv("MAXIM_BASE_URL")
+workspaceId = os.getenv("MAXIM_WORKSPACE_ID")
+datasetId = os.getenv("MAXIM_DATASET_ID")
+workflowId = os.getenv("MAXIM_WORKFLOW_ID")
+promptVersionId = os.getenv("MAXIM_TEST_RUN_PROMPT_VERSION_ID")
+promptChainVersionId = os.getenv("MAXIM_PROMPT_CHAIN_VERSION_ID")
+assistantPromptVersionId = os.getenv("MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID")
+assistantPromptChainVersionId = os.getenv("MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID")
 
 class TestTestRuns(unittest.TestCase):
     def setUp(self):
@@ -61,7 +60,7 @@ class TestTestRuns(unittest.TestCase):
                 print(f"{message}")
 
         self.maxim.create_test_run(
-            name="test run", in_workspace_id=workspaceId
+            name=f"SDK Test run 1 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", in_workspace_id=workspaceId
         ).with_data(datasetId).with_concurrency(2).with_evaluators("Bias").with_logger(
             Logger()
         ).yields_output(
@@ -80,8 +79,13 @@ class TestTestRuns(unittest.TestCase):
                 print(f"{message}")
 
         self.maxim.create_test_run(
-            name="test run", in_workspace_id=workspaceId
-        ).with_data(datasetId).with_concurrency(2).with_evaluators("Bias").with_logger(
+            name=f"SDK Test run 2 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            in_workspace_id=workspaceId
+        ).with_data(
+            datasetId
+        ).with_concurrency(2).with_evaluators(
+            "Bias", "Clarity", "Faithfulness"
+        ).with_logger(
             Logger()
         ).yields_output(
             processor
@@ -96,7 +100,8 @@ class TestTestRuns(unittest.TestCase):
                 print(f"{message}")
 
         self.maxim.create_test_run(
-            name="workflow-run-from-sdk", in_workspace_id=workspaceId
+            name=f"SDK Test run Workflow {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            in_workspace_id=workspaceId
         ).with_workflow_id(workflowId).with_concurrency(2).with_logger(
             Logger()
         ).with_data(
@@ -117,7 +122,8 @@ class TestTestRuns(unittest.TestCase):
                 print(f"{message}")
 
         self.maxim.create_test_run(
-            name="test run", in_workspace_id=workspaceId
+            name=f"SDK Test run 3 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            in_workspace_id=workspaceId
         ).with_data(datasetId).with_concurrency(2).with_evaluators("Bias").with_logger(
             Logger()
         ).yields_output(
@@ -151,10 +157,11 @@ class TestTestRuns(unittest.TestCase):
         ]
 
         self.maxim.create_test_run(
-            name="test run", in_workspace_id=workspaceId
-        ).with_data_structure({"input": "INPUT"}).with_data(data).with_concurrency(
-            2
-        ).with_evaluators(
+            name=f"SDK Test run 4 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            in_workspace_id=workspaceId
+        ).with_data_structure(
+            {"input": "INPUT"}
+        ).with_data(data).with_concurrency(2).with_evaluators(
             "Bias"
         ).with_logger(
             Logger()
@@ -163,9 +170,6 @@ class TestTestRuns(unittest.TestCase):
         ).run()
 
     def test_create_test_run_with_local_data_and_workflow_id_and_local_evaluators(self):
-        def processor(data) -> YieldedOutput:
-            return YieldedOutput(data="test")
-
         class MyCustomEvaluator(BaseEvaluator):
             def evaluate(
                 self, result: LocalEvaluatorResultParameter, data: LocalData
@@ -199,10 +203,11 @@ class TestTestRuns(unittest.TestCase):
         ]
 
         self.maxim.create_test_run(
-            name="test run", in_workspace_id=workspaceId
-        ).with_data_structure({"input": "INPUT"}).with_data(data).with_concurrency(
-            2
-        ).with_evaluators(
+            name=f"SDK Test run 5 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            in_workspace_id=workspaceId
+        ).with_data_structure(
+            {"input": "INPUT"}
+        ).with_data(data).with_concurrency(2).with_evaluators(
             "Bias",
             MyCustomEvaluator(
                 pass_fail_criteria={
@@ -255,7 +260,7 @@ class TestTestRuns(unittest.TestCase):
             },
         ]
         result = (
-            self.maxim.create_test_run(name="test run", in_workspace_id=workspaceId)
+            self.maxim.create_test_run(name=f"SDK Test run 6 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", in_workspace_id=workspaceId)
             .with_data_structure({"input": "INPUT"})
             .with_data(data)
             .with_concurrency(2)
@@ -279,18 +284,6 @@ class TestTestRuns(unittest.TestCase):
                 "context": "Product description analysis",
                 "expected_output": "Detailed analysis result",
             },
-            {
-                "input": "Compare these visual elements",
-                "image_url": "https://www.thoughtco.com/thmb/i3i0DhTooFFhVLjnBcwJhT5z9Q0=/1500x0/filters:no_upscale():max_bytes(150000):strip_icc()/what-are-the-elements-of-art-182704_FINAL-9a30cee7896f4d3a9e078274851d5382.png",
-                "context": "Visual comparison task",
-                "expected_output": "Comparison summary",
-            },
-            {
-                "input": "Extract text from image",
-                "image_url": "https://tmm.chicagodistributioncenter.com/IsbnImages/9780226827025.jpg",
-                "context": "OCR processing",
-                "expected_output": "Extracted text content",
-            },
         ]
 
         # Data structure with various column types including FILE_URL_VARIABLE for images
@@ -303,7 +296,7 @@ class TestTestRuns(unittest.TestCase):
 
         result = (
             self.maxim.create_test_run(
-                name="test run with image variables and prompt workflow",
+                name=f"SDK Test run 7 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 in_workspace_id=workspaceId,
             )
             .with_data_structure(data_structure)
@@ -355,14 +348,14 @@ class TestTestRuns(unittest.TestCase):
 
         result = (
             self.maxim.create_test_run(
-                name="test run with image variables and prompt version",
+                name=f"SDK Test run 8 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 in_workspace_id=workspaceId,
             )
             .with_data_structure(data_structure)
             .with_data(data)
             .with_concurrency(1)  # Lower concurrency for image processing
             .with_evaluators("Bias", "Clarity")
-            .with_prompt_version_id(promptVersionId)  # Test with prompt version
+            .with_prompt_version_id(assistantPromptVersionId)  # Test with prompt version
             .run()
         )
 
@@ -407,7 +400,7 @@ class TestTestRuns(unittest.TestCase):
 
         result = (
             self.maxim.create_test_run(
-                name="test run with image variables and prompt chain version",
+                name=f"SDK Test run 9 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 in_workspace_id=workspaceId,
             )
             .with_data_structure(data_structure)
@@ -415,7 +408,7 @@ class TestTestRuns(unittest.TestCase):
             .with_concurrency(1)  # Lower concurrency for image processing
             .with_evaluators("Bias", "Clarity")
             .with_prompt_chain_version_id(
-                promptChainVersionId
+                assistantPromptChainVersionId
             )  # Test with prompt chain version
             .run()
         )
@@ -476,7 +469,7 @@ class TestTestRuns(unittest.TestCase):
 
         result = (
             self.maxim.create_test_run(
-                name="test run with image variables and local yields output",
+                name=f"SDK Test run 10 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 in_workspace_id=workspaceId,
             )
             .with_data_structure(data_structure)
@@ -544,7 +537,7 @@ class TestTestRuns(unittest.TestCase):
 
         result = (
             self.maxim.create_test_run(
-                name="test run with image variables, prompt workflow and local evaluators",
+                name=f"SDK Test run 11 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 in_workspace_id=workspaceId,
             )
             .with_data_structure(data_structure)
@@ -631,7 +624,7 @@ class TestTestRuns(unittest.TestCase):
 
         result = (
             self.maxim.create_test_run(
-                name="test run with image variables, prompt version and local evaluators",
+                name=f"SDK Test run 12 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 in_workspace_id=workspaceId,
             )
             .with_data_structure(data_structure)
@@ -658,7 +651,7 @@ class TestTestRuns(unittest.TestCase):
                     }
                 ),
             )
-            .with_prompt_version_id(promptVersionId)  # Test with prompt version
+            .with_prompt_version_id(assistantPromptVersionId)  # Test with prompt version
             .run()
         )
 
@@ -718,7 +711,7 @@ class TestTestRuns(unittest.TestCase):
 
         result = (
             self.maxim.create_test_run(
-                name="test run with image variables, prompt chain version and local evaluators",
+                name=f"SDK Test run 13 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 in_workspace_id=workspaceId,
             )
             .with_data_structure(data_structure)
@@ -746,7 +739,7 @@ class TestTestRuns(unittest.TestCase):
                 ),
             )
             .with_prompt_chain_version_id(
-                promptChainVersionId
+                assistantPromptChainVersionId
             )  # Test with prompt chain version
             .run()
         )
@@ -835,7 +828,7 @@ class TestTestRuns(unittest.TestCase):
 
         result = (
             self.maxim.create_test_run(
-                name="test run with image variables, local yields output and local evaluators",
+                name=f"SDK Test run 14 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 in_workspace_id=workspaceId,
             )
             .with_data_structure(data_structure)

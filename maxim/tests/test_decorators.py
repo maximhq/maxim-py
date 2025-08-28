@@ -1,24 +1,22 @@
 import concurrent.futures
-import json
 import logging
 import os
-import time
 import unittest
 from uuid import uuid4
+from dotenv import load_dotenv
+load_dotenv()
 
 from flask import Flask, request
-from langchain.chat_models.openai import ChatOpenAI
+from langchain_openai import ChatOpenAI
 
-from .. import Config, Maxim
-from ..decorators import current_retrieval, current_trace, retrieval, span, trace
-from ..decorators.langchain import langchain_callback, langchain_llm_call
-from ..logger import LoggerConfig
-from ..tests.mock_writer import inject_mock_writer
+from maxim import Maxim
+from maxim.decorators import current_retrieval, current_trace, retrieval, span, trace
+from maxim.decorators.langchain import langchain_callback, langchain_llm_call
+from maxim.tests.mock_writer import inject_mock_writer
 
 # Note: This file had a hardcoded path that may not work in all environments
 # Let's use environment variables instead
 logging.basicConfig(level=logging.INFO)
-env = "beta"
 
 openAIKey = os.getenv("OPENAI_API_KEY")
 apiKey = os.getenv("MAXIM_API_KEY")
@@ -34,7 +32,7 @@ class TestDecoratorForOpenAI(unittest.TestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
         self.mock_writer = inject_mock_writer(self.logger)
 
     def test_openai_chat_one(self):
@@ -85,7 +83,7 @@ class TestDecoratorsForFlask(unittest.TestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.maxim = Maxim()
+        self.maxim = Maxim({"base_url": baseUrl})
         self.logger = self.maxim.logger()
         self.mock_writer = inject_mock_writer(self.logger)
 

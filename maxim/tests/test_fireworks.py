@@ -26,12 +26,12 @@ class TestFireworks(unittest.TestCase):
         if not fireworksApiKey:
             raise ValueError("FIREWORKS_API_KEY environment variable is not set")
 
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
         
         # Initialize Fireworks LLM client with instrumentation
         self.llm = LLM(
-            model="llama4-maverick-instruct-basic", 
-            deployment_type="serverless", 
+            model="llama4-maverick-instruct-basic",
+            deployment_type="serverless",
             api_key=fireworksApiKey
         )
         instrument_fireworks(self.logger)
@@ -472,7 +472,7 @@ class TestFireworksAsync(unittest.IsolatedAsyncioTestCase):
         if not fireworksApiKey:
             raise ValueError("FIREWORKS_API_KEY environment variable is not set")
 
-        self.logger = Maxim().logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
         
         # Initialize Fireworks LLM client with instrumentation
         self.llm = LLM(
