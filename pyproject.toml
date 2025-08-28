@@ -61,7 +61,7 @@ dev = [
     "tavily-python~=0.7.9",
 ]
 
-additional-stuff = [
+additional_dev = [
     "livekit-agents[silero]~=1.0",
     "crewai===0.130.0",
     "smolagents~=1.21.2"
