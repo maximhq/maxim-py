@@ -79,7 +79,21 @@ jobs:
           MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID }}
           MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID }}
         run: |
-          uv run pytest maxim/tests/test_prompts.py maxim/tests/test_openai.py maxim/tests/test_llamaindex.py maxim/tests/test_together.py maxim/tests/test_fireworks.py maxim/tests/test_groq.py maxim/tests/test_add_dataset_entries_comprehensive.py maxim/tests/test_maxim_core_simple.py --junitxml=junit/main-test-results.xml
+          uv run pytest -v maxim/tests/test_prompts.py maxim/tests/test_openai.py maxim/tests/test_llamaindex.py maxim/tests/test_together.py maxim/tests/test_fireworks.py maxim/tests/test_groq.py maxim/tests/test_add_dataset_entries_comprehensive.py maxim/tests/test_maxim_core_simple.py --junitxml=junit/main-test-results.xml
+      
+      - name: Debug environment
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "PR from fork: ${{ github.event.pull_request.head.repo.full_name != github.repository }}"
+          echo "Base ref: ${{ github.base_ref }}"
+          echo "Head ref: ${{ github.head_ref }}"
+          echo "Repository: ${{ github.repository }}"
+          # Test if secrets are available (without exposing them)
+          if [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
+            echo "OPENAI_API_KEY is not available"
+          else
+            echo "OPENAI_API_KEY is available"
+          fi
 
       - name: Upload main test results
         uses: actions/upload-artifact@v4

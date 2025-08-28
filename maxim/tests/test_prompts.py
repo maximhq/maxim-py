@@ -11,7 +11,7 @@ apiKey = os.getenv("MAXIM_API_KEY")
 promptId = os.getenv("MAXIM_PROMPT_1_ID")
 promptVersionId = os.getenv("PROMPT_VERSION_ID")
 folderID = os.getenv("FOLDER_ID")
-baseUrl = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
+baseUrl = os.getenv("MAXIM_BASE_URL")
 
 
 class TestMaximPromptManagement(unittest.TestCase):
@@ -20,6 +20,7 @@ class TestMaximPromptManagement(unittest.TestCase):
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
 
+        print("Base URL: >>> ", baseUrl)
         self.maxim = Maxim(
             {
                 "api_key": apiKey,

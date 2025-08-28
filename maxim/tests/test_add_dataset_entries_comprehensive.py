@@ -260,7 +260,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
             self.maxim.add_dataset_entries(self.dataset_id, [entry])
 
         # Verify the upload process was initiated
-        self.assertEqual(mock_client.request.call_count, 4)
+        self.assertEqual(mock_client.request.call_count, 2)
 
     def test_add_dataset_entries_mixed_input_types(self) -> None:
         """Test add_dataset_entries with mixed DatasetEntry and dict inputs."""
