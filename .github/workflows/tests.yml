@@ -72,6 +72,9 @@ jobs:
           MAXIM_PROMPT_1_VERSION_5_ID: ${{ secrets.MAXIM_PROMPT_1_VERSION_5_ID }}
           MAXIM_FOLDER_1_ID: ${{ secrets.MAXIM_FOLDER_1_ID }}
           MAXIM_FOLDER_2_ID: ${{ secrets.MAXIM_FOLDER_2_ID }}
+          PROMPT_VERSION_ID: ${{ secrets.PROMPT_VERSION_ID }}
+          FOLDER_ID: ${{ secrets.FOLDER_ID }}
+          MAXIM_PROMPT_3_VERSION_2_ID: ${{ secrets.MAXIM_PROMPT_3_VERSION_2_ID }}
           MAXIM_TEST_RUN_PROMPT_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_PROMPT_VERSION_ID }}
           MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID }}
           MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID }}
@@ -109,6 +112,14 @@ jobs:
         with:
           version: "latest"
 
+      - name: Backup .python-version
+        run: |
+          cp .python-version .python-version.bak
+
+      - name: Update .python-version for CrewAI
+        run: |
+          echo "3.10.0" > .python-version
+
       - name: Set up Python 3.10
         run: uv python install 3.10
 
@@ -133,3 +144,8 @@ jobs:
         with:
           junit_files: "junit/additional-test-results.xml"
           check_name: "Additional Test Results"
+
+      - name: Restore .python-version
+        if: always()    # run this step even if previous steps failed
+        run: |
+          mv .python-version.bak .python-version
