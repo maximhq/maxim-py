@@ -30,8 +30,8 @@ class TestFireworks(unittest.TestCase):
         
         # Initialize Fireworks LLM client with instrumentation
         self.llm = LLM(
-            model="llama4-maverick-instruct-basic", 
-            deployment_type="serverless", 
+            model="llama4-maverick-instruct-basic",
+            deployment_type="serverless",
             api_key=fireworksApiKey
         )
         instrument_fireworks(self.logger)

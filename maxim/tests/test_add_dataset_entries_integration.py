@@ -16,7 +16,7 @@ dotenv.load_dotenv()
 # Environment variables for integration testing
 MAXIM_API_KEY = os.getenv("MAXIM_API_KEY")
 MAXIM_BASE_URL = os.getenv("MAXIM_BASE_URL") or "https://app.getmaxim.ai"
-MAXIM_DATASET_ID = "cmesayj1f001c9ybdxwxmtilk"  # Dataset ID for integration tests
+MAXIM_DATASET_ID = os.getenv("MAXIM_DATASET_ID")  # Dataset ID for integration tests
 
 
 class TestAddDatasetEntriesIntegration(unittest.TestCase):

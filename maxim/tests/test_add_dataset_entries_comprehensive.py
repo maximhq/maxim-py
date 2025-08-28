@@ -34,10 +34,6 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
         """Clean up after tests."""
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        if "MAXIM_API_KEY" in os.environ:
-            del os.environ["MAXIM_API_KEY"]
-        if "MAXIM_BASE_URL" in os.environ:
-            del os.environ["MAXIM_BASE_URL"]
 
     def _create_mock_response(self, content: bytes, headers: dict = None) -> Mock:
         """Create a mock HTTP response."""

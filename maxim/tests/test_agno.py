@@ -1,10 +1,12 @@
 import unittest
 import os
+from dotenv import load_dotenv
 
 from maxim.logger import Logger
 from maxim.logger.agno import instrument_agno
 from maxim.tests.mock_writer import inject_mock_writer
 
+load_dotenv()
 
 class TestAgnoIntegration(unittest.TestCase):
     def test_agno_generation_logging(self):
@@ -18,8 +20,8 @@ class TestAgnoIntegration(unittest.TestCase):
         # Setup Maxim logger with mock writer
         logger = Logger(
             {"id": os.getenv("MAXIM_LOG_REPO_ID", "test-repo")},
-            api_key="test-api-key",
-            base_url="https://app.getmaxim.ai",
+            api_key=os.getenv("MAXIM_API_KEY"),
+            base_url=os.getenv("MAXIM_BASE_URL"),
         )
         mock_writer = inject_mock_writer(logger)
         instrument_agno(logger)
