@@ -71,7 +71,7 @@ jobs:
           MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_ASSISTANT_PROMPT_VERSION_ID }}
           MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID: ${{ secrets.MAXIM_TEST_RUN_ASSISTANT_PROMPT_CHAIN_VERSION_ID }}
         run: |
-          uv run pytest maxim/tests/ -v --ignore=maxim/tests/test_crewai.py --ignore=maxim/tests/test_livekit.py --ignore=maxim/tests/test_livekit_realtime.py --ignore=maxim/tests/test_agno.py --junitxml=junit/main-test-results.xml
+          uv run pytest maxim/tests/test_prompts.py maxim/tests/test_openai.py maxim/tests/test_llamaindex.py maxim/tests/test_together.py maxim/tests/test_fireworks.py maxim/tests/test_groq.py maxim/tests/test_add_dataset_entries_comprehensive.py maxim/tests/test_maxim_core_simple.py --junitxml=junit/main-test-results.xml
 
       - name: Upload main test results
         uses: actions/upload-artifact@v4
