@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 from livekit.agents import Agent, AgentSession
+from livekit.agents.types import NOT_GIVEN
 from livekit.agents.voice.events import FunctionToolsExecutedEvent
 from livekit.plugins.openai.llm import _LLMOptions
 from livekit.protocol.models import Room
@@ -20,8 +21,8 @@ from maxim.logger.components.generation import (
 )
 from maxim.logger.utils import pcm16_to_wav_bytes
 
-from ...scribe import scribe
-from .store import (
+from maxim.scribe import scribe
+from maxim.logger.livekit.store import (
     SessionState,
     SessionStoreEntry,
     Turn,
@@ -30,7 +31,7 @@ from .store import (
     get_session_store,
     get_tts_store,
 )
-from .utils import extract_llm_model_parameters, extract_llm_usage, get_thread_pool_executor
+from maxim.logger.livekit.utils import extract_llm_model_parameters, extract_llm_usage, get_thread_pool_executor
 
 
 def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
@@ -99,7 +100,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     )
 
     current_turn_id = str(uuid.uuid4())
-    if self.stt is not None or self.tts is not None or self._agent.stt is not None or self._agent.tts is not None:
+    if self.stt is not None or self._agent.stt is not NOT_GIVEN:
         # Only add generation if we are not in realtime session
         llm_opts: _LLMOptions = self.llm._opts if self.llm is not None else self._agent.llm._opts
         model = self.llm.model if self.llm is not None else self._agent.llm.model
@@ -111,7 +112,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
             id=current_turn_id,
             model=model if model is not None else "unknown",
             model_parameters=model_parameters if model_parameters is not None else {},
-            messages=[{"role": "user", "content": agent.instructions}],
+            messages=[{"role": "system", "content": agent.instructions}],
             provider="livekit",
             name="Greeting turn",
         ))
@@ -232,7 +233,7 @@ def handle_tool_call_executed(self: AgentSession, event: FunctionToolsExecutedEv
                 tool_output = output.output
                 break
         tool_call.result(tool_output)
-        
+
 
 def handle_agent_response_complete(self: AgentSession, response_text):
     """Handle agent response completion and attach output audio"""
