@@ -5,7 +5,7 @@ from typing import Any, List, Union
 
 from livekit.agents.llm import InputTranscriptionCompleted
 
-from ....components import (
+from maxim.logger.components import (
     AudioContent,
     FileDataAttachment,
     GenerationResult,
@@ -13,9 +13,9 @@ from ....components import (
     ImageContent,
     TextContent,
 )
-from ....utils import pcm16_to_wav_bytes
-from ...store import SessionStoreEntry, get_maxim_logger, get_session_store
-from .events import SessionCreatedEvent, get_model_params
+from maxim.logger.utils import pcm16_to_wav_bytes
+from maxim.logger.livekit.store import SessionStoreEntry, get_maxim_logger, get_session_store
+from maxim.logger.livekit.openai.realtime.events import SessionCreatedEvent, get_model_params
 
 
 def handle_session_created(session_info: SessionStoreEntry, event: SessionCreatedEvent):

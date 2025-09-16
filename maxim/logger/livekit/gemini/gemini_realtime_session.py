@@ -1,3 +1,28 @@
+"""Gemini Realtime Session instrumentation and handlers.
+
+This module wires into Google Gemini's Realtime SDK (`RealtimeSession`) by
+wrapping selected lifecycle methods with pre/post hooks and by handling SDK
+callbacks. The goal is to:
+
+- Capture model inputs/outputs (audio and text) and persist them to Maxim logs
+    as turns and generations.
+- Record token usage and provider metadata for cost/latency analysis.
+- Surface tool-call activity as structured trace events.
+- Buffer long-running, streaming audio without blocking the realtime thread.
+
+When and why this module is used
+--------------------------------
+- It is activated by `instrument_gemini()` (see `instrumenter.py`), which
+    monkey-patches the `RealtimeSession` methods to call `pre_hook`/`post_hook`.
+- `pre_hook` dispatches heavy logging work to a background thread pool so that
+    realtime audio and events keep flowing smoothly.
+- `post_hook` captures final results after specific SDK calls complete (e.g.,
+    `_build_connect_config`).
+
+This decoupled design ensures accurate logging and tracing while minimizing
+impact on the realtime media path.
+"""
+
 import copy
 import functools
 import inspect
@@ -18,8 +43,8 @@ from livekit.agents.llm import InputTranscriptionCompleted
 from livekit.plugins.google.beta.realtime.realtime_api import RealtimeSession
 from livekit.rtc import AudioFrame
 
-from ....scribe import scribe
-from ...components import (
+from maxim.scribe import scribe
+from maxim.logger.components import (
     AudioContent,
     FileDataAttachment,
     GenerationResult,
@@ -28,18 +53,26 @@ from ...components import (
     TextContent,
     TokenDetails,
 )
-from ...utils import pcm16_to_wav_bytes
-from ..store import (
+from maxim.logger.utils import pcm16_to_wav_bytes, trim_silence_edges
+from maxim.logger.livekit.store import (
     SessionStoreEntry,
     get_maxim_logger,
     get_session_store,
 )
-from ..utils import get_thread_pool_executor
+from maxim.logger.livekit.utils import get_thread_pool_executor
 
 
 def handle_build_connect_config_result(
     self: RealtimeSession, result: LiveConnectConfig
 ):
+    """Handle connection configuration after the SDK builds it.
+
+    When: Invoked from `post_hook` after `_build_connect_config` completes.
+
+    Why: Initializes a new Maxim generation with the resolved model,
+    system instructions, and tool configuration so that subsequent streaming
+    events are associated with the right turn and trace.
+    """
     # here we will start the new generation
     # this is same as session started
     session_info = get_session_store().get_session_by_rt_session_id(id(self))
@@ -109,10 +142,20 @@ def handle_build_connect_config_result(
         }
     )
     session_info.user_speaking = False
+    session_info.current_turn = turn
     get_session_store().set_session(session_info)
 
 
 def handle_server_content(self: RealtimeSession, content: LiveServerContent):
+    """Process streamed server content from Gemini (text/audio parts).
+
+    When: Dispatched from `pre_hook` upon `_handle_server_content` calls.
+
+    Why: Accumulates assistant output transcription and audio bytes into the
+    current turn and a session-level conversation buffer. The conversation
+    buffer is periodically flushed to the session as attachments to avoid large
+    in-memory growth during long conversations.
+    """
     session_info = get_session_store().get_session_by_rt_session_id(id(self))
     if session_info is None:
         scribe().warning(
@@ -122,6 +165,7 @@ def handle_server_content(self: RealtimeSession, content: LiveServerContent):
     turn = session_info.current_turn
     if turn is None:
         return
+
     if content.output_transcription is not None and session_info.user_speaking:
         session_info.user_speaking = False
         get_session_store().set_session(session_info)
@@ -170,6 +214,14 @@ def handle_server_content(self: RealtimeSession, content: LiveServerContent):
 def handle_google_input_transcription_completed(
     session_info: SessionStoreEntry, input_transcription: InputTranscriptionCompleted
 ):
+    """Persist the user's input transcription for the current turn.
+
+    When: Triggered by the base realtime interceptor on
+    `input_audio_transcription_completed` events for the Google provider.
+
+    Why: Stores the user's speech-to-text transcript on the active turn so it
+    can be included in the generation request and traces.
+    """
     turn = session_info.current_turn
     if turn is None:
         return
@@ -178,6 +230,15 @@ def handle_google_input_transcription_completed(
 
 
 def handle_usage_metadata(self: RealtimeSession, usage: UsageMetadata):
+    """Finalize the generation and log usage/tokens and media attachments.
+
+    When: Dispatched from `pre_hook` upon `_handle_usage_metadata` calls when
+    Gemini emits usage statistics for a completed model turn.
+
+    Why: Completes the current generation by attaching input/output audio,
+    constructing a `GenerationResult` with token details, updating the active
+    trace, and persisting the assistant's transcript as output.
+    """
     session_info = get_session_store().get_session_by_rt_session_id(id(self))
     if session_info is None:
         scribe().warning(
@@ -194,15 +255,8 @@ def handle_usage_metadata(self: RealtimeSession, usage: UsageMetadata):
         and turn.turn_input_audio_buffer.tell() > 0
     ):
         buffer = turn.turn_input_audio_buffer.getvalue()
-        # Remove last 5 seconds of audio (assuming 16kHz, 16-bit mono PCM)
-        sample_rate = 16000
-        sample_width = 2  # bytes per sample for 16-bit PCM
-        seconds_to_remove = 5
-        bytes_to_remove = sample_rate * sample_width * seconds_to_remove
-        if len(buffer) > bytes_to_remove:
-            buffer = buffer[:-bytes_to_remove]
-        else:
-            buffer = b""
+        # Trim leading and trailing silence (assumes 16kHz mono PCM16)
+        buffer = trim_silence_edges(buffer, sample_rate=16000, frame_ms=10, threshold=300)
         get_maxim_logger().generation_add_attachment(
             turn.turn_id,
             FileDataAttachment(
@@ -318,6 +372,15 @@ def handle_usage_metadata(self: RealtimeSession, usage: UsageMetadata):
 
 
 def handle_push_audio(self: RealtimeSession, data_buffer: bytes):
+    """Buffer inbound user audio for the current turn and session.
+
+    When: Dispatched from `pre_hook` whenever `push_audio` is called by the
+    SDK with a new `AudioFrame`.
+
+    Why: Maintains a precise record of the user's audio input for the turn and
+    for the longer session conversation buffer, while skipping leading silence
+    so empty buffers are not logged.
+    """
     session_info = get_session_store().get_session_by_rt_session_id(id(self))
     if session_info is None:
         scribe().warning(
@@ -335,15 +398,20 @@ def handle_push_audio(self: RealtimeSession, data_buffer: bytes):
     # Ensure we have a valid audio buffer
     if turn.turn_input_audio_buffer is None:
         turn.turn_input_audio_buffer = BytesIO()
-    turn.turn_input_audio_buffer.write(data_buffer)
-    session_info.conversation_buffer.write(data_buffer)
+    pcm_bytes = trim_silence_edges(data_buffer, sample_rate=16000, frame_ms=10, threshold=300)
+    turn.turn_input_audio_buffer.write(pcm_bytes)
+    session_info.conversation_buffer.write(pcm_bytes)
     session_info.current_turn = turn
     get_session_store().set_session(session_info)
 
 
 def handle_tool_calls(self, tool_calls: LiveServerToolCall):
-    """
-    This function is called when the agent makes a tool call.
+    """Record tool calls issued by the model as trace events.
+
+    When: Dispatched from `pre_hook` upon `_handle_tool_calls` callbacks.
+
+    Why: Surfaces model-initiated function/tool invocations in the trace with
+    their names and serialized arguments for auditability and debugging.
     """
     trace = get_session_store().get_current_trace_from_rt_session_id(id(self))
     if trace is None:
@@ -377,6 +445,14 @@ ignored_hooks = ["_resample_audio", "_send_client_event", "_start_new_generation
 
 
 def pre_hook(self: RealtimeSession, hook_name, args, kwargs):
+    """Lightweight pre-hook executed before selected SDK methods.
+
+    When: Called by wrappers installed via `instrument_gemini_session`.
+
+    Why: Routes specific realtime callbacks to background workers to avoid
+    blocking the audio/media pipeline. Only a subset of hooks produce logging
+    work; the rest are emitted as debug messages to aid troubleshooting.
+    """
     try:
         if hook_name in ignored_hooks:
             return
@@ -413,6 +489,14 @@ def pre_hook(self: RealtimeSession, hook_name, args, kwargs):
 
 
 def post_hook(self: RealtimeSession, result, hook_name, args, kwargs):
+    """Post-hook executed after selected SDK methods complete.
+
+    When: Called by wrappers installed via `instrument_gemini_session`.
+
+    Why: Performs completion-time work for particular hooks (e.g., capturing
+    model configuration after `_build_connect_config`) and emits debug details
+    for others. Expensive actions are avoided here to keep teardown fast.
+    """
     try:
         if hook_name in ignored_hooks:
             return
@@ -439,6 +523,15 @@ def post_hook(self: RealtimeSession, result, hook_name, args, kwargs):
 
 
 def instrument_gemini_session(orig, name):
+    """Wrap a `RealtimeSession` method with pre/post hooks.
+
+    When: Used during instrumentation to monkey-patch every callable attribute
+    on `RealtimeSession` (except dunders) with a wrapper that executes
+    `pre_hook` and `post_hook` around the original method.
+
+    Why: Centralizes logging/observability without modifying the upstream SDK
+    implementation. Supports both sync and async methods.
+    """
     if inspect.iscoroutinefunction(orig):
 
         async def async_wrapper(self, *args, **kwargs):

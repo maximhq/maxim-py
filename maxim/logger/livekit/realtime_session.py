@@ -1,3 +1,21 @@
+"""Cross-provider realtime session instrumentation.
+
+This module provides generic pre/post hooks and event interception that work
+across different realtime providers (e.g., OpenAI and Gemini). It delegates
+provider-specific handling to the corresponding submodules:
+
+- OpenAI handlers: `maxim.logger.livekit.openai.realtime.handler`
+- Gemini handlers: `maxim.logger.livekit.gemini.gemini_realtime_session`
+
+When and why this module is used
+--------------------------------
+- Methods of LiveKit's `RealtimeSession` are wrapped (see each provider's
+  instrumenter) to call into these hooks.
+- We centralize app-level concerns like buffering audio at the session level,
+  marking interruptions, and forwarding SDK events to the provider-specific
+  path based on `session_info.provider`.
+"""
+
 import functools
 import inspect
 import time
