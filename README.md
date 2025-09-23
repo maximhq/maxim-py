@@ -60,6 +60,9 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.10.10
+- **fix**: Changed empty files sent in addDatasetEntries from [] to { "files" : []}
+
 ### 3.10.9
 - fix: Fixed session audio silences for LiveKit Realtime session implementation
 

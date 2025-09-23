@@ -447,7 +447,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
             self.assertIn("Network error", str(context.exception))
 
     def test_dataset_entry_with_row_no_to_dict_file_type(self) -> None:
-        """Test DatasetEntryWithRowNo.to_dict() for file type returns empty payload."""
+        """Test DatasetEntryWithRowNo.to_dict() for file type returns empty files payload."""
         file_attachment = FileAttachment(path="test.txt")
         entry = DatasetEntryWithRowNo(
             row_no=1,
@@ -459,7 +459,7 @@ class TestAddDatasetEntriesComprehensive(unittest.TestCase):
         result = entry.to_dict()
         
         self.assertEqual(result["type"], "file")  # File type mapped to attachment
-        self.assertEqual(result["value"], [])  # Should be empty for file types
+        self.assertEqual(result["value"], {"files": []})  # Should be empty files dict for file types
 
     def test_dataset_entry_with_row_no_to_dict_non_file_type(self) -> None:
         """Test DatasetEntryWithRowNo.to_dict() for non-file types preserves payload."""
