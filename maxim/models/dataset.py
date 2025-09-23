@@ -220,9 +220,8 @@ class DatasetEntryWithRowNo:
         """
         value: Any
         if self.type == "file":
-            value = []
+            value = { "files":[] }
         elif self.type == "json":
-            # Stringify JSON payloads before sending to API
             value = self.payload if isinstance(self.payload, str) else json.dumps(self.payload)
         else:
             value = self.payload
