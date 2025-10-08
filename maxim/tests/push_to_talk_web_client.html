@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Push-to-Talk Web Client</title>
+    <script src="https://unpkg.com/livekit-client@2.6.0/dist/livekit-client.umd.js"></script>
+    <script>
+        // Fallback CDN if first one fails
+        if (typeof LiveKit === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.6.0/dist/livekit-client.umd.js"><\/script>');
+        }
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .config {
+            margin-bottom: 20px;
+        }
+        .config label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .config input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            padding: 12px 24px;
+            margin: 5px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .connect { background-color: #4CAF50; color: white; }
+        .disconnect { background-color: #f44336; color: white; }
+        .start-turn { background-color: #2196F3; color: white; }
+        .end-turn { background-color: #FF9800; color: white; }
+        .cancel-turn { background-color: #9E9E9E; color: white; }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .status.connected { background-color: #d4edda; color: #155724; }
+        .status.disconnected { background-color: #f8d7da; color: #721c24; }
+        .status.talking { background-color: #fff3cd; color: #856404; }
+        .logs {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Push-to-Talk Web Client</h1>
+        
+        <div class="config">
+            <label for="wsUrl">LiveKit WebSocket URL:</label>
+            <input type="text" id="wsUrl" value="wss://your-livekit-server.com" placeholder="wss://your-livekit-server.com">
+        </div>
+        
+        <div class="config">
+            <label for="token">Access Token:</label>
+            <input type="text" id="token" placeholder="Your LiveKit access token">
+        </div>
+        
+        <div class="config">
+            <label for="agentIdentity">Agent Identity:</label>
+            <input type="text" id="agentIdentity" value="agent" placeholder="agent">
+        </div>
+        
+        <div class="controls">
+            <button id="connectBtn" class="connect">Connect</button>
+            <button id="disconnectBtn" class="disconnect" disabled>Disconnect</button>
+        </div>
+        
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <div class="controls">
+            <button id="startTurnBtn" class="start-turn" disabled>Start Turn</button>
+            <button id="endTurnBtn" class="end-turn" disabled>End Turn</button>
+            <button id="cancelTurnBtn" class="cancel-turn" disabled>Cancel Turn</button>
+        </div>
+        
+        <div id="logs" class="logs"></div>
+    </div>
+
+    <script>
+        // Check if LiveKit loaded properly
+        if (typeof LiveKit === 'undefined') {
+            document.body.innerHTML = '<div style="text-align:center;margin-top:100px;"><h2>Error: LiveKit library failed to load</h2><p>Please check your internet connection and refresh the page.</p></div>';
+            throw new Error('LiveKit library not loaded');
+        }
+        
+        let room = null;
+        let isTalking = false;
+        
+        const elements = {
+            wsUrl: document.getElementById('wsUrl'),
+            token: document.getElementById('token'),
+            agentIdentity: document.getElementById('agentIdentity'),
+            connectBtn: document.getElementById('connectBtn'),
+            disconnectBtn: document.getElementById('disconnectBtn'),
+            startTurnBtn: document.getElementById('startTurnBtn'),
+            endTurnBtn: document.getElementById('endTurnBtn'),
+            cancelTurnBtn: document.getElementById('cancelTurnBtn'),
+            status: document.getElementById('status'),
+            logs: document.getElementById('logs')
+        };
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            elements.logs.innerHTML += `[${timestamp}] ${message}\n`;
+            elements.logs.scrollTop = elements.logs.scrollHeight;
+        }
+        
+        function updateStatus(status, className) {
+            elements.status.textContent = status;
+            elements.status.className = `status ${className}`;
+        }
+        
+        function updateButtons(connected, talking = false) {
+            elements.connectBtn.disabled = connected;
+            elements.disconnectBtn.disabled = !connected;
+            elements.startTurnBtn.disabled = !connected || talking;
+            elements.endTurnBtn.disabled = !connected || !talking;
+            elements.cancelTurnBtn.disabled = !connected;
+            isTalking = talking;
+        }
+        
+        async function connect() {
+            try {
+                const wsUrl = elements.wsUrl.value.trim();
+                const token = elements.token.value.trim();
+                
+                if (!wsUrl || !token) {
+                    alert('Please enter WebSocket URL and access token');
+                    return;
+                }
+                
+                log('Connecting to LiveKit...');
+                room = new LiveKit.Room();
+                
+                // Set up event listeners
+                room.on(LiveKit.RoomEvent.Connected, () => {
+                    log('Connected to room');
+                    updateStatus('Connected', 'connected');
+                    updateButtons(true, false);
+                });
+                
+                room.on(LiveKit.RoomEvent.Disconnected, () => {
+                    log('Disconnected from room');
+                    updateStatus('Disconnected', 'disconnected');
+                    updateButtons(false, false);
+                });
+                
+                room.on(LiveKit.RoomEvent.ParticipantConnected, (participant) => {
+                    log(`Participant connected: ${participant.identity}`);
+                });
+                
+                room.on(LiveKit.RoomEvent.ParticipantDisconnected, (participant) => {
+                    log(`Participant disconnected: ${participant.identity}`);
+                });
+                
+                // Connect to the room
+                await room.connect(wsUrl, token);
+                
+            } catch (error) {
+                log(`Connection failed: ${error.message}`);
+                updateStatus('Connection Failed', 'disconnected');
+            }
+        }
+        
+        async function disconnect() {
+            if (room) {
+                await room.disconnect();
+                room = null;
+            }
+        }
+        
+        async function startTurn() {
+            try {
+                const agentIdentity = elements.agentIdentity.value.trim();
+                log(`Sending start_turn RPC to ${agentIdentity}...`);
+                
+                const response = await room.localParticipant.performRpc(
+                    agentIdentity,
+                    'start_turn',
+                    ''
+                );
+                
+                log('✅ Start turn successful');
+                updateStatus('Talking - Agent Listening', 'talking');
+                updateButtons(true, true);
+                
+            } catch (error) {
+                log(`❌ Start turn failed: ${error.message}`);
+            }
+        }
+        
+        async function endTurn() {
+            try {
+                const agentIdentity = elements.agentIdentity.value.trim();
+                log(`Sending end_turn RPC to ${agentIdentity}...`);
+                
+                const response = await room.localParticipant.performRpc(
+                    agentIdentity,
+                    'end_turn',
+                    ''
+                );
+                
+                log('✅ End turn successful - Agent will respond');
+                updateStatus('Connected - Waiting for Agent', 'connected');
+                updateButtons(true, false);
+                
+            } catch (error) {
+                log(`❌ End turn failed: ${error.message}`);
+            }
+        }
+        
+        async function cancelTurn() {
+            try {
+                const agentIdentity = elements.agentIdentity.value.trim();
+                log(`Sending cancel_turn RPC to ${agentIdentity}...`);
+                
+                const response = await room.localParticipant.performRpc(
+                    agentIdentity,
+                    'cancel_turn',
+                    ''
+                );
+                
+                log('✅ Cancel turn successful');
+                updateStatus('Connected', 'connected');
+                updateButtons(true, false);
+                
+            } catch (error) {
+                log(`❌ Cancel turn failed: ${error.message}`);
+            }
+        }
+        
+        // Event listeners
+        elements.connectBtn.addEventListener('click', connect);
+        elements.disconnectBtn.addEventListener('click', disconnect);
+        elements.startTurnBtn.addEventListener('click', startTurn);
+        elements.endTurnBtn.addEventListener('click', endTurn);
+        elements.cancelTurnBtn.addEventListener('click', cancelTurn);
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT') return; // Don't trigger when typing in inputs
+            
+            switch(e.key.toLowerCase()) {
+                case 's':
+                    if (!elements.startTurnBtn.disabled) startTurn();
+                    break;
+                case 'e':
+                    if (!elements.endTurnBtn.disabled) endTurn();
+                    break;
+                case 'c':
+                    if (!elements.cancelTurnBtn.disabled) cancelTurn();
+                    break;
+            }
+        });
+        
+        log('Push-to-Talk Web Client loaded');
+        log('Enter your LiveKit URL and token, then click Connect');
+    </script>
+</body>
+</html>

@@ -40,6 +40,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     This is the point where we create a new session for Maxim.
     The session info along with room_id, agent_id, etc is stored in the thread-local store.
     """
+    print("[CHECKPOINT] 1")
     maxim_logger = get_maxim_logger()
     scribe().debug(f"[Internal][{self.__class__.__name__}] Session started")
     # getting the room_id
@@ -53,6 +54,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
         room_id = id(room)
         if isinstance(room, dict):
             room_name = room.get("name")
+
     scribe().debug(f"[Internal]session key:{id(self)}")
     scribe().debug(f"[Internal]Room: {room_id}")
     scribe().debug(f"[Internal]Agent: {agent.instructions}")
@@ -69,6 +71,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     if agent is not None:
         session.add_tag("agent_id", str(id(agent)))
     # If callback is set, emit the session started event
+    print("[CHECKPOINT] 2")
     callback = get_livekit_callback()
     if callback is not None:
         try:
@@ -98,8 +101,8 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
             "tags": tags,
         }
     )
+    print("[CHECKPOINT] 3")
 
-    current_turn_id = str(uuid.uuid4())
     if self.stt is not None or self._agent.stt is not NOT_GIVEN:
         # Only add generation if we are not in realtime session
         llm_opts: _LLMOptions = self.llm._opts if self.llm is not None else self._agent.llm._opts
@@ -109,7 +112,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
         else:
             model_parameters = None
         trace.generation(GenerationConfigDict(
-            id=current_turn_id,
+            id=str(uuid.uuid4()),
             model=model if model is not None else "unknown",
             model_parameters=model_parameters if model_parameters is not None else {},
             messages=[{"role": "system", "content": agent.instructions}],
@@ -117,6 +120,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
             name="Greeting turn",
         ))
 
+    print("[CHECKPOINT] 4")
     callback = get_livekit_callback()
     if callback is not None:
         try:
@@ -126,8 +130,9 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
                 f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}"
             )
 
+    print("[CHECKPOINT] 5")
     current_turn = Turn(
-        turn_id=current_turn_id,
+        turn_id=trace_id,
         turn_sequence=0,
         turn_timestamp=datetime.now(timezone.utc),
         is_interrupted=False,
@@ -136,8 +141,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
         turn_input_audio_buffer=BytesIO(),
         turn_output_audio_buffer=BytesIO(),
     )
-    get_session_store().set_session(
-        SessionStoreEntry(
+    session_to_set = SessionStoreEntry(
             room_id=room_id,
             user_speaking=False,
             provider="unknown",
@@ -155,8 +159,10 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
             mx_current_trace_id=trace_id,
             mx_session_id=session_id,
             current_turn=current_turn,
-        ),
-    )
+        )
+    print("[CHECKPOINT] 6")
+    print(f"[ROHAN] session_to_set={vars(session_to_set)}")
+    get_session_store().set_session(session_to_set)
 
 def intercept_update_agent_state(self: AgentSession, new_state):
     """
@@ -166,6 +172,7 @@ def intercept_update_agent_state(self: AgentSession, new_state):
         return
     trace = get_session_store().get_current_trace_for_agent_session(id(self))
     if trace is not None:
+        scribe().debug(f"[MaximSDK] [EVENT] agent_{new_state} {trace.id}")
         trace.event(
             str(uuid.uuid4()),
             f"agent_{new_state}",
@@ -184,6 +191,7 @@ def intercept_generate_reply(self: AgentSession, instructions):
     )
     trace = get_session_store().get_current_trace_for_agent_session(id(self))
     if trace is not None:
+        print("[ROHAN] setting input transcription from intercept generate reply: ", instructions)
         trace.set_input(instructions)
 
 
@@ -198,6 +206,7 @@ def intercept_user_state_changed(self: AgentSession, new_state):
     )
     trace = get_session_store().get_current_trace_for_agent_session(id(self))
     if trace is not None:
+        scribe().debug(f"[MaximSDK] [EVENT] user_{new_state} {trace.id}")
         trace.event(
             str(uuid.uuid4()),
             f"user_{new_state}",
@@ -348,6 +357,7 @@ def intercept_metrics_collected(self, event):
     pass
 
 def pre_hook(self: AgentSession, hook_name, args, kwargs):
+    print(f"[ROHAN] pre_hook called for agent session; hook_name={hook_name}, args={args}, kwargs={kwargs}")
     try:
         if hook_name == "start":
             room = kwargs.get("room")

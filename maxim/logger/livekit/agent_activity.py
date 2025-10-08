@@ -27,15 +27,20 @@ def handle_interrupt(self: AgentActivity):
             "[MaximSDK] trace is none at realtime session interrupt. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues."
         )
         return
+    scribe().debug(f"[MaximSDK] [EVENT] interrupted {trace.id}")
     trace.event(id=str(uuid4()), name="interrupted")
 
 
 def post_realtime_session_start(self: AgentActivity):
     # Trying to get AgentSession and RealtimeSession handles
+    print("[CHECKPOINT] 8")
+    print(f"[ROHAN] post_realtime_session_start called; self={vars(self)}")
     rt_session_id = id(self.realtime_llm_session)
+    print(f"[ROHAN] post_realtime_session_start called; rt_session_id={rt_session_id}")
     session_info = get_session_store().get_session_by_agent_session_id(
         id(self.session)
     )
+    print(f"[ROHAN] post_realtime_session_start called; session_info={vars(session_info)}")
     if session_info is None:
         scribe().warning(
             f"[Internal][{self.__class__.__name__}] session info is none at realtime session start. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues."
@@ -53,11 +58,13 @@ def post_start(self: AgentActivity):
             f"[Internal][{self.__class__.__name__}] rt_session is none at realtime session start. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues."
         )
         return
+    print(f"[ROHAN] post_start called; self={vars(self)}")
     post_realtime_session_start(self)
 
 
 def handle_input_speech_started(self: AgentActivity):
     scribe().debug(f"[Internal][{self.__class__.__name__}] input speech started")
+    print(f"[Internal][{self.__class__.__name__}] input speech started")
     session_info = get_session_store().get_session_by_agent_session_id(
         id(self.session)
     )
@@ -66,10 +73,12 @@ def handle_input_speech_started(self: AgentActivity):
             f"[Internal][{self.__class__.__name__}] session info is none at realtime session emit. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues."
         )
         return
+    print(f"[Internal][{self.__class__.__name__}] session info: {vars(session_info)}")
     if session_info.provider == "google-realtime":
         trace = get_session_store().get_current_trace_for_agent_session(
             id(self.session)
         )
+        scribe().debug(f"[MaximSDK] [EVENT] user_speaking {trace.id}")
         if trace is not None:
             trace.event(str(uuid4()), "user_speaking", {"platform": "livekit"})
         session_info.user_speaking = True
@@ -94,6 +103,7 @@ def handle_create_speech_task(self: AgentActivity):
     session_info = get_session_store().get_session_by_agent_session_id(
         id(self.session)
     )
+    print(f"[ROHAN] session info in handle create speech task: {vars(session_info)}")
     if session_info is None:
         scribe().warning(
             f"[Internal][{self.__class__.__name__}] session info is none at realtime session emit. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues."
@@ -223,6 +233,7 @@ def handle_final_transcript(self, event):
 
                 # Clear the input buffer after attaching the audio data
                 turn.turn_input_audio_buffer = None
+                print("[ROHAN] setting input transcription from handle final transcript: ", transcript)
                 trace.set_input(transcript)
 
             session_info.current_turn = turn
@@ -395,6 +406,24 @@ def handle_end_of_speech(self: AgentActivity, event: VADEvent):
         scribe().warning(
             f"[Internal][{self.__class__.__name__}] handle_end_of_speech failed in function; error={e!s}\n{traceback.format_exc()}"
         )
+        
+# def handle_end_of_turn(self: AgentActivity):
+#     try:
+#         session_info = get_session_store().get_session_by_agent_session_id(
+#             id(self.session)
+#         )
+#         if session_info is None or (session_info.current_turn.turn_input_transcription == "" and session_info.current_turn.turn_output_transcription == ""):
+#             print(f"[ROHAN] handle_end_of_turn called; session_info is none")
+#             return
+#         turn = start_new_turn(session_info)
+#         print(f"[ROHAN] handle_end_of_turn called; turn={vars(turn)}")
+#         session_info.current_turn = turn
+#         print(f"[ROHAN] handle_end_of_turn called; session_info={vars(session_info)}")
+#         get_session_store().set_session(session_info)
+#     except Exception as e:
+#         scribe().warning(
+#             f"[Internal][{self.__class__.__name__}] handle_end_of_turn failed; error={e!s}\n{traceback.format_exc()}"
+#         )
 
 def pre_hook(self, hook_name, args, kwargs):
     ignored_hooks = ["push_audio"]
@@ -453,6 +482,7 @@ def pre_hook(self, hook_name, args, kwargs):
         else:
             if hook_name in ignored_hooks:
                 return
+            print(f"[ROHAN] pre_hook called; hook_name={hook_name}, args={args}, kwargs={kwargs}")
             scribe().debug(
                 f"[Internal][{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
             )
@@ -464,6 +494,7 @@ def pre_hook(self, hook_name, args, kwargs):
 
 def post_hook(self, result, hook_name, args, kwargs):
     try:
+        print(f"[ROHAN] post_hook called; hook_name={hook_name}, args={args}, kwargs={kwargs}")
         if hook_name == "start":
             get_thread_pool_executor().submit(post_start, self)
         else:

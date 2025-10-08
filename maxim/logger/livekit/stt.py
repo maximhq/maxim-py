@@ -108,6 +108,7 @@ def handle_stt_result(self: STT, result):
                 id(self._session)
             )
             if trace is not None:
+                print("[ROHAN] setting input transcription from handle stt result: ", transcript)
                 trace.set_input(transcript)
 
     except Exception as e:

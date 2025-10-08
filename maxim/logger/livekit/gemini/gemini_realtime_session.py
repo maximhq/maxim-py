@@ -75,10 +75,12 @@ def handle_build_connect_config_result(
     """
     # here we will start the new generation
     # this is same as session started
-    session_info = get_session_store().get_session_by_rt_session_id(id(self))
+    curr_id = id(self)
+    scribe().debug(f"[MaximSDK] [BUILD_CONNECT_CONFIG] curr_id: {curr_id}")
+    session_info = get_session_store().get_session_by_rt_session_id(curr_id)
     if session_info is None:
         scribe().warning(
-            "[MaximSDK] session info is none at realtime session emit. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues"
+            "[MaximSDK] [BUILD_CONNECT_CONFIG] session info is none at realtime session emit. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues"
         )
         return
     session_info.provider = "google-realtime"
@@ -156,7 +158,8 @@ def handle_server_content(self: RealtimeSession, content: LiveServerContent):
     buffer is periodically flushed to the session as attachments to avoid large
     in-memory growth during long conversations.
     """
-    session_info = get_session_store().get_session_by_rt_session_id(id(self))
+    curr_id = id(self)
+    session_info = get_session_store().get_session_by_rt_session_id(curr_id)
     if session_info is None:
         scribe().warning(
             "[MaximSDK] session info is none at realtime session emit. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues"
@@ -226,6 +229,7 @@ def handle_google_input_transcription_completed(
     if turn is None:
         return
     turn.turn_input_transcription = input_transcription.transcript
+    scribe().debug(f"[MaximSDK] [GOOGLE_INPUT_TRANSCRIPTION_COMPLETED] turn input transcription: {turn.turn_input_transcription}")
     get_session_store().set_session(session_info)
 
 
@@ -239,7 +243,8 @@ def handle_usage_metadata(self: RealtimeSession, usage: UsageMetadata):
     constructing a `GenerationResult` with token details, updating the active
     trace, and persisting the assistant's transcript as output.
     """
-    session_info = get_session_store().get_session_by_rt_session_id(id(self))
+    curr_id = id(self)
+    session_info = get_session_store().get_session_by_rt_session_id(curr_id)
     if session_info is None:
         scribe().warning(
             "[MaximSDK] session info is none at realtime session emit. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues"

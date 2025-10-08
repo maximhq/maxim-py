@@ -5,7 +5,6 @@ from livekit import agents
 from livekit.agents import AgentSession, Agent, RoomInputOptions
 from livekit.plugins import (
     openai,
-    google,
     noise_cancellation,
     silero,
 )
@@ -22,7 +21,7 @@ class Assistant(Agent):
         super().__init__(
             instructions="You are a helpful voice AI assistant.",
             stt=openai.STT(model="gpt-4o-mini-transcribe"),
-            llm=google.LLM(model="gemini-2.0-flash-001", temperature=1),
+            llm=openai.LLM(model="gpt-5", temperature=1),
             tts=openai.TTS(model="gpt-4o-mini-tts", voice="alloy"),
             vad=silero.VAD.load(),
         )
@@ -43,7 +42,7 @@ async def entrypoint(ctx: agents.JobContext):
     )
 
     await session.generate_reply(
-        instructions="Greet the user and offer your assistance."
+        instructions="Greet the user and offer your assistance in English."
     )
 
 

@@ -105,13 +105,18 @@ class LiveKitSessionStore:
     def get_session_by_agent_session_id(
         self, session_id: int
     ) -> Union[SessionStoreEntry, None]:
+        print("[CHECKPOINT] 9")
+        print(f"[ROHAN] get_session_by_agent_session_id called; session_id={session_id}")
         with self._lock:
             for entry in self.mx_live_kit_session_store:
+                print(f"[ROHAN] get_session_by_agent_session_id called; entry={vars(entry)}")
                 if (
                     entry.agent_session_id is not None
                     and entry.agent_session_id == session_id
                 ):
+                    print(f"[ROHAN] get_session_by_agent_session_id called; entry={vars(entry)}")
                     return entry
+            print("[ROHAN] get_session_by_agent_session_id called; entry not found")
             return None
 
     def get_session_by_rt_session_id(
@@ -127,6 +132,7 @@ class LiveKitSessionStore:
             return None
 
     def set_session(self, entry: SessionStoreEntry):
+        print("[CHECKPOINT] 7")
         with self._lock:
             if entry.agent_session_id is not None:
                 # find the entry and replace

@@ -6,13 +6,13 @@ from ...logger import Logger
 from .agent_activity import instrument_agent_activity
 from .agent_session import instrument_agent_session
 from .gemini.instrumenter import instrument_gemini
-from .job_context import instrument_job_context
+# from .job_context import instrument_job_context
 from .llm import instrument_llm_init
 from .realtime_session import instrument_realtime_session
 from .stt import instrument_stt_init
 from .store import MaximLiveKitCallback, set_livekit_callback, set_maxim_logger
 from .tts import instrument_tts_init
-from .worker import instrument_worker
+# from .worker import instrument_worker
 
 
 def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
@@ -42,11 +42,11 @@ def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
             setattr(AgentSession, name, instrument_agent_session(orig, name))
 
     # Instrument Worker methods
-    for name, orig in [
-        (n, getattr(Worker, n)) for n in dir(Worker) if callable(getattr(Worker, n))
-    ]:
-        if name != "__class__" and not name.startswith("__"):
-            setattr(Worker, name, instrument_worker(orig, name))
+    # for name, orig in [
+    #     (n, getattr(Worker, n)) for n in dir(Worker) if callable(getattr(Worker, n))
+    # ]:
+    #     if name != "__class__" and not name.startswith("__"):
+    #         setattr(Worker, name, instrument_worker(orig, name))
 
     # Instrument RealtimeSession methods
     for name, orig in [
@@ -67,13 +67,13 @@ def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
             setattr(AgentActivity, name, instrument_agent_activity(orig, name))
 
     # Instrument JobContext methods
-    for name, orig in [
-        (n, getattr(JobContext, n))
-        for n in dir(JobContext)
-        if callable(getattr(JobContext, n))
-    ]:
-        if name != "__class__" and not name.startswith("__"):
-            setattr(JobContext, name, instrument_job_context(orig, name))
+    # for name, orig in [
+    #     (n, getattr(JobContext, n))
+    #     for n in dir(JobContext)
+    #     if callable(getattr(JobContext, n))
+    # ]:
+    #     if name != "__class__" and not name.startswith("__"):
+    #         setattr(JobContext, name, instrument_job_context(orig, name))
 
     # Instrumenting LLM models if present
     for name, orig in [

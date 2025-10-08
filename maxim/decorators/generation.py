@@ -140,6 +140,7 @@ def generation(
                 finally:
                     generation.end()
                     _generation_ctx_var.reset(token)
+            return async_wrapper
 
         else:
             @wraps(func)
