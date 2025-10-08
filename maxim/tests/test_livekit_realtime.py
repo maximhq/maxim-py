@@ -86,7 +86,7 @@ async def entrypoint(ctx: agents.JobContext):
         await session.start(room=room, agent=Assistant())
         await ctx.connect()
         await session.generate_reply(
-            instructions="Greet the user and offer your assistance."
+            instructions="Greet the user and offer your assistance in English. The user understands only English so speak English only."
         )
     finally:
         await lkapi.aclose()

@@ -31,7 +31,7 @@ from maxim.logger.livekit.store import (
     get_session_store,
     get_tts_store,
 )
-from maxim.logger.livekit.utils import extract_llm_model_parameters, extract_llm_usage, get_thread_pool_executor
+from maxim.logger.livekit.utils import extract_llm_model_parameters, extract_llm_usage, get_thread_pool_executor, start_new_turn
 
 
 def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
@@ -53,9 +53,9 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
         room_id = id(room)
         if isinstance(room, dict):
             room_name = room.get("name")
-    scribe().debug(f"[Internal]session key:{id(self)}")
-    scribe().debug(f"[Internal]Room: {room_id}")
-    scribe().debug(f"[Internal]Agent: {agent.instructions}")
+    scribe().debug(f"[Internal] Session key:{id(self)}")
+    scribe().debug(f"[Internal] Room: {room_id}")
+    scribe().debug(f"[Internal] Agent: {agent.instructions}")
     # creating trace as well
     session_id = str(uuid.uuid4())
     session = maxim_logger.session({"id": session_id, "name": "livekit-session"})
@@ -136,8 +136,7 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
         turn_input_audio_buffer=BytesIO(),
         turn_output_audio_buffer=BytesIO(),
     )
-    get_session_store().set_session(
-        SessionStoreEntry(
+    session_to_set = SessionStoreEntry(
             room_id=room_id,
             user_speaking=False,
             provider="unknown",
@@ -155,7 +154,12 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
             mx_current_trace_id=trace_id,
             mx_session_id=session_id,
             current_turn=current_turn,
-        ),
+        )
+
+    scribe().debug(f"[Internal] Session to set: {session_to_set}")
+
+    get_session_store().set_session(
+        session_to_set
     )
 
 def intercept_update_agent_state(self: AgentSession, new_state):
@@ -347,6 +351,17 @@ def intercept_metrics_collected(self, event):
     """
     pass
 
+def intercept_commit_user_turn(self: AgentSession):
+    """
+    This function is called when the user turn is committed.
+    """
+    session_info = get_session_store().get_session_by_agent_session_id(
+        id(self)
+    )
+    if session_info is None:
+        return
+    start_new_turn(session_info)
+
 def pre_hook(self: AgentSession, hook_name, args, kwargs):
     try:
         if hook_name == "start":
@@ -424,6 +439,10 @@ def post_hook(self: AgentSession, result, hook_name, args, kwargs):
                     get_thread_pool_executor().submit(
                         handle_agent_response_complete, self, content
                     )
+        elif hook_name == "commit_user_turn":
+            get_thread_pool_executor().submit(
+                intercept_commit_user_turn, self
+            )
         else:
             scribe().debug(
                 f"[Internal][{self.__class__.__name__}] {hook_name} completed; result={result}"
