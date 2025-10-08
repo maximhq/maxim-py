@@ -66,8 +66,11 @@ def intercept_realtime_session_emit(self: RealtimeSession, event, data):
         session_info.user_speaking = False
         get_session_store().set_session(session_info)
     elif event == "input_audio_transcription_completed":
+        print(f"[Internal][{self.__class__.__name__}] input_audio_transcription_completed called; event={event} args={vars(data)}")
         session_info = get_session_store().get_session_by_rt_session_id(id(self))
+        print(f"[Internal][{self.__class__.__name__}] session info in input_audio_transcription_completed: {vars(session_info)}")
         if session_info is None:
+            print(f"[Internal][{self.__class__.__name__}] session info is none at realtime session emit")
             scribe().debug("[MaximSDK] session info is none at realtime session emit")
             return
         if session_info.provider == "openai-realtime":
@@ -114,6 +117,7 @@ def handle_interrupt(self):
     trace = get_session_store().get_current_trace_from_rt_session_id(rt_session_id)
     if trace is None:
         return
+    scribe().debug(f"[MaximSDK] [EVENT] interrupt {trace.id}")
     trace.event(id=str(uuid4()), name="Interrupt", tags={"type": "interrupt"})
 
 
@@ -126,6 +130,7 @@ def handle_off(self):
     index = session_info.conversation_buffer_index
     if session_info.conversation_buffer.tell() == 0:
         return
+    print(f"[Internal][{self.__class__.__name__}] off called; args={vars(session_info)}")
     get_maxim_logger().session_add_attachment(
         session_id,
         FileDataAttachment(

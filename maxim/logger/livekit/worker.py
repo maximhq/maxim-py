@@ -52,14 +52,14 @@ def intercept_on(self: Worker, *args, **kwargs):
 
 def intercept_emit(self, *args, **kwargs):
     action = args[0]
-    if action == "worker_started":
-        scribe().info(
-            f"[Internal][MaximSDK][LiveKit:{self.__class__.__name__}] Worker started"
-        )
-    elif action == "worker_stopped":
-        scribe().info(
-            f"[Internal][MaximSDK][LiveKit:{self.__class__.__name__}] Worker stopped"
-        )
+    # if action == "worker_started":
+    #     scribe().info(
+    #         f"[Internal][MaximSDK][LiveKit:{self.__class__.__name__}] Worker started"
+    #     )
+    # elif action == "worker_stopped":
+    #     scribe().info(
+    #         f"[Internal][MaximSDK][LiveKit:{self.__class__.__name__}] Worker stopped"
+    #     )
 
 
 def intercept_aclose(self, *args, **kwargs):
@@ -75,9 +75,9 @@ def intercept_aclose(self, *args, **kwargs):
 
 def pre_hook(self, hook_name, args, kwargs):
     try:
-        scribe().debug(
-            f"[Internal][{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
-        )
+        # scribe().debug(
+        #     f"[Internal][{self.__class__.__name__}] {hook_name} called; args={args}, kwargs={kwargs}"
+        # )
         if hook_name == "emit":
             intercept_emit(self, *args, **kwargs)
         elif hook_name == "on":
@@ -94,9 +94,10 @@ def pre_hook(self, hook_name, args, kwargs):
 
 def post_hook(self, result, hook_name, args, kwargs):
     try:
-        scribe().debug(
-            f"[Internal][{self.__class__.__name__}] {hook_name} completed; result={result}"
-        )
+        # scribe().debug(
+        #     f"[Internal][{self.__class__.__name__}] {hook_name} completed; result={result}"
+        # )
+        pass
     except Exception as e:
         scribe().warning(
             f"[MaximSDK][LiveKit:{self.__class__.__name__}] {hook_name} failed; error={str(e)}\n{traceback.format_exc()}"

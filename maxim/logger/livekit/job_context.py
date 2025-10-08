@@ -42,7 +42,7 @@ def post_hook(self, result, hook_name, args, kwargs):
         if hook_name == "_participant_available":
             if not args or len(args) == 0:
                 return
-            intercept_participant_available(self, args[0])
+            # intercept_participant_available(self, args[0])
 
     except Exception as e:
         scribe().warning(

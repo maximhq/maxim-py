@@ -13,6 +13,7 @@ from maxim.logger.components import (
     ImageContent,
     TextContent,
 )
+from maxim.logger.livekit.utils import start_new_turn
 from maxim.logger.utils import pcm16_to_wav_bytes
 from maxim.logger.livekit.store import SessionStoreEntry, get_maxim_logger, get_session_store
 from maxim.logger.livekit.openai.realtime.events import SessionCreatedEvent, get_model_params
@@ -112,6 +113,7 @@ def handle_openai_input_transcription_completed(
     session_info: SessionStoreEntry, event: InputTranscriptionCompleted
 ):
     # adding a new generation to the current trace
+    print(f"[ROHAN] handle_openai_input_transcription_completed called; args={vars(session_info)}")
     trace = get_session_store().get_current_trace_from_rt_session_id(
         session_info.rt_session_id
     )
@@ -121,6 +123,13 @@ def handle_openai_input_transcription_completed(
     turn = session_info.current_turn
     if turn is None:
         return
+
+    print(f"[ROHAN] turn: {vars(turn)}")
+    if turn.turn_input_audio_buffer.tell() > 0 and turn.turn_output_audio_buffer.tell() > 0:
+        turn = start_new_turn(session_info)
+        session_info.current_turn = turn
+        get_session_store().set_session(session_info)
+
     model = "unknown"
 
     llm_config = session_info.llm_config
@@ -141,6 +150,7 @@ def handle_openai_input_transcription_completed(
             "messages": [{"role": "user", "content": turn.turn_input_transcription}],
         }
     )
+    print("[ROHAN] setting input transcription from handle openai input transcription completed: ", event.transcript)
     trace.set_input(event.transcript)
 
 
@@ -149,6 +159,7 @@ def handle_openai_server_event_received(session_info: SessionStoreEntry, event: 
     This function is called when the realtime session receives an event from the OpenAI server.
     """
     event_type = event.get("type")
+    print(f"[ROHAN] handle_openai_server_event_received called; args={event_type}")
     if event_type == "session.created":
         handle_session_created(session_info, event)
     elif event_type == "session.updated":
@@ -185,8 +196,10 @@ def handle_openai_server_event_received(session_info: SessionStoreEntry, event: 
         # mark the LLM call complete
         # Attaching the audio buffer as attachment to the generation
         turn = session_info.current_turn
+        print(f"[Internal][{session_info.rt_session_id}] response.done called; args={vars(session_info)}")
         if turn is None:
             return
+
         get_maxim_logger().generation_add_attachment(
             turn.turn_id,
             FileDataAttachment(

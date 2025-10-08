@@ -79,7 +79,6 @@ async def entrypoint(ctx: agents.JobContext):
         room = await lkapi.room.create_room(
             req
         )  # :contentReference[oaicite:0]{index=0}
-        print(f"Room created: {room}")
         session = AgentSession(
             llm=openai.realtime.RealtimeModel(voice="coral"),
         )
