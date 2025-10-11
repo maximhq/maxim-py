@@ -35,7 +35,7 @@ except ImportError:
     Gemini = None
     LlmRequest = None
     LlmResponse = None
-    BasePlugin = None
+    BasePlugin = object  # Use object as base class when google-adk is not available
     InvocationContext = None
     ToolContext = None
     CallbackContext = None
@@ -90,7 +90,10 @@ class MaximInstrumentationPlugin(BasePlugin):
     """Maxim instrumentation plugin for Google ADK."""
 
     def __init__(self, maxim_logger: Logger, debug: bool = False):
-        super().__init__(name="maxim_instrumentation")
+        if GOOGLE_ADK_AVAILABLE:
+            super().__init__(name="maxim_instrumentation")
+        else:
+            super().__init__()
         self.maxim_logger = maxim_logger
         self.debug = debug
         self._trace = None
@@ -787,6 +790,10 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
         for method_name in runner_methods:
             if hasattr(Runner, method_name):
                 original_method = getattr(Runner, method_name)
+                # Skip if already patched (idempotency guard)
+                if getattr(original_method, "__maxim_patched__", False):
+                    scribe().debug(f"[MaximSDK] Skipping already patched Runner.{method_name}")
+                    continue
                 wrapper = make_maxim_wrapper(
                     original_method,
                     f"google.adk.Runner.{method_name}",
@@ -794,14 +801,21 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                     display_name_fn=get_agent_display_name,
                 )
                 setattr(Runner, method_name, wrapper)
+                # Mark as patched to prevent double-wrapping
+                setattr(getattr(Runner, method_name), "__maxim_patched__", True)
                 scribe().info(f"[MaximSDK] Patched google.adk.Runner.{method_name}")
 
-    # Patch InMemoryRunner methods
+    # Patch InMemoryRunner methods (only if they override Runner methods)
     if InMemoryRunner is not None:
         inmemory_runner_methods = ["run_async", "run"]
         for method_name in inmemory_runner_methods:
-            if hasattr(InMemoryRunner, method_name):
+            # Only patch if method is defined in InMemoryRunner's own __dict__ (not inherited from Runner)
+            if hasattr(InMemoryRunner, method_name) and method_name in getattr(InMemoryRunner, "__dict__", {}):
                 original_method = getattr(InMemoryRunner, method_name)
+                # Skip if already patched (idempotency guard)
+                if getattr(original_method, "__maxim_patched__", False):
+                    scribe().debug(f"[MaximSDK] Skipping already patched InMemoryRunner.{method_name}")
+                    continue
                 wrapper = make_maxim_wrapper(
                     original_method,
                     f"google.adk.InMemoryRunner.{method_name}",
@@ -809,7 +823,11 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                     display_name_fn=get_agent_display_name,
                 )
                 setattr(InMemoryRunner, method_name, wrapper)
+                # Mark as patched to prevent double-wrapping
+                setattr(getattr(InMemoryRunner, method_name), "__maxim_patched__", True)
                 scribe().info(f"[MaximSDK] Patched google.adk.InMemoryRunner.{method_name}")
+            else:
+                scribe().debug(f"[MaximSDK] Skipping InMemoryRunner.{method_name} (inherited from Runner)")
 
     # Patch BaseLlm methods
     try:
@@ -818,6 +836,10 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
             for method_name in llm_methods:
                 if hasattr(BaseLlm, method_name):
                     original_method = getattr(BaseLlm, method_name)
+                    # Skip if already patched (idempotency guard)
+                    if getattr(original_method, "__maxim_patched__", False):
+                        scribe().debug(f"[MaximSDK] Skipping already patched BaseLlm.{method_name}")
+                        continue
                     wrapper = make_maxim_wrapper(
                         original_method,
                         f"google.adk.BaseLlm.{method_name}",
@@ -825,6 +847,8 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                         output_processor=lambda output: dictify(output),
                     )
                     setattr(BaseLlm, method_name, wrapper)
+                    # Mark as patched to prevent double-wrapping
+                    setattr(getattr(BaseLlm, method_name), "__maxim_patched__", True)
                     print(f"[MaximSDK] Patched google.adk.BaseLlm.{method_name}")
                     scribe().info(f"[MaximSDK] Patched google.adk.BaseLlm.{method_name}")
     except Exception as e:
@@ -843,6 +867,10 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                 print(f"[MaximSDK] Checking if Gemini has {method_name}: {hasattr(Gemini, method_name)}")
                 if hasattr(Gemini, method_name):
                     original_method = getattr(Gemini, method_name)
+                    # Skip if already patched (idempotency guard)
+                    if getattr(original_method, "__maxim_patched__", False):
+                        scribe().debug(f"[MaximSDK] Skipping already patched Gemini.{method_name}")
+                        continue
                     print(f"[MaximSDK] Original method type: {type(original_method)}")
                     wrapper = make_maxim_wrapper(
                         original_method,
@@ -851,6 +879,8 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                         output_processor=lambda output: dictify(output),
                     )
                     setattr(Gemini, method_name, wrapper)
+                    # Mark as patched to prevent double-wrapping
+                    setattr(getattr(Gemini, method_name), "__maxim_patched__", True)
                     print(f"[MaximSDK] Patched google.adk.Gemini.{method_name}")
                     scribe().info(f"[MaximSDK] Patched google.adk.Gemini.{method_name}")
                 else:
@@ -869,6 +899,10 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
         for method_name in tool_methods:
             if hasattr(BaseTool, method_name):
                 original_method = getattr(BaseTool, method_name)
+                # Skip if already patched (idempotency guard)
+                if getattr(original_method, "__maxim_patched__", False):
+                    scribe().debug(f"[MaximSDK] Skipping already patched BaseTool.{method_name}")
+                    continue
                 wrapper = make_maxim_wrapper(
                     original_method,
                     f"google.adk.BaseTool.{method_name}",
@@ -877,6 +911,8 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                     display_name_fn=get_tool_display_name,
                 )
                 setattr(BaseTool, method_name, wrapper)
+                # Mark as patched to prevent double-wrapping
+                setattr(getattr(BaseTool, method_name), "__maxim_patched__", True)
                 scribe().info(f"[MaximSDK] Patched google.adk.BaseTool.{method_name}")
 
     scribe().info("[MaximSDK] Finished applying patches to Google ADK.")
@@ -884,4 +920,9 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
 
 def create_maxim_plugin(maxim_logger: Logger, debug: bool = False) -> MaximInstrumentationPlugin:
     """Create a Maxim instrumentation plugin for Google ADK."""
+    if not GOOGLE_ADK_AVAILABLE:
+        raise ImportError(
+            "google-adk is required. Install via `pip install google-adk` or "
+            "an optional extra (e.g., maxim-py[google-adk])."
+        )
     return MaximInstrumentationPlugin(maxim_logger, debug)
