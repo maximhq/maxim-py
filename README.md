@@ -60,6 +60,9 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.11.0
+- feat: Added observability for google adk
+
 ### 3.10.10
 - feat: Added case for `commit_user_turn` for LiveKit logs
 
