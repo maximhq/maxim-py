@@ -386,24 +386,24 @@ def parse_token_usage_for_result(result: LLMResult):
     usage = result.llm_output.get("token_usage") if result.llm_output else None
     if usage is not None:
         return usage
+    
+    # Check for usage field
     llm_usage = result.llm_output.get("usage") if result.llm_output else None
     if llm_usage:
         if llm_usage.get("input_tokens") is not None:
-            usage = {
+            return {
                 "prompt_tokens": llm_usage.get("input_tokens", 0),
                 "completion_tokens": llm_usage.get("output_tokens", 0),
                 "total_tokens": llm_usage.get("input_tokens", 0)
                 + llm_usage.get("output_tokens", 0),
             }
         elif llm_usage.get("prompt_tokens") is not None:
-            usage = {
+            return {
                 "prompt_tokens": llm_usage.get("prompt_tokens", 0),
                 "completion_tokens": llm_usage.get("completion_tokens", 0),
                 "total_tokens": llm_usage.get("prompt_tokens", 0)
                 + llm_usage.get("completion_tokens", 0),
             }
-    if usage is not None:
-        return usage
     # Here we might have to go down to each generation and sum up all usages
     prompt_tokens = 0
     output_tokens = 0
@@ -428,6 +428,7 @@ def parse_token_usage_for_result(result: LLMResult):
                     usage_data = gen.__dict__.get("generation_info", {}).get(
                         "usage_metadata"
                     )
+                scribe().debug(f"[MaximSDK][Langchain] Usage data: {usage_data}")
                 if usage_data is not None:
                     if usage_data.get("input_tokens") is not None:
                         prompt_tokens += usage_data.get("input_tokens", 0)
@@ -502,6 +503,8 @@ def parse_langchain_chat_result(result: ChatResult) -> Dict[str, Any]:
     try:
         generations = result.generations
         choices = []
+        model = "unknown"
+        
         if generations is not None:
             for _, generation in enumerate(generations):
                 for _, gen in enumerate(generation):
@@ -510,13 +513,28 @@ def parse_langchain_chat_result(result: ChatResult) -> Dict[str, Any]:
                         choices.extend(parsed_generations)
                     else:
                         choices.append(parsed_generations)
+                    
+                    # Extract model name from first generation (matches JS version)
+                    if model == "unknown" and hasattr(gen, 'message') and gen.message:
+                        response_metadata = getattr(gen.message, 'response_metadata', {})
+                        if response_metadata and response_metadata.get('model_name'):
+                            model = response_metadata['model_name']
+                            
         usage = parse_token_usage_for_result(result)
         # Adding index to each choice
         for i, choice in enumerate(choices):
             choices[i] = {**choice, "index": i}
+            
+        # Determine object type based on content (matches JS version)
+        object_type = "chat_completion"
+        if choices and choices[0].get("text"):
+            object_type = "text_completion"
+            
         return {
             "id": str(uuid4()),
+            "object": object_type,
             "created": int(time.time()),
+            "model": model,
             "choices": choices,
             "usage": usage,
         }
@@ -534,9 +552,12 @@ def parse_langchain_llm_result(result: LLMResult) -> Dict[str, Any]:
     Raises:
         Exception: If error parsing LLM result
     """
+    scribe().debug(f"[MaximSDK][Langchain] Parsing LLM result: {vars(result)}")
     try:
         generations = result.generations
         choices = []
+        model = "unknown"
+        
         if generations is not None:
             for _, generation in enumerate(generations):
                 for _, gen in enumerate(generation):
@@ -545,13 +566,28 @@ def parse_langchain_llm_result(result: LLMResult) -> Dict[str, Any]:
                         choices.extend(parsed_generations)
                     else:
                         choices.append(parsed_generations)
+                    
+                    # Extract model name from first generation (matches JS version)
+                    if model == "unknown" and hasattr(gen, 'message') and gen.message:
+                        response_metadata = getattr(gen.message, 'response_metadata', {})
+                        if response_metadata and response_metadata.get('model_name'):
+                            model = response_metadata['model_name']
+                            
         usage = parse_token_usage_for_result(result)
         # Adding index to each choice
         for i, choice in enumerate(choices):
             choices[i] = {**choice, "index": i}
+            
+        # Determine object type based on content (matches JS version)
+        object_type = "chat_completion"
+        if choices and choices[0].get("text"):
+            object_type = "text_completion"
+            
         return {
             "id": str(uuid4()),
+            "object": object_type,
             "created": int(time.time()),
+            "model": model,
             "choices": choices,
             "usage": usage,
         }
