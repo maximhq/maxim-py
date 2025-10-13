@@ -369,3 +369,38 @@ class SpanContainer(Container):
         Ends the container
         """
         self._logger.span_end(self._id)
+
+
+class ContainerManager:
+    """
+    Manages mapping between LangChain run IDs and Maxim containers (trace/span).
+
+    This mirrors the behavior of the JS ContainerManager used by the Maxim LangChain tracer,
+    ensuring we never overwrite a parent trace container mapping with a child span container
+    and allowing proper lifecycle management.
+    """
+
+    def __init__(self) -> None:
+        # Map a run_id (as string) to its current container (TraceContainer or SpanContainer)
+        self._run_id_to_container: Dict[str, Container] = {}
+        # Track top-level root trace containers keyed by the originating run_id (no parent)
+        self._root_run_id_to_trace: Dict[str, TraceContainer] = {}
+
+    def get_container(self, run_id: str) -> Optional[Container]:
+        return self._run_id_to_container.get(run_id)
+
+    def set_container(self, run_id: str, container: Container) -> None:
+        self._run_id_to_container[run_id] = container
+
+    def remove_run_id_mapping(self, run_id: str) -> None:
+        if run_id in self._run_id_to_container:
+            self._run_id_to_container.pop(run_id)
+
+    def set_root_trace(self, run_id: str, trace_container: TraceContainer) -> None:
+        self._root_run_id_to_trace[run_id] = trace_container
+
+    def get_root_trace(self, run_id: str) -> Optional[TraceContainer]:
+        return self._root_run_id_to_trace.get(run_id)
+
+    def pop_root_trace(self, run_id: str) -> Optional[TraceContainer]:
+        return self._root_run_id_to_trace.pop(run_id, None)

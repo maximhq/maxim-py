@@ -23,6 +23,7 @@ from ...logger import (
 from ...scribe import scribe
 from ..logger import Generation
 from ..models import Container, Metadata, SpanContainer, TraceContainer
+from ..models.container import ContainerManager
 from .utils import (
     parse_langchain_llm_error,
     parse_langchain_llm_result,
@@ -57,7 +58,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         super().__init__()
         self.run_inline = True
         self.logger = logger
-        self.containers: Dict[str, Container] = {}
+        self.container_manager: ContainerManager = ContainerManager()
         self.metadata_store = ExpiringKeyValueStore()
         self.to_be_evaluated_container_store = ExpiringKeyValueStore()
         self.metadata = None
@@ -148,8 +149,8 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     container.add_tags(maxim_metadata.trace_tags)
 
         if container is None:
-            # We will check if the container is created with run_id
-            container = self.containers.get(str(run_id))
+            # We will check if the container is created with run_id via container manager
+            container = self.container_manager.get_container(str(run_id))
 
         if container is None:
             session_id: Optional[str] = (
@@ -164,6 +165,10 @@ class MaximLangchainTracer(BaseCallbackHandler):
             container.create()
             if maxim_metadata is not None and maxim_metadata.trace_tags is not None:
                 container.add_tags(maxim_metadata.trace_tags)
+            # Register this trace against the current run id and as root trace
+            self.container_manager.set_container(str(run_id), container)
+            if isinstance(container, TraceContainer):
+                self.container_manager.set_root_trace(str(run_id), container)
 
         return container
 
@@ -175,17 +180,14 @@ class MaximLangchainTracer(BaseCallbackHandler):
         """
         container: Optional[Container] = None
         if parent_run_id is None:
-            # This is the first activity in this run
-            container = self.__get_container_from_metadata(run_id)
-            # This is redundant but just to be safe
-            if container is not None:
-                self.containers[str(run_id)] = container
-        else:
-            container = self.containers.get(str(parent_run_id))
+            # This is the first activity in this run - either get existing or create new trace
+            container = self.container_manager.get_container(str(run_id))
             if container is None:
-                # Create a trace container and a span in it
-                # This is a fallback scenarios where the callbacks are called in random order
-                # This ideally should not happen
+                container = self.__get_container_from_metadata(run_id)
+        else:
+            container = self.container_manager.get_container(str(parent_run_id))
+            if container is None:
+                # Create a trace container and register it
                 scribe().warning(
                     f"[MaximSDK] Couldn't find a container for parent run id {parent_run_id}. Creating a new trace."
                 )
@@ -196,7 +198,10 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     mark_created=True,
                 )
                 trace_container.create()
-                self.containers[str(parent_run_id)] = trace_container
+                self.container_manager.set_container(str(parent_run_id), trace_container)
+                if isinstance(trace_container, TraceContainer):
+                    self.container_manager.set_root_trace(str(parent_run_id), trace_container)
+                container = trace_container
         return container
 
     def __get_metadata(
@@ -261,7 +266,15 @@ class MaximLangchainTracer(BaseCallbackHandler):
             if not container.is_created():
                 container.create()
             if container.parent() is None:
-                self.containers[str(run_id)] = container
+                self.container_manager.set_container(str(run_id), container)
+                if isinstance(container, TraceContainer):
+                    self.container_manager.set_root_trace(str(run_id), container)
+            # Set trace input from last user message like JS tracer
+            try:
+                if isinstance(container, TraceContainer) and last_input_message:
+                    container.set_input(last_input_message)
+            except Exception:
+                pass
             generation_container = container.add_generation(generation_config)
             # checking if we need to attach evaluator
             if (
@@ -341,7 +354,9 @@ class MaximLangchainTracer(BaseCallbackHandler):
             if not container.is_created():
                 container.create()
             if container.parent() is None:
-                self.containers[str(run_id)] = container
+                self.container_manager.set_container(str(run_id), container)
+                if isinstance(container, TraceContainer):
+                    self.container_manager.set_root_trace(str(run_id), container)
             generation_container = container.add_generation(generation_config)
             # checking if we need to attach evaluator
             if (
@@ -391,11 +406,15 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 return
             # here generation_id is the run_id
             self.logger.generation_result(str(run_id), result)
-            # We close the container - only if it was created by this run_id
+            # Remove mapping for this run_id when top-level (do not end here)
             if container.parent() is None:
-                container.end()
-                self.containers.pop(str(run_id))
-
+                self.container_manager.remove_run_id_mapping(str(run_id))
+                try:
+                    root = self.container_manager.pop_root_trace(str(run_id))
+                    if root is not None:
+                        root.end()
+                except Exception:
+                    pass
             # check if need to attach evaluator
             if self.to_be_evaluated_container_store.get(str(run_id)):
                 obj = self.to_be_evaluated_container_store.get(str(run_id))
@@ -462,10 +481,15 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 return
             generation_error = parse_langchain_llm_error(error)
             self.logger.generation_error(str(run_id), generation_error)
-            # We close the container - only if it was created by this run_id
+            # Remove mapping for this run_id when top-level (do not end here)
             if container.parent() is None:
-                container.end()
-                self.containers.pop(str(run_id))
+                self.container_manager.remove_run_id_mapping(str(run_id))
+                try:
+                    root = self.container_manager.pop_root_trace(str(run_id))
+                    if root is not None:
+                        root.end()
+                except Exception:
+                    pass
         except Exception as e:
             import traceback
 
@@ -527,8 +551,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
             documents_list: List[str] = [doc.page_content for doc in documents]
             self.logger.retrieval_output(str(run_id), documents_list)
             if container.parent() is None:
-                container.end()
-                self.containers.pop(str(run_id))
+                self.container_manager.remove_run_id_mapping(str(run_id))
         except Exception as e:
             import traceback
 
@@ -577,14 +600,25 @@ class MaximLangchainTracer(BaseCallbackHandler):
             if not container.is_created():
                 container.create()
 
-            if container.parent() is None:
-                self.containers[str(run_id)] = container
-
             span_config = SpanConfig(id=str(run_id), name=name, tags=tags)
-            container.add_span(span_config)
-            self.containers[str(run_id)] = SpanContainer(
-                span_id=str(run_id), logger=self.logger, mark_created=True
+            span = container.add_span(span_config)
+            
+            # Add inputs metadata to the span like JS tracer
+            try:
+                span.add_metadata({"inputs": inputs})
+            except Exception:
+                pass
+            
+            # Create a SpanContainer for this run_id to handle child operations
+            # This mirrors the JS tracer behavior
+            parent_trace_id = container.id() if isinstance(container, TraceContainer) else container.parent()
+            span_container = SpanContainer(
+                span_id=str(run_id),
+                logger=self.logger,
+                parent=parent_trace_id,
+                mark_created=True,
             )
+            self.container_manager.set_container(str(run_id), span_container)
         except Exception as e:
             import traceback
 
@@ -604,13 +638,28 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 for tag in kwargs.get("tags", [])
                 if ":" in tag
             }
-            container = self.__get_container(run_id, parent_run_id)
+            # Get the container for this run_id directly (should be the SpanContainer we created)
+            container = self.container_manager.get_container(str(run_id))
             if container is None:
                 scribe().error("[MaximSDK] Couldn't find a container for chain")
                 return
             container.add_tags(tags)
+            # Attach outputs metadata similar to JS tracer
+            try:
+                container.add_metadata({"outputs": outputs})
+            except Exception:
+                pass
             container.end()
-            self.containers.pop(str(run_id))
+            self.container_manager.remove_run_id_mapping(str(run_id))
+            
+            # If this is a top-level chain (no parent), also end the root trace
+            if parent_run_id is None:
+                try:
+                    parent_container = self.container_manager.pop_root_trace(str(run_id))
+                    if parent_container is not None:
+                        parent_container.end()
+                except Exception:
+                    pass
 
         except Exception as e:
             import traceback
@@ -724,7 +773,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 )
             )
             if container.parent() is None:
-                self.containers[str(run_id)] = container
+                self.container_manager.set_container(str(run_id), container)
         except Exception as e:
             import traceback
 
@@ -772,8 +821,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     )
 
             if container.parent() is None:
-                container.end()
-                self.containers.pop(str(run_id))
+                self.container_manager.remove_run_id_mapping(str(run_id))
         except Exception as e:
             import traceback
 
@@ -797,8 +845,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     str(run_id), ToolCallError(message=str(error))
                 )
             if container.parent() is None:
-                container.end()
-                self.containers.pop(str(run_id))
+                self.container_manager.remove_run_id_mapping(str(run_id))
         except Exception as e:
             import traceback
 
