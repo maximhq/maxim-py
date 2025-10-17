@@ -64,12 +64,16 @@ from .utils import (
 _last_llm_usages = {}
 _agent_span_ids = {}
 _session_trace = None  # Global session trace
-_current_agent_span = None  # Current agent span for wrapper-based instrumentation
+_current_tool_call_span = None  # Current tool call span (for nesting agents under tool calls)
+_open_tool_calls = {}  # Dict mapping tool_name -> list of tool_call_info (for nesting agents)
 _current_session = None  # Current session object
 _current_session_id = None  # Current session ID
 
 _global_maxim_trace: contextvars.ContextVar[Union[Trace, None]] = (
     contextvars.ContextVar("maxim_trace_context_var", default=None)
+)
+_current_agent_span: contextvars.ContextVar[Union[Any, None]] = (
+    contextvars.ContextVar("maxim_agent_span_context_var", default=None)
 )
 
 
@@ -301,9 +305,17 @@ class MaximInstrumentationPlugin(BasePlugin):
         # Extract tool calls from response
         tool_calls = extract_tool_calls_from_response(llm_response)
         
+        print(f"\n========== PLUGIN after_model_callback ==========")
         print(f"[MaximSDK] Usage info: {usage_info}")
         print(f"[MaximSDK] Content length: {len(content) if content else 0}")
-        print(f"[MaximSDK] Tool calls: {len(tool_calls) if tool_calls else 0}")
+        print(f"[MaximSDK] Tool calls detected: {len(tool_calls) if tool_calls else 0}")
+        if tool_calls:
+            print(f"[MaximSDK] TOOL CALLS FOUND IN THIS LLM RESPONSE:")
+            for tc in tool_calls:
+                print(f"  - {tc.get('name')} (ID: {tc.get('tool_call_id')})")
+        else:
+            print(f"[MaximSDK] NO TOOL CALLS in this LLM response")
+        print(f"========== END PLUGIN after_model_callback ==========\n")
         
         # Create generation result
         gen_result = {
@@ -347,26 +359,63 @@ class MaximInstrumentationPlugin(BasePlugin):
             print(f"[MaximSDK] Added {len(tool_calls)} tool calls to generation result")
             scribe().info(f"[MaximSDK] Added {len(tool_calls)} tool calls to generation result")
             
-            # Create tool call spans for each tool call
+            # Create tool call spans for each tool call AND store in global queue
             parent_context = self._agent_span if self._agent_span else self._trace
+            
+            # Get agent name for display
+            agent_name = "Unknown Agent"
+            try:
+                if self._agent_span and hasattr(self._agent_span, 'name'):
+                    span_name = self._agent_span.name
+                    if span_name.startswith("Agent: "):
+                        agent_name = span_name.replace("Agent: ", "")
+            except Exception as e:
+                scribe().debug(f"[MaximSDK] Could not extract agent name: {e}")
+            
             if parent_context:
+                global _open_tool_calls
+                
                 for tool_call in tool_calls:
                     tool_call_id = tool_call.get("tool_call_id", str(uuid.uuid4()))
                     tool_name = tool_call.get("name", "unknown")
                     tool_args = tool_call.get("args", {})
                     
-                    # Create tool call span
+                    # Create tool call span with agent name
                     try:
+                        tool_display_name = f"{agent_name} - {tool_name}" if agent_name != "Unknown Agent" else tool_name
+                        
                         tool_span = parent_context.tool_call({
                             "id": tool_call_id,
-                            "name": tool_name,
-                            "description": f"Tool call to {tool_name}",
+                            "name": tool_display_name,
+                            "description": f"Tool/Agent call: {tool_name}",
                             "args": str(tool_args),
-                            "tags": {"tool_call_id": tool_call_id, "from_llm_response": "true"},
+                            "tags": {
+                                "tool_call_id": tool_call_id,
+                                "from_llm_response": "true",
+                                "calling_agent": agent_name,
+                                "tool_name": tool_name,
+                                "created_in": "plugin_after_model_callback"
+                            },
                         })
-                        # Store for potential result update in after_tool_callback
+                        
+                        # Store in BOTH places:
+                        # 1. Local for after_tool_callback
                         self._tool_calls[tool_call_id] = tool_span
-                        print(f"[MaximSDK] Created tool call span: {tool_call_id} for {tool_name}")
+                        
+                        # 2. Global queue for BaseAgent wrapper to pick up
+                        if tool_name not in _open_tool_calls:
+                            _open_tool_calls[tool_name] = []
+                        _open_tool_calls[tool_name].append({
+                            "tool_call": tool_span,
+                            "tool_call_id": tool_call_id,
+                            "parent_agent_span": self._agent_span
+                        })
+                        
+                        print(f"\n🔧 PLUGIN: Created tool call span EARLY for '{tool_name}'")
+                        print(f"   - Display name: {tool_display_name}")
+                        print(f"   - ID: {tool_call_id}")
+                        print(f"   - Queue size for '{tool_name}': {len(_open_tool_calls[tool_name])}")
+                        print(f"   - Current _open_tool_calls keys: {list(_open_tool_calls.keys())}\n")
                         scribe().info(f"[MaximSDK] Created tool call span: {tool_call_id} for {tool_name}")
                     except Exception as e:
                         scribe().error(f"[MaximSDK] Failed to create tool call span: {e}")
@@ -521,9 +570,15 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
         def maxim_wrapper(self, *args, **kwargs):
             scribe().debug(f"――― Start: {base_op_name} ―――")
 
-            global _global_maxim_trace, _current_session, _current_session_id, _current_agent_span
+            global _current_session, _current_session_id
             global _agent_span_ids
             global _last_llm_usages
+            global _open_tool_calls
+            
+            # Debug: Show queue state at start
+            if isinstance(self, BaseAgent):
+                print(f"\n📊 QUEUE STATE at start of wrapper for {self.name}:")
+                print(f"   - _open_tool_calls: {dict((k, len(v)) for k, v in _open_tool_calls.items())}")
 
             # Process inputs
             bound_args = {}
@@ -610,37 +665,78 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                     scribe().info(f"[MaximSDK] Created trace [{trace_id}], agent span will be created by BaseAgent")
 
             elif isinstance(self, BaseAgent):
-                # Create a NEW agent span for this agent
-                # If there's already an agent span, nest within it; otherwise use trace
-                parent_context = _current_agent_span if _current_agent_span else _global_maxim_trace.get()
+                print(f"\n🤖 BaseAgent wrapper invoked for: {self.name}")
+                print(f"   - Current _open_tool_calls keys: {list(_open_tool_calls.keys())}")
+                print(f"   - Looking for key: '{self.name}'")
+                
+                # Check if there's a pending tool call for this agent (from LLM response)
+                tool_call_span = None
+                tool_call_list = _open_tool_calls.get(self.name, [])
+                
+                print(f"   - Found {len(tool_call_list)} pending tool calls for '{self.name}'")
+                
+                if tool_call_list:
+                    # Pop the first tool call from queue (FIFO)
+                    tool_call_info = tool_call_list.pop(0)
+                    tool_call_span = tool_call_info["tool_call"]
+                    print(f"   ✅ MATCHED! Popped tool call from queue")
+                    print(f"   - Tool call ID: {tool_call_info.get('tool_call_id')}")
+                    print(f"   - Queue remaining for '{self.name}': {len(tool_call_list)}")
+                    scribe().info(f"[MaximSDK] Matched agent '{self.name}' with pending tool call")
+                    
+                    # Store for later completion
+                    setattr(self, "_tool_call_span", tool_call_span)
+                    
+                    # Clean up empty lists
+                    if not tool_call_list:
+                        del _open_tool_calls[self.name]
+                        print(f"   - Deleted empty queue for '{self.name}'")
+                else:
+                    print(f"   ❌ NO MATCH - No tool call found for '{self.name}'")
+                
+                # Use current agent span as parent context
+                current_span = _current_agent_span.get()
+                parent_context = current_span if current_span else _global_maxim_trace.get()
+                scribe().info(f"[MaximSDK] Agent '{self.name}' - parent context: {type(parent_context).__name__ if parent_context else 'None'}")
                 
                 if parent_context:
                     span_id = str(uuid.uuid4())
-                    scribe().info(f"[MaximSDK] Creating agent span [{span_id}] for '{self.name}'")
-
+                    
+                    # Add tags
+                    tags = {
+                        "agent_id": str(getattr(self, "id", "")),
+                        "agent_type": type(self).__name__,
+                        "has_tool_call": str(tool_call_span is not None)
+                    }
+                    
                     span = parent_context.span({
                         "id": span_id,
                         "name": f"Agent: {self.name}",
-                        "tags": {
-                            "agent_id": str(getattr(self, "id", "")),
-                            "agent_type": type(self).__name__,
-                        },
+                        "tags": tags,
                     })
-
+                    
+                    scribe().info(f"[MaximSDK] Created agent span [{span_id}] for '{self.name}'")
+                    
                     _agent_span_ids[id(self)] = span_id
                     
-                    # Save the previous agent span so we can restore it later
-                    setattr(self, "_previous_agent_span", _current_agent_span)
-                    # Set this as the current agent span
-                    _current_agent_span = span
+                    # Save current span for restoration after this agent completes
+                    setattr(self, "_previous_agent_span", current_span)
+                    scribe().info(f"[MaximSDK] Agent '{self.name}' - will restore to previous span on completion")
+                    
+                    # Set this agent as current span so its operations nest under it
+                    _current_agent_span.set(span)
                     scribe().info(f"[MaximSDK] Set {self.name} as current agent span")
+                else:
+                    span = None
 
             elif isinstance(self, BaseLlm):
+                print(f'********* BASE LLM: {vars(self)}\n*************')
                 # Use agent span if available, otherwise use trace
-                parent_context = _current_agent_span if _current_agent_span else _global_maxim_trace.get()
+                current_agent = _current_agent_span.get()
+                parent_context = current_agent if current_agent else _global_maxim_trace.get()
                 
-                print(f"[MaximSDK] LLM method called! Parent context: {parent_context is not None}, Using agent span: {_current_agent_span is not None}")
-                scribe().info(f"[MaximSDK] LLM method called! Using agent span: {_current_agent_span is not None}")
+                print(f"[MaximSDK] LLM method called! Parent context: {parent_context is not None}, Using agent span: {current_agent is not None}")
+                scribe().info(f"[MaximSDK] LLM method called! Using agent span: {current_agent is not None}")
                 
                 if parent_context:
                     generation_id = str(uuid.uuid4())
@@ -663,9 +759,9 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                     # Determine agent name for better context
                     agent_name = "Unknown Agent"
                     try:
-                        if _current_agent_span and hasattr(_current_agent_span, 'name'):
+                        if current_agent and hasattr(current_agent, 'name'):
                             # Extract agent name from agent span name (format: "Agent: agent_name")
-                            span_name = _current_agent_span.name
+                            span_name = current_agent.name
                             if span_name.startswith("Agent: "):
                                 agent_name = span_name.replace("Agent: ", "")
                     except Exception as e:
@@ -690,15 +786,22 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                     generation = parent_context.generation(llm_generation_config)
                     setattr(self, "_input", messages)
                     
-                    context_type = "agent span" if _current_agent_span else "trace"
+                    context_type = "agent span" if current_agent else "trace"
                     print(f"[MaximSDK] Created generation in {context_type}")
                     scribe().info(f"[MaximSDK] Created generation in {context_type}")
                 else:
                     generation = None
 
             elif isinstance(self, BaseTool):
+                print(f'********* BASE TOOL: {vars(self)}\n*************')
+                print(f"[MaximSDK] BaseTool invoked: {self.name if hasattr(self, 'name') else 'unknown'}")
+                scribe().info(f"[MaximSDK] BaseTool invoked: {self.name if hasattr(self, 'name') else 'unknown'}")
+                
                 # Use agent span if available, otherwise use trace
-                parent_context = _current_agent_span if _current_agent_span else _global_maxim_trace.get()
+                current_agent = _current_agent_span.get()
+                parent_context = current_agent if current_agent else _global_maxim_trace.get()
+                
+                print(f"[MaximSDK] BaseTool parent_context: current_agent={current_agent is not None}, trace={_global_maxim_trace.get() is not None}")
                 
                 if parent_context:
                     tool_id = str(uuid.uuid4())
@@ -711,15 +814,15 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                     # Extract agent name for context
                     agent_name = None
                     try:
-                        if _current_agent_span and hasattr(_current_agent_span, 'name'):
-                            span_name = _current_agent_span.name
+                        if current_agent and hasattr(current_agent, 'name'):
+                            span_name = current_agent.name
                             if span_name.startswith("Agent: "):
                                 agent_name = span_name.replace("Agent: ", "")
                     except Exception:
                         pass
 
                     if tool_details.get('name') == "RagTool":
-                        context_type = "agent span" if _current_agent_span else "trace"
+                        context_type = "agent span" if current_agent else "trace"
                         tool_display_name = f"{agent_name} - RAG: {self.name}" if agent_name else f"RAG: {self.name}"
                         scribe().info(f"[MaximSDK] RAG: Retrieval tool [{tool_id}] in {context_type}")
                         tool_call = parent_context.retrieval({
@@ -733,7 +836,7 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                         setattr(tool_call, "_input", processed_inputs.get("query", ""))
                         tool_call.input(processed_inputs.get("query", ""))
                     else:
-                        context_type = "agent span" if _current_agent_span else "trace"
+                        context_type = "agent span" if current_agent else "trace"
                         tool_name = tool_details['name'] or self.name
                         tool_display_name = f"{agent_name} - {tool_name}" if agent_name else tool_name
                         scribe().info(f"[MaximSDK] TOOL: {self.name} [{tool_id}] in {context_type}")
@@ -762,7 +865,7 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                     scribe().debug(f"[MaximSDK] Handling async generator for {final_op_name}")
                     
                     async def async_generator_wrapper():
-                        global _current_agent_span, _current_session, _current_session_id
+                        global _current_session, _current_session_id, _open_tool_calls
                         
                         try:
                             final_result = None
@@ -790,10 +893,11 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                             # Complete agent span and trace for Runner after async generator exhaustion
                             if isinstance(self, Runner) and trace:
                                 # End agent span first
-                                if _current_agent_span:
-                                    _current_agent_span.end()
+                                current_agent = _current_agent_span.get()
+                                if current_agent:
+                                    current_agent.end()
                                     scribe().info("[MaximSDK] AGENT SPAN: Completed agent span (async)")
-                                    _current_agent_span = None
+                                    _current_agent_span.set(None)
                                 
                                 # Then end trace
                                 scribe().debug(f"[MaximSDK] TRACE: Completing trace (async) [{trace.id}]")
@@ -823,11 +927,12 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                             # Handle error case for trace
                             if isinstance(self, Runner) and trace:
                                 # End agent span first if it exists
-                                if _current_agent_span:
-                                    _current_agent_span.add_error({"message": str(e)})
-                                    _current_agent_span.end()
+                                current_agent = _current_agent_span.get()
+                                if current_agent:
+                                    current_agent.add_error({"message": str(e)})
+                                    current_agent.end()
                                     scribe().info("[MaximSDK] AGENT SPAN: Completed agent span with error (async)")
-                                    _current_agent_span = None
+                                    _current_agent_span.set(None)
                                 
                                 # Then end trace
                                 trace.add_error({"message": str(e)})
@@ -852,7 +957,7 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                     scribe().debug(f"[MaximSDK] Handling coroutine for {final_op_name}")
                     
                     async def async_wrapper():
-                        global _current_agent_span, _current_session, _current_session_id
+                        global _current_session, _current_session_id, _open_tool_calls
                         
                         try:
                             result = await output
@@ -865,10 +970,11 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                             # Complete agent span and trace for Runner after async completion
                             if isinstance(self, Runner) and trace:
                                 # End agent span first
-                                if _current_agent_span:
-                                    _current_agent_span.end()
+                                current_agent = _current_agent_span.get()
+                                if current_agent:
+                                    current_agent.end()
                                     scribe().info("[MaximSDK] AGENT SPAN: Completed agent span (async coroutine)")
-                                    _current_agent_span = None
+                                    _current_agent_span.set(None)
                                 
                                 # Then end trace
                                 scribe().debug(f"[MaximSDK] TRACE: Completing trace (async coroutine) [{trace.id}]")
@@ -898,11 +1004,12 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                             # Handle error case for trace
                             if isinstance(self, Runner) and trace:
                                 # End agent span first if it exists
-                                if _current_agent_span:
-                                    _current_agent_span.add_error({"message": str(e)})
-                                    _current_agent_span.end()
+                                current_agent = _current_agent_span.get()
+                                if current_agent:
+                                    current_agent.add_error({"message": str(e)})
+                                    current_agent.end()
                                     scribe().info("[MaximSDK] AGENT SPAN: Completed agent span with error (async coroutine)")
-                                    _current_agent_span = None
+                                    _current_agent_span.set(None)
                                 
                                 # Then end trace
                                 trace.add_error({"message": str(e)})
@@ -949,22 +1056,31 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                     
                     # If this was a BaseAgent span, restore the previous agent span
                     if isinstance(self, BaseAgent):
+                        # Complete the tool call span if it exists (for sub-agents)
+                        tool_call_span = getattr(self, "_tool_call_span", None)
+                        if tool_call_span:
+                            tool_call_span.result(str(processed_output) if processed_output else "Agent completed")
+                            print(f"\n✅ Completed tool call span for agent '{self.name}'")
+                            scribe().info(f"[MaximSDK] Completed tool call span for sub-agent '{self.name}'")
+                        
+                        # Restore previous agent span
                         previous_span = getattr(self, "_previous_agent_span", None)
                         if previous_span:
-                            _current_agent_span = previous_span
-                            scribe().info(f"[MaximSDK] Restored previous agent span")
+                            _current_agent_span.set(previous_span)
+                            scribe().info(f"[MaximSDK] Restored previous agent span to: {previous_span.name if hasattr(previous_span, 'name') else 'trace'}")
                         else:
                             # This was the root agent span, clear it
-                            _current_agent_span = None
+                            _current_agent_span.set(None)
                             scribe().info(f"[MaximSDK] Cleared root agent span")
                 
                 # Complete agent span and trace for Runner
                 if isinstance(self, Runner) and trace:
                     # End agent span first
-                    if _current_agent_span:
-                        _current_agent_span.end()
+                    current_agent = _current_agent_span.get()
+                    if current_agent:
+                        current_agent.end()
                         scribe().info("[MaximSDK] AGENT SPAN: Completed agent span")
-                        _current_agent_span = None
+                        _current_agent_span.set(None)
                     
                     # Then end trace
                     scribe().debug(f"[MaximSDK] TRACE: Completing trace [{trace.id}]")
@@ -1002,14 +1118,22 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                 if span:
                     span.add_error({"message": str(e)})
                     span.end()
+                    
+                    # If this was a BaseAgent span, complete the tool call span with error
+                    if isinstance(self, BaseAgent):
+                        tool_call_span = getattr(self, "_tool_call_span", None)
+                        if tool_call_span:
+                            tool_call_span.result(f"Error: {str(e)}")
+                            scribe().info(f"[MaximSDK] Completed tool call span with error for sub-agent '{self.name}'")
 
                 if trace:
                     # End agent span first if it exists
-                    if _current_agent_span:
-                        _current_agent_span.add_error({"message": str(e)})
-                        _current_agent_span.end()
+                    current_agent = _current_agent_span.get()
+                    if current_agent:
+                        current_agent.add_error({"message": str(e)})
+                        current_agent.end()
                         scribe().info("[MaximSDK] AGENT SPAN: Completed agent span with error")
-                        _current_agent_span = None
+                        _current_agent_span.set(None)
                     
                     # Then end trace
                     trace.add_error({"message": str(e)})
@@ -1031,6 +1155,11 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
 
     async def process_llm_result(llm_self, generation, result):
         """Process LLM result and handle tool calls for async calls."""
+        print(f"\n********* LLM RESPONSE *********")
+        print(f"Result type: {type(result)}")
+        print(f"Result content: {result}")
+        print(f"********* END LLM RESPONSE *********\n")
+        
         print(f"[MaximSDK] Processing LLM result - type: {type(result)}")
         usage_info = extract_usage_from_response(result)
         model_info = getattr(llm_self, "_model_info", extract_model_info(llm_self))
@@ -1045,6 +1174,15 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
         print(f"[MaximSDK] Model: {model_info.get('model', 'unknown')}")
         print(f"[MaximSDK] Content length: {len(content) if content else 0}")
         print(f"[MaximSDK] Tool calls: {len(tool_calls) if tool_calls else 0}")
+        
+        if tool_calls:
+            print(f"[MaximSDK] ===== TOOL CALLS DETECTED =====")
+            for i, tc in enumerate(tool_calls):
+                print(f"[MaximSDK] Tool Call {i+1}:")
+                print(f"  - Name: {tc.get('name')}")
+                print(f"  - ID: {tc.get('tool_call_id')}")
+                print(f"  - Args: {tc.get('args')}")
+            print(f"[MaximSDK] ===== END TOOL CALLS =====")
         
         # Get generation ID safely (handle both object and dict)
         gen_id = generation.id if hasattr(generation, 'id') else generation.get('id', str(uuid.uuid4()))
@@ -1091,23 +1229,28 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
             print(f"[MaximSDK] Added {len(tool_calls)} tool calls to generation result")
             scribe().info(f"[MaximSDK] Added {len(tool_calls)} tool calls to generation result")
             
-            # Create tool call spans for each tool call (retroactive but visible)
-            parent_context = _current_agent_span if _current_agent_span else _global_maxim_trace.get()
+            # NOTE: Plugin may not be active - create tool call spans here too
+            # Store them in global queue for BaseAgent wrapper
+            print(f"\n🔧 WRAPPER: Creating tool call spans for {len(tool_calls)} tool calls")
+            
+            current_agent = _current_agent_span.get()
+            parent_context = current_agent if current_agent else _global_maxim_trace.get()
+            
             if parent_context:
+                # Get agent name for display
+                agent_name = "Unknown Agent"
+                try:
+                    if current_agent and hasattr(current_agent, 'name'):
+                        span_name = current_agent.name
+                        if span_name.startswith("Agent: "):
+                            agent_name = span_name.replace("Agent: ", "")
+                except Exception as e:
+                    scribe().debug(f"[MaximSDK] Could not extract agent name: {e}")
+                
                 for tool_call in tool_calls:
                     tool_call_id = tool_call.get("tool_call_id") or str(uuid.uuid4())
                     tool_name = tool_call.get("name", "unknown")
                     tool_args = tool_call.get("args", {})
-                    
-                    # Get agent name for display
-                    agent_name = "Unknown Agent"
-                    try:
-                        if _current_agent_span and hasattr(_current_agent_span, 'name'):
-                            span_name = _current_agent_span.name
-                            if span_name.startswith("Agent: "):
-                                agent_name = span_name.replace("Agent: ", "")
-                    except Exception as e:
-                        scribe().debug(f"[MaximSDK] Could not extract agent name: {e}")
                     
                     # Create tool display name with agent context
                     tool_display_name = f"{agent_name} - {tool_name}" if agent_name != "Unknown Agent" else tool_name
@@ -1117,22 +1260,36 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                         tool_span = parent_context.tool_call({
                             "id": tool_call_id,
                             "name": tool_display_name,
-                            "description": f"Tool call to {tool_name}",
+                            "description": f"Tool/Agent call: {tool_name}",
                             "args": str(tool_args),
                             "tags": {
                                 "tool_call_id": tool_call_id,
-                                "from_llm_response": "true",
-                                "agent_name": agent_name
+                                "from_llm": "true",
+                                "calling_agent": agent_name,
+                                "tool_name": tool_name,
+                                "created_in": "wrapper_process_llm_result"
                             },
                         })
-                        # Immediately complete the span since we already have the result
-                        tool_span.result("Tool call executed")
-                        print(f"[MaximSDK] Created tool call span: {tool_call_id} for {tool_display_name}")
-                        scribe().info(f"[MaximSDK] Created tool call span: {tool_call_id} for {tool_display_name}")
+                        
+                        # Store in global queue for BaseAgent wrapper to pick up
+                        if tool_name not in _open_tool_calls:
+                            _open_tool_calls[tool_name] = []
+                        _open_tool_calls[tool_name].append({
+                            "tool_call": tool_span,
+                            "tool_call_id": tool_call_id,
+                            "parent_agent_span": current_agent
+                        })
+                        
+                        print(f"   ✅ Created tool call span: {tool_display_name}")
+                        print(f"   - ID: {tool_call_id}")
+                        print(f"   - Queue size for '{tool_name}': {len(_open_tool_calls[tool_name])}")
+                        scribe().info(f"[MaximSDK] Created tool call span for {tool_name}")
                     except Exception as e:
+                        print(f"   ❌ Failed to create tool call span: {e}")
                         scribe().error(f"[MaximSDK] Failed to create tool call span: {e}")
             else:
-                scribe().warning("[MaximSDK] No parent context available for tool call spans")
+                print(f"   ❌ No parent context available")
+                scribe().warning(f"[MaximSDK] No parent context available for tool call spans")
         
         generation.result(gen_result)
         print(f"[MaximSDK] Generation result recorded!")
@@ -1140,6 +1297,11 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
 
     def process_llm_result_sync(llm_self, generation, result):
         """Process LLM result and handle tool calls for sync calls."""
+        print(f"\n********* LLM RESPONSE (SYNC) *********")
+        print(f"Result type: {type(result)}")
+        print(f"Result content: {result}")
+        print(f"********* END LLM RESPONSE *********\n")
+        
         usage_info = extract_usage_from_response(result)
         model_info = getattr(llm_self, "_model_info", {})
         
@@ -1148,6 +1310,15 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
         
         # Extract meaningful content from the response
         content = extract_content_from_response(result)
+        
+        if tool_calls:
+            print(f"[MaximSDK] ===== TOOL CALLS DETECTED (SYNC) =====")
+            for i, tc in enumerate(tool_calls):
+                print(f"[MaximSDK] Tool Call {i+1}:")
+                print(f"  - Name: {tc.get('name')}")
+                print(f"  - ID: {tc.get('tool_call_id')}")
+                print(f"  - Args: {tc.get('args')}")
+            print(f"[MaximSDK] ===== END TOOL CALLS =====")
         
         # Get generation ID safely (handle both object and dict)
         gen_id = generation.id if hasattr(generation, 'id') else generation.get('id', str(uuid.uuid4()))
@@ -1188,8 +1359,58 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
             gen_result["choices"][0]["message"]["tool_calls"] = maxim_tool_calls
             scribe().debug(f"[MaximSDK] Found {len(tool_calls)} tool calls in model response")
             
-            # NOTE: Tool call spans should be created by before_tool_callback or BaseTool wrapper
-            # NOT here, as this is retroactive and causes incorrect ordering
+            # NOTE: Plugin may not be active - create tool call spans here too
+            current_agent = _current_agent_span.get()
+            parent_context = current_agent if current_agent else _global_maxim_trace.get()
+            
+            if parent_context:
+                # Get agent name for display
+                agent_name = "Unknown Agent"
+                try:
+                    if current_agent and hasattr(current_agent, 'name'):
+                        span_name = current_agent.name
+                        if span_name.startswith("Agent: "):
+                            agent_name = span_name.replace("Agent: ", "")
+                except Exception as e:
+                    scribe().debug(f"[MaximSDK] Could not extract agent name: {e}")
+                
+                for tool_call in tool_calls:
+                    tool_call_id = tool_call.get("tool_call_id") or str(uuid.uuid4())
+                    tool_name = tool_call.get("name", "unknown")
+                    tool_args = tool_call.get("args", {})
+                    
+                    # Create tool display name with agent context
+                    tool_display_name = f"{agent_name} - {tool_name}" if agent_name != "Unknown Agent" else tool_name
+                    
+                    # Create tool call span
+                    try:
+                        tool_span = parent_context.tool_call({
+                            "id": tool_call_id,
+                            "name": tool_display_name,
+                            "description": f"Tool/Agent call: {tool_name}",
+                            "args": str(tool_args),
+                            "tags": {
+                                "tool_call_id": tool_call_id,
+                                "from_llm": "true",
+                                "calling_agent": agent_name,
+                                "tool_name": tool_name,
+                                "created_in": "wrapper_process_llm_result_sync"
+                            },
+                        })
+                        
+                        # Store in global queue
+                        if tool_name not in _open_tool_calls:
+                            _open_tool_calls[tool_name] = []
+                        _open_tool_calls[tool_name].append({
+                            "tool_call": tool_span,
+                            "tool_call_id": tool_call_id,
+                            "parent_agent_span": current_agent
+                        })
+                        scribe().info(f"[MaximSDK] Created tool call span for {tool_name} (sync)")
+                    except Exception as e:
+                        scribe().error(f"[MaximSDK] Failed to create tool call span (sync): {e}")
+            else:
+                scribe().warning(f"[MaximSDK] No parent context available for tool call spans (sync)")
         
         generation.result(gen_result)
         scribe().debug("[MaximSDK] GEN: Completed sync generation")
@@ -1305,12 +1526,15 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
 
     # Patch BaseTool methods
     if BaseTool is not None:
-        tool_methods = ["run_async"]
+        print(f"[MaximSDK] Patching BaseTool class: {BaseTool}")
+        tool_methods = ["run_async"]  # BaseTool only has run_async, not run
         for method_name in tool_methods:
             if hasattr(BaseTool, method_name):
                 original_method = getattr(BaseTool, method_name)
+                print(f"[MaximSDK] Found BaseTool.{method_name}: {original_method}")
                 # Skip if already patched (idempotency guard)
                 if getattr(original_method, "__maxim_patched__", False):
+                    print(f"[MaximSDK] Skipping already patched BaseTool.{method_name}")
                     scribe().debug(f"[MaximSDK] Skipping already patched BaseTool.{method_name}")
                     continue
                 wrapper = make_maxim_wrapper(
@@ -1323,7 +1547,12 @@ def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
                 setattr(BaseTool, method_name, wrapper)
                 # Mark as patched to prevent double-wrapping
                 setattr(getattr(BaseTool, method_name), "__maxim_patched__", True)
+                print(f"[MaximSDK] Patched google.adk.BaseTool.{method_name}")
                 scribe().info(f"[MaximSDK] Patched google.adk.BaseTool.{method_name}")
+            else:
+                print(f"[MaximSDK] BaseTool does not have method: {method_name}")
+    else:
+        print(f"[MaximSDK] BaseTool class is None!")
 
     # Patch BaseAgent methods (for agent-as-tool invocations)
     if BaseAgent is not None:
