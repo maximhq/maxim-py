@@ -1,10 +1,7 @@
 """Maxim integration for Google Agent Development Kit (ADK)."""
 
 import contextvars
-import functools
-import inspect
 import logging
-import traceback
 import uuid
 from time import time
 from typing import Union, Optional, Any
@@ -44,16 +41,11 @@ except ImportError:
 from ...logger import (
     GenerationConfigDict,
     Logger,
-    Retrieval,
     Trace,
 )
 from ...scribe import scribe
 from .utils import (
-    google_adk_postprocess_inputs,
-    dictify,
     extract_tool_details,
-    get_agent_display_name,
-    get_tool_display_name,
     extract_usage_from_response,
     extract_model_info,
     convert_messages_to_maxim_format,
@@ -64,12 +56,18 @@ from .utils import (
 _last_llm_usages = {}
 _agent_span_ids = {}
 _session_trace = None  # Global session trace
-_current_agent_span = None  # Current agent span for wrapper-based instrumentation
-_current_session = None  # Current session object
-_current_session_id = None  # Current session ID
+_current_tool_call_span = None  # Current tool call span (for nesting agents under tool calls)
+_open_tool_calls = {}  # Dict mapping tool_name -> list of tool_call_info (for nesting agents)
+_current_maxim_session = None  # Current Maxim session (not Google ADK session)
+_current_maxim_session_id = None  # Current Maxim session ID
+_global_maxim_logger = None  # Global Maxim logger for end_maxim_session
+_global_callbacks = {}  # Global callbacks from instrument_google_adk
 
 _global_maxim_trace: contextvars.ContextVar[Union[Trace, None]] = (
     contextvars.ContextVar("maxim_trace_context_var", default=None)
+)
+_current_agent_span: contextvars.ContextVar[Union[Any, None]] = (
+    contextvars.ContextVar("maxim_agent_span_context_var", default=None)
 )
 
 
@@ -92,36 +90,99 @@ class MaximEvalConfig:
 class MaximInstrumentationPlugin(BasePlugin):
     """Maxim instrumentation plugin for Google ADK."""
 
-    def __init__(self, maxim_logger: Logger, debug: bool = False):
+    def __init__(
+        self, 
+        maxim_logger: Logger, 
+        debug: bool = False, 
+        parent_trace=None, 
+        parent_agent_span=None,
+        # User-provided callbacks
+        before_generation_callback=None,
+        after_generation_callback=None,
+        before_trace_callback=None,
+        after_trace_callback=None,
+        before_span_callback=None,
+        after_span_callback=None,
+    ):
         if GOOGLE_ADK_AVAILABLE:
             super().__init__(name="maxim_instrumentation")
         else:
             super().__init__()
         self.maxim_logger = maxim_logger
         self.debug = debug
+        self._parent_trace = parent_trace  # Parent trace for nested agents
+        self._parent_agent_span = parent_agent_span  # Parent agent span for nested agents
         self._trace = None
         self._agent_span = None  # Main agent span
         self._spans = {}
         self._generations = {}
         self._tool_calls = {}
         self._request_to_generation = {}  # Map request ID to generation ID
+        self._pending_tool_calls = {}  # Store tool calls by ID for matching with agent invocations
+        self._last_llm_response = None  # Store last LLM response for trace output
+        self._trace_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}  # Aggregate usage
+        
+        # Store user callbacks
+        self._before_generation_callback = before_generation_callback
+        self._after_generation_callback = after_generation_callback
+        self._before_trace_callback = before_trace_callback
+        self._after_trace_callback = after_trace_callback
+        self._before_span_callback = before_span_callback
+        self._after_span_callback = after_span_callback
 
-    async def before_run_callback(
-        self, *, invocation_context: InvocationContext
-    ) -> Optional[types.Content]:
-        """Start a trace for the agent run."""
-        global _session_trace
-        
-        scribe().info(f"[MaximSDK] before_run_callback called for agent: {invocation_context.agent.name}")
-        
-        # Extract user input from invocation context
-        user_input = "Agent run started"
+    def _extract_user_input(self, invocation_context) -> str:
+        """Extract user input from Google ADK invocation context."""
         try:
-            # Debug: Check what's available in invocation_context
-            scribe().debug(f"[MaximSDK] invocation_context attributes: {dir(invocation_context)}")
+            # Debug: Print available attributes
+            print(f"[MaximSDK] DEBUG: invocation_context attributes: {dir(invocation_context)}")
+            scribe().info(f"[MaximSDK] DEBUG: invocation_context attributes: {dir(invocation_context)}")
             
-            # Try to get the user message/input
+            # Method 1: Try new_message field (most direct for new user input)
+            if hasattr(invocation_context, 'new_message') and invocation_context.new_message:
+                print("[MaximSDK] DEBUG: Found new_message field")
+                scribe().info("[MaximSDK] DEBUG: Found new_message field")
+                if hasattr(invocation_context.new_message, 'parts'):
+                    text_parts = []
+                    for part in invocation_context.new_message.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text_parts.append(part.text)
+                    if text_parts:
+                        user_input = " ".join(text_parts)
+                        print(f"[MaximSDK] DEBUG: Extracted from new_message.parts: {user_input[:100]}")
+                        scribe().info(f"[MaximSDK] DEBUG: Extracted from new_message.parts: {user_input[:100]}")
+                        return user_input
+                elif hasattr(invocation_context.new_message, 'text'):
+                    user_input = invocation_context.new_message.text
+                    print(f"[MaximSDK] DEBUG: Extracted from new_message.text: {user_input[:100]}")
+                    scribe().info(f"[MaximSDK] DEBUG: Extracted from new_message.text: {user_input[:100]}")
+                    return user_input
+            
+            # Method 2: Try to get the user message from history (most recent user message)
+            if hasattr(invocation_context, 'history') and invocation_context.history:
+                print(f"[MaximSDK] DEBUG: Checking history ({len(invocation_context.history)} messages)")
+                scribe().info(f"[MaximSDK] DEBUG: Checking history ({len(invocation_context.history)} messages)")
+                for msg in reversed(invocation_context.history):
+                    if hasattr(msg, 'role') and msg.role == 'user':
+                        if hasattr(msg, 'parts') and msg.parts:
+                            text_parts = []
+                            for part in msg.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    text_parts.append(part.text)
+                            if text_parts:
+                                user_input = " ".join(text_parts)
+                                print(f"[MaximSDK] DEBUG: Extracted from history: {user_input[:100]}")
+                                scribe().info(f"[MaximSDK] DEBUG: Extracted from history: {user_input[:100]}")
+                                return user_input
+                        elif hasattr(msg, 'text') and msg.text:
+                            user_input = msg.text
+                            print(f"[MaximSDK] DEBUG: Extracted from history.text: {user_input[:100]}")
+                            scribe().info(f"[MaximSDK] DEBUG: Extracted from history.text: {user_input[:100]}")
+                            return user_input
+            
+            # Method 3: Fallback to user_message field
             if hasattr(invocation_context, 'user_message') and invocation_context.user_message:
+                print("[MaximSDK] DEBUG: Checking user_message field")
+                scribe().info("[MaximSDK] DEBUG: Checking user_message field")
                 if hasattr(invocation_context.user_message, 'parts'):
                     text_parts = []
                     for part in invocation_context.user_message.parts:
@@ -129,55 +190,173 @@ class MaximInstrumentationPlugin(BasePlugin):
                             text_parts.append(part.text)
                     if text_parts:
                         user_input = " ".join(text_parts)
+                        print(f"[MaximSDK] DEBUG: Extracted from user_message.parts: {user_input[:100]}")
+                        scribe().info(f"[MaximSDK] DEBUG: Extracted from user_message.parts: {user_input[:100]}")
+                        return user_input
                 elif hasattr(invocation_context.user_message, 'text'):
                     user_input = invocation_context.user_message.text
-                else:
-                    user_input = str(invocation_context.user_message)
-                    
-            # Try alternate field names
-            elif hasattr(invocation_context, 'message') and invocation_context.message:
-                if hasattr(invocation_context.message, 'parts'):
-                    text_parts = []
-                    for part in invocation_context.message.parts:
-                        if hasattr(part, 'text') and part.text:
-                            text_parts.append(part.text)
-                    if text_parts:
-                        user_input = " ".join(text_parts)
-                elif hasattr(invocation_context.message, 'text'):
-                    user_input = invocation_context.message.text
-                else:
-                    user_input = str(invocation_context.message)
-                    
-            scribe().info(f"[MaximSDK] Extracted user input: {user_input[:100]}...")
+                    print(f"[MaximSDK] DEBUG: Extracted from user_message.text: {user_input[:100]}")
+                    scribe().info(f"[MaximSDK] DEBUG: Extracted from user_message.text: {user_input[:100]}")
+                    return user_input
+            
+            # Method 4: Try to get input from the agent's input directly
+            if hasattr(invocation_context, 'agent') and hasattr(invocation_context.agent, 'input'):
+                agent_input = invocation_context.agent.input
+                if agent_input:
+                    print(f"[MaximSDK] DEBUG: Found agent.input: {str(agent_input)[:100]}")
+                    scribe().info(f"[MaximSDK] DEBUG: Found agent.input: {str(agent_input)[:100]}")
+                    return str(agent_input)
+            
+            # Method 5: Try to get from the agent's state or context
+            if hasattr(invocation_context, 'state') and invocation_context.state:
+                state_dict = invocation_context.state.to_dict() if hasattr(invocation_context.state, 'to_dict') else invocation_context.state
+                if isinstance(state_dict, dict):
+                    for key, value in state_dict.items():
+                        if key.lower() in ['input', 'user_input', 'message', 'query', 'prompt'] and value:
+                            print(f"[MaximSDK] DEBUG: Found input in state.{key}: {str(value)[:100]}")
+                            scribe().info(f"[MaximSDK] DEBUG: Found input in state.{key}: {str(value)[:100]}")
+                            return str(value)
+            
+            # Fallback if no input found
+            print("[MaximSDK] WARNING: Could not extract user input from any source, using default")
+            scribe().warning("[MaximSDK] Could not extract user input from any source, using default")
+            return "Agent run started"
+            
         except Exception as e:
+            print(f"[MaximSDK] ERROR: Failed to extract user input: {e}")
+            import traceback
+            print(f"[MaximSDK] Traceback: {traceback.format_exc()}")
             scribe().warning(f"[MaximSDK] Failed to extract user input: {e}")
+            return "Agent run started"
+
+    def _extract_user_input_from_messages(self, messages) -> str:
+        """Extract user input from the first user message in the conversation."""
+        try:
+            if not messages:
+                return "Agent run started"
+            
+            # Find the first user message
+            for message in messages:
+                if isinstance(message, dict):
+                    role = message.get('role', '')
+                    content = message.get('content', '')
+                    if role == 'user' and content:
+                        # Handle both string and list content
+                        if isinstance(content, str):
+                            return content
+                        elif isinstance(content, list):
+                            # Extract text from content parts
+                            text_parts = []
+                            for part in content:
+                                if isinstance(part, dict) and part.get('type') == 'text':
+                                    text_parts.append(part.get('text', ''))
+                                elif isinstance(part, str):
+                                    text_parts.append(part)
+                            if text_parts:
+                                return " ".join(text_parts)
+                elif hasattr(message, 'role') and hasattr(message, 'content'):
+                    if message.role == 'user' and message.content:
+                        return str(message.content)
+            
+            return "Agent run started"
+            
+        except Exception as e:
+            scribe().warning(f"[MaximSDK] Failed to extract user input from messages: {e}")
+            return "Agent run started"
+
+    async def before_run_callback(
+        self, *, invocation_context: InvocationContext
+    ) -> Optional[types.Content]:
+        """Start a trace for the agent run."""
+        global _session_trace, _current_maxim_session, _current_maxim_session_id
         
-        # Create or use existing trace
-        if _session_trace is None:
-            trace_id = str(uuid.uuid4())
-            _session_trace = self.maxim_logger.trace({
-                "id": trace_id,
-                "name": f"Trace-{trace_id}",
-                "tags": {
-                    "agent_name": invocation_context.agent.name,
-                    "invocation_id": invocation_context.invocation_id,
-                    "app_name": getattr(invocation_context, 'app_name', 'unknown'),
-                },
-                "input": user_input,
-            })
-            _global_maxim_trace.set(_session_trace)
-            scribe().info(f"[MaximSDK] Started session trace: {trace_id}")
+        print(f"🔵 [MaximSDK] before_run_callback called for agent: {invocation_context.agent.name}")
+        scribe().info(f"[MaximSDK] before_run_callback called for agent: {invocation_context.agent.name}")
         
-        self._trace = _session_trace
+        # Check if we're a nested agent (called via AgentTool)
+        is_nested = self._parent_trace is not None
+        
+        if is_nested:
+            # Use parent trace for nested agents
+            self._trace = self._parent_trace
+            scribe().info(f"[MaximSDK] Using parent trace for nested agent: {invocation_context.agent.name}")
+        else:
+            # For Google ADK, user input is not available at session/trace level
+            # It will be extracted from the first LLM generation
+            user_input = "Agent run started"  # Placeholder until we get the actual input from LLM generation
+            
+            # Create Maxim session if it doesn't exist (persists across multiple traces)
+            if _current_maxim_session is None:
+                _current_maxim_session_id = str(uuid.uuid4())
+                _current_maxim_session = self.maxim_logger.session({
+                    "id": _current_maxim_session_id,
+                    "name": "Google ADK Session",
+                    "tags": {
+                        "app_name": getattr(invocation_context, 'app_name', 'unknown'),
+                        "agent_name": invocation_context.agent.name,
+                    },
+                })
+                print(f"📦 [MaximSDK] Created Maxim session: {_current_maxim_session_id}")
+                scribe().info(f"[MaximSDK] Created Maxim session: {_current_maxim_session_id}")
+            
+            # Create trace within the session (new trace for each agent run)
+            if _session_trace is None:
+                # Call before_trace_callback if provided
+                if self._before_trace_callback:
+                    try:
+                        await self._before_trace_callback(invocation_context=invocation_context, user_input=user_input)
+                    except Exception as e:
+                        scribe().error(f"[MaximSDK] Error in before_trace_callback: {e}")
+                
+                trace_id = str(uuid.uuid4())
+                _session_trace = _current_maxim_session.trace({
+                    "id": trace_id,
+                    "name": f"Trace-{trace_id}",
+                    "tags": {
+                        "agent_name": invocation_context.agent.name,
+                        "invocation_id": invocation_context.invocation_id,
+                    },
+                    "input": user_input,
+                })
+                _global_maxim_trace.set(_session_trace)
+                print(f"🔗 [MaximSDK] Created trace in session: {trace_id}")
+                scribe().info(f"[MaximSDK] Created trace in session: {trace_id}")
+            
+            self._trace = _session_trace
+        
+        # Determine parent context for agent span
+        # Note: We always use a Span as parent context (not ToolCall) because only Spans have .span() method
+        if is_nested and self._parent_agent_span:
+            # For nested agents, use the parent agent span as parent context
+            agent_name = invocation_context.agent.name
+            parent_context = self._parent_agent_span
+            
+            # Check if there's a matching tool call to mark it as used
+            if agent_name in self._pending_tool_calls:
+                del self._pending_tool_calls[agent_name]  # Remove from pending
+                scribe().info(f"[MaximSDK] Nested agent '{agent_name}' matched with tool call, using parent agent span as parent")
+            else:
+                scribe().info(f"[MaximSDK] Nested agent '{agent_name}' using parent agent span")
+        else:
+            # Root agent uses trace as parent
+            parent_context = self._trace
+        
+        # Call before_span_callback if provided
+        if self._before_span_callback:
+            try:
+                await self._before_span_callback(invocation_context=invocation_context, parent_context=parent_context)
+            except Exception as e:
+                scribe().error(f"[MaximSDK] Error in before_span_callback: {e}")
         
         # Create an agent span to contain all agent operations
         agent_span_id = str(uuid.uuid4())
-        self._agent_span = self._trace.span({
+        self._agent_span = parent_context.span({
             "id": agent_span_id,
             "name": f"Agent: {invocation_context.agent.name}",
             "tags": {
                 "agent_type": invocation_context.agent.__class__.__name__,
                 "invocation_id": invocation_context.invocation_id,
+                "is_nested": str(is_nested),
             },
         })
         scribe().info(f"[MaximSDK] Created agent span: {agent_span_id} for {invocation_context.agent.name}")
@@ -188,22 +367,86 @@ class MaximInstrumentationPlugin(BasePlugin):
         self, *, invocation_context: InvocationContext
     ) -> None:
         """End the trace after agent run completes."""
+        # Use the last LLM response we captured
+        agent_output = self._last_llm_response
+        
         # End the agent span first
         if self._agent_span:
+            # Call after_span_callback if provided
+            if self._after_span_callback:
+                try:
+                    await self._after_span_callback(
+                        invocation_context=invocation_context, 
+                        agent_span=self._agent_span,
+                        agent_output=agent_output
+                    )
+                except Exception as e:
+                    scribe().error(f"[MaximSDK] Error in after_span_callback: {e}")
+            
             self._agent_span.end()
             scribe().info(f"[MaximSDK] Ended agent span for {invocation_context.agent.name}")
+            
+            # If this was a nested agent, also complete its tool call span
+            agent_name = invocation_context.agent.name
+            if agent_name in self._tool_calls:
+                tool_call_span = self._tool_calls[agent_name]
+                # Use captured output or fallback
+                output_text = agent_output or 'Agent completed'
+                tool_call_span.result(str(output_text))
+                del self._tool_calls[agent_name]
+                scribe().info(f"[MaximSDK] Completed tool call span for nested agent: {agent_name}")
+            
             self._agent_span = None
         
-        # Note: We don't end the trace here because it might be reused for multiple agent runs
-        # The trace will be ended when the session ends or by the wrapper
+        # For root agent (not nested), set output and end the trace
+        if not self._parent_trace and self._trace:
+            global _session_trace
+            
+            # Set the trace output if we have it
+            if agent_output:
+                self._trace.set_output(agent_output)
+                print(f"📝 [MaximSDK] Set trace output ({len(agent_output)} chars)")
+                scribe().info("[MaximSDK] Set trace output")
+            
+            # Set trace-level metadata (tokens, cost, etc.)
+            if self._trace_usage["total_tokens"] > 0:
+                # Add usage as tags/metadata on the trace
+                self._trace.add_tag("prompt_tokens", str(self._trace_usage["prompt_tokens"]))
+                self._trace.add_tag("completion_tokens", str(self._trace_usage["completion_tokens"]))
+                self._trace.add_tag("total_tokens", str(self._trace_usage["total_tokens"]))
+                print(f"💰 [MaximSDK] Set trace usage: {self._trace_usage}")
+                scribe().info("[MaximSDK] Set trace usage metadata")
+            
+            # Call after_trace_callback if provided
+            if self._after_trace_callback:
+                try:
+                    await self._after_trace_callback(
+                        invocation_context=invocation_context,
+                        trace=self._trace,
+                        agent_output=agent_output,
+                        trace_usage=self._trace_usage
+                    )
+                except Exception as e:
+                    scribe().error(f"[MaximSDK] Error in after_trace_callback: {e}")
+            
+            self._trace.end()
+            self.maxim_logger.flush()
+            print("✅ [MaximSDK] Trace completed and flushed to Maxim")
+            scribe().info("[MaximSDK] Trace completed and flushed to Maxim")
+            
+            # Reset for next interaction
+            _session_trace = None
+            _global_maxim_trace.set(None)
+            self._trace_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        
         scribe().debug("[MaximSDK] Completed after_run_callback")
 
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
     ) -> Optional[LlmResponse]:
         """Instrument LLM request before sending to model."""
-        print(f"[MaximSDK] before_model_callback called")
-        scribe().info(f"[MaximSDK] before_model_callback called")
+        print(f"🟡 [MaximSDK] before_model_callback called, trace={self._trace}, agent_span={self._agent_span}")
+        scribe().info("[MaximSDK] before_model_callback called")
         
         # Use agent span if available, otherwise fall back to trace
         parent_context = self._agent_span if self._agent_span else self._trace
@@ -226,6 +469,22 @@ class MaximInstrumentationPlugin(BasePlugin):
         print(f"[MaximSDK] Messages: {len(messages)} messages")
         scribe().info(f"[MaximSDK] Messages: {len(messages)} messages")
         
+        # Extract user input from the first user message in the conversation
+        user_input = self._extract_user_input_from_messages(messages)
+        if user_input and user_input != "Agent run started":
+            # Update the trace with the actual user input
+            if self._trace:
+                self._trace.set_input(user_input)
+                print(f"[MaximSDK] Updated trace input: {user_input[:100]}")
+                scribe().info(f"[MaximSDK] Updated trace input: {user_input[:100]}")
+            
+            # Also update the session input if available
+            global _current_maxim_session
+            if _current_maxim_session and hasattr(_current_maxim_session, 'set_input'):
+                _current_maxim_session.set_input(user_input)
+                print(f"[MaximSDK] Updated session input: {user_input[:100]}")
+                scribe().info(f"[MaximSDK] Updated session input: {user_input[:100]}")
+        
         # Determine agent name for better context
         agent_name = "Unknown Agent"
         try:
@@ -238,6 +497,18 @@ class MaximInstrumentationPlugin(BasePlugin):
                     agent_name = span_name.replace("Agent: ", "")
         except Exception as e:
             scribe().debug(f"[MaximSDK] Could not extract agent name: {e}")
+        
+        # Call before_generation_callback if provided
+        if self._before_generation_callback:
+            try:
+                await self._before_generation_callback(
+                    callback_context=callback_context,
+                    llm_request=llm_request,
+                    model_info=model_info,
+                    messages=messages
+                )
+            except Exception as e:
+                scribe().error(f"[MaximSDK] Error in before_generation_callback: {e}")
         
         # Create generation config with agent context
         generation_name = f"{agent_name} - LLM Generation" if agent_name != "Unknown Agent" else "LLM Generation"
@@ -269,27 +540,43 @@ class MaximInstrumentationPlugin(BasePlugin):
         self, *, callback_context: CallbackContext, llm_response: LlmResponse
     ) -> Optional[LlmResponse]:
         """Instrument LLM response after receiving from model."""
-        print(f"[MaximSDK] after_model_callback called")
-        scribe().info(f"[MaximSDK] after_model_callback called")
+        print("[MaximSDK] after_model_callback called")
+        scribe().info("[MaximSDK] after_model_callback called")
         
         if not self._trace:
             print("[MaximSDK] WARNING: No trace available for LLM response")
             scribe().warning("[MaximSDK] No trace available for LLM response")
             return None
 
-        # Get the generation ID from the callback_context's llm_request
-        request_id = id(callback_context.llm_request) if hasattr(callback_context, 'llm_request') else None
-        generation_id = self._request_to_generation.get(request_id) if request_id else None
+        # Try multiple ways to find the matching generation
+        generation = None
+        generation_id = None
         
-        if not generation_id:
-            print(f"[MaximSDK] WARNING: No generation ID found for request: {request_id}")
-            scribe().warning(f"[MaximSDK] No generation ID found for request: {request_id}")
-            return None
-
-        generation = self._generations.get(generation_id)
+        # Method 1: Try to match by request ID
+        request_id = id(callback_context.llm_request) if hasattr(callback_context, 'llm_request') and callback_context.llm_request else None
+        if request_id:
+            generation_id = self._request_to_generation.get(request_id)
+            if generation_id:
+                generation = self._generations.get(generation_id)
+                print(f"[MaximSDK] Found generation by request ID: {generation_id}")
+        
+        # Method 2: If only one generation is pending, use that
+        if not generation and len(self._generations) == 1:
+            generation_id = list(self._generations.keys())[0]
+            generation = self._generations[generation_id]
+            print(f"[MaximSDK] Using single pending generation: {generation_id}")
+        
+        # Method 3: Try to find the most recent generation for this agent
+        if not generation and self._agent_span:
+            # Get the most recently created generation
+            if self._generations:
+                generation_id = list(self._generations.keys())[-1]
+                generation = self._generations[generation_id]
+                print(f"[MaximSDK] Using most recent generation: {generation_id}")
+        
         if not generation:
-            print(f"[MaximSDK] WARNING: No generation found for ID: {generation_id}")
-            scribe().warning(f"[MaximSDK] No generation found for ID: {generation_id}")
+            print(f"[MaximSDK] WARNING: No generation found (request_id={request_id}, pending={len(self._generations)})")
+            scribe().warning("[MaximSDK] No generation found for request")
             return None
 
         # Extract usage information
@@ -301,9 +588,17 @@ class MaximInstrumentationPlugin(BasePlugin):
         # Extract tool calls from response
         tool_calls = extract_tool_calls_from_response(llm_response)
         
+        print("\n========== PLUGIN after_model_callback ==========")
         print(f"[MaximSDK] Usage info: {usage_info}")
         print(f"[MaximSDK] Content length: {len(content) if content else 0}")
-        print(f"[MaximSDK] Tool calls: {len(tool_calls) if tool_calls else 0}")
+        print(f"[MaximSDK] Tool calls detected: {len(tool_calls) if tool_calls else 0}")
+        if tool_calls:
+            print("[MaximSDK] TOOL CALLS FOUND IN THIS LLM RESPONSE:")
+            for tc in tool_calls:
+                print(f"  - {tc.get('name')} (ID: {tc.get('tool_call_id')})")
+        else:
+            print("[MaximSDK] NO TOOL CALLS in this LLM response")
+        print("========== END PLUGIN after_model_callback ==========\n")
         
         # Create generation result
         gen_result = {
@@ -349,6 +644,17 @@ class MaximInstrumentationPlugin(BasePlugin):
             
             # Create tool call spans for each tool call
             parent_context = self._agent_span if self._agent_span else self._trace
+            
+            # Get agent name for display
+            agent_name = "Unknown Agent"
+            try:
+                if self._agent_span and hasattr(self._agent_span, 'name'):
+                    span_name = self._agent_span.name
+                    if span_name.startswith("Agent: "):
+                        agent_name = span_name.replace("Agent: ", "")
+            except Exception as e:
+                scribe().debug(f"[MaximSDK] Could not extract agent name: {e}")
+            
             if parent_context:
                 for tool_call in tool_calls:
                     tool_call_id = tool_call.get("tool_call_id", str(uuid.uuid4()))
@@ -357,16 +663,26 @@ class MaximInstrumentationPlugin(BasePlugin):
                     
                     # Create tool call span
                     try:
+                        tool_display_name = f"{tool_name}"  # Don't prefix with agent name - cleaner
+                        
                         tool_span = parent_context.tool_call({
                             "id": tool_call_id,
-                            "name": tool_name,
-                            "description": f"Tool call to {tool_name}",
+                            "name": tool_display_name,
+                            "description": f"Tool/Agent call: {tool_name}",
                             "args": str(tool_args),
-                            "tags": {"tool_call_id": tool_call_id, "from_llm_response": "true"},
+                            "tags": {
+                                "tool_call_id": tool_call_id,
+                                "from_llm_response": "true",
+                                "calling_agent": agent_name,
+                                "tool_name": tool_name,
+                            },
                         })
-                        # Store for potential result update in after_tool_callback
+                        
+                        # Store tool call span - will be used by nested agents
                         self._tool_calls[tool_call_id] = tool_span
-                        print(f"[MaximSDK] Created tool call span: {tool_call_id} for {tool_name}")
+                        self._pending_tool_calls[tool_name] = tool_span  # Store by name for matching
+                        
+                        print(f"[MaximSDK] Created tool call span for '{tool_name}' (ID: {tool_call_id})")
                         scribe().info(f"[MaximSDK] Created tool call span: {tool_call_id} for {tool_name}")
                     except Exception as e:
                         scribe().error(f"[MaximSDK] Failed to create tool call span: {e}")
@@ -376,6 +692,31 @@ class MaximInstrumentationPlugin(BasePlugin):
         generation.result(gen_result)
         print(f"[MaximSDK] Completed generation: {generation_id}")
         scribe().debug(f"[MaximSDK] GEN: Completed generation: {generation_id}")
+        
+        # Call after_generation_callback if provided
+        if self._after_generation_callback:
+            try:
+                await self._after_generation_callback(
+                    callback_context=callback_context,
+                    llm_response=llm_response,
+                    generation=generation,
+                    generation_result=gen_result,
+                    usage_info=usage_info,
+                    content=content,
+                    tool_calls=tool_calls
+                )
+            except Exception as e:
+                scribe().error(f"[MaximSDK] Error in after_generation_callback: {e}")
+        
+        # Store the content for trace output
+        self._last_llm_response = content
+        
+        # Aggregate token usage for the trace
+        if usage_info:
+            self._trace_usage["prompt_tokens"] += usage_info.get("prompt_tokens", 0)
+            self._trace_usage["completion_tokens"] += usage_info.get("completion_tokens", 0)
+            self._trace_usage["total_tokens"] += usage_info.get("total_tokens", 0)
+            print(f"📊 [MaximSDK] Aggregated usage: {self._trace_usage}")
         
         # Clean up
         del self._generations[generation_id]
@@ -392,6 +733,12 @@ class MaximInstrumentationPlugin(BasePlugin):
         tool_context: ToolContext,
     ) -> Optional[dict]:
         """Instrument tool execution before calling tool."""
+        # Skip AgentTool - already handled in after_model_callback
+        from google.adk.tools.agent_tool import AgentTool
+        if isinstance(tool, AgentTool):
+            scribe().debug(f"[MaximSDK] Skipping before_tool_callback for AgentTool: {tool.name} (already created in after_model_callback)")
+            return None
+        
         # Use agent span if available, otherwise fall back to trace
         parent_context = self._agent_span if self._agent_span else self._trace
         
@@ -453,6 +800,14 @@ class MaximInstrumentationPlugin(BasePlugin):
         if not self._trace:
             return None
 
+        # For AgentTool, the tool call span was already created in after_model_callback
+        # and will be completed when the nested agent completes
+        # So we only handle non-agent tools here
+        from google.adk.tools.agent_tool import AgentTool
+        if isinstance(tool, AgentTool):
+            scribe().debug(f"[MaximSDK] Skipping after_tool_callback for AgentTool: {tool.name} (handled by nested agent)")
+            return None
+
         tool_call = getattr(tool, "_maxim_tool_call", None)
         if not tool_call:
             scribe().warning(f"[MaximSDK] No tool call found for tool: {tool.name}")
@@ -488,873 +843,354 @@ class MaximInstrumentationPlugin(BasePlugin):
         return None
 
 
-def instrument_google_adk(maxim_logger: Logger, debug: bool = False):
+def instrument_google_adk(
+    maxim_logger: Logger, 
+    debug: bool = False,
+    before_generation_callback=None,
+    after_generation_callback=None,
+    before_trace_callback=None,
+    after_trace_callback=None,
+    before_span_callback=None,
+    after_span_callback=None,
+):
     """
-    Patches Google ADK's core components to add comprehensive logging and tracing.
+    Single-line instrumentation for Google ADK with automatic plugin injection.
 
-    This wrapper enhances Google ADK with:
+    This instrumentation enhances Google ADK with:
     - Detailed operation tracing for agent runs
     - Token usage tracking for LLM calls
     - Tool execution monitoring
     - Span-based operation tracking
     - Error handling and reporting
+    - Proper nesting of sub-agents under tool calls
+    - Automatic plugin injection into all Runner instances
+    - User-provided callbacks for custom logic
 
     Args:
         maxim_logger (Logger): A Maxim Logger instance for handling the tracing and logging operations.
         debug (bool): If True, show INFO and DEBUG logs. If False, show only WARNING and ERROR logs.
+        before_generation_callback: Optional async callback called before LLM generation.
+            Signature: async def(callback_context, llm_request, model_info, messages)
+        after_generation_callback: Optional async callback called after LLM generation.
+            Signature: async def(callback_context, llm_response, generation, generation_result, usage_info, content, tool_calls)
+        before_trace_callback: Optional async callback called before trace creation.
+            Signature: async def(invocation_context, user_input)
+        after_trace_callback: Optional async callback called after trace completion.
+            Signature: async def(invocation_context, trace, agent_output, trace_usage)
+        before_span_callback: Optional async callback called before span creation.
+            Signature: async def(invocation_context, parent_context)
+        after_span_callback: Optional async callback called after span completion.
+            Signature: async def(invocation_context, agent_span, agent_output)
+    
+    Usage:
+        from maxim import Maxim
+        from maxim.logger.google_adk import instrument_google_adk
+        
+        # Basic usage
+        maxim = Maxim()
+        instrument_google_adk(maxim.logger())
+        
+        # With callbacks
+        async def my_before_generation(callback_context, llm_request, model_info, messages):
+            print(f"About to call {model_info['model']}")
+        
+        instrument_google_adk(
+            maxim.logger(),
+            before_generation_callback=my_before_generation
+        )
+        
+        # Now all runners automatically have Maxim tracing
+        runner = InMemoryRunner(agent=my_agent)
     """
-    print(f"[MaximSDK] instrument_google_adk called! GOOGLE_ADK_AVAILABLE={GOOGLE_ADK_AVAILABLE}, Gemini={Gemini}")
-    scribe().info(f"[MaximSDK] instrument_google_adk called! GOOGLE_ADK_AVAILABLE={GOOGLE_ADK_AVAILABLE}, Gemini={Gemini}")
+    global _global_maxim_logger, _global_callbacks
+    
+    # Store callbacks globally
+    _global_callbacks = {
+        "before_generation": before_generation_callback,
+        "after_generation": after_generation_callback,
+        "before_trace": before_trace_callback,
+        "after_trace": after_trace_callback,
+        "before_span": before_span_callback,
+        "after_span": after_span_callback,
+    }
+    
+    print(f"[MaximSDK] instrument_google_adk called! GOOGLE_ADK_AVAILABLE={GOOGLE_ADK_AVAILABLE}")
+    scribe().info(f"[MaximSDK] instrument_google_adk called! GOOGLE_ADK_AVAILABLE={GOOGLE_ADK_AVAILABLE}")
     
     if not GOOGLE_ADK_AVAILABLE:
         scribe().warning("[MaximSDK] Google ADK not available. Skipping instrumentation.")
         return
-
-    def make_maxim_wrapper(
-        original_method,
-        base_op_name: str,
-        input_processor=None,
-        output_processor=None,
-        display_name_fn=None,
-    ):
-        @functools.wraps(original_method)
-        def maxim_wrapper(self, *args, **kwargs):
-            scribe().debug(f"――― Start: {base_op_name} ―――")
-
-            global _global_maxim_trace, _current_session, _current_session_id, _current_agent_span
-            global _agent_span_ids
-            global _last_llm_usages
-
-            # Process inputs
-            bound_args = {}
-            processed_inputs = {}
-            final_op_name = base_op_name
-
-            try:
-                sig = inspect.signature(original_method)
-                bound_values = sig.bind(self, *args, **kwargs)
-                bound_values.apply_defaults()
-                bound_args = bound_values.arguments
-
-                processed_inputs = bound_args
-                if input_processor:
-                    processed_inputs = input_processor(bound_args)
-
-                if display_name_fn:
-                    final_op_name = display_name_fn(processed_inputs)
-
-            except Exception as e:
-                scribe().debug(f"[MaximSDK] Failed to process inputs for {base_op_name}: {e}")
-                processed_inputs = {"self": self, "args": args, "kwargs": kwargs}
-
-            trace = None
-            span = None
-            generation = None
-            tool_call = None
-            trace_token = None
-
-            # Initialize tracing based on object type
-            if isinstance(self, Runner):
-                if _global_maxim_trace.get() is None:
-                    # Create session ONCE if it doesn't exist (persists across traces)
-                    if _current_session is None:
-                        _current_session_id = str(uuid.uuid4())
-                        _current_session = maxim_logger.session({
-                            "id": _current_session_id,
-                            "name": "Google ADK Session",
-                        })
-                        
-                        # Add session tags
-                        if hasattr(self, "app_name"):
-                            maxim_logger.session_add_tag(_current_session_id, "app_name", getattr(self, "app_name", "unknown"))
-                        if hasattr(self, "agent") and hasattr(self.agent, "name"):
-                            maxim_logger.session_add_tag(_current_session_id, "agent_name", self.agent.name)
-                        
-                        scribe().info(f"[MaximSDK] Created session [{_current_session_id}] (will persist across traces)")
-                    
-                    trace_id = str(uuid.uuid4())
-                    scribe().debug(f"[MaximSDK] Creating trace for runner [{trace_id}]")
-                    
-                    # Extract user input - check processed_inputs first, then bound_args
-                    user_input = processed_inputs.get("message_text", "-")
-                    if user_input == "-" or not user_input:
-                        # Try to extract from new_message in bound_args
-                        new_message = bound_args.get("new_message")
-                        if new_message:
-                            if hasattr(new_message, "parts") and new_message.parts:
-                                text_parts = []
-                                for part in new_message.parts:
-                                    if hasattr(part, "text") and part.text:
-                                        text_parts.append(part.text)
-                                if text_parts:
-                                    user_input = " ".join(text_parts)
-                            elif hasattr(new_message, "text"):
-                                user_input = new_message.text
-                            else:
-                                user_input = str(new_message)
-                    
-                    scribe().info(f"[MaximSDK] Extracted trace input: {user_input[:100] if user_input != '-' else '-'}...")
-
-                    # Create trace within the session (session persists, traces are per-interaction)
-                    trace = _current_session.trace({
-                        "id": trace_id,
-                        "name": f"Trace-{trace_id}",
-                        "tags": {
-                            "app_name": getattr(self, "app_name", "unknown"),
-                            "agent_name": getattr(self.agent, "name", "unknown") if hasattr(self, "agent") else "unknown",
-                        },
-                        "input": user_input,
-                    })
-
-                    trace_token = _global_maxim_trace.set(trace)
-                    scribe().info(f"[MaximSDK] Created trace [{trace_id}], agent span will be created by BaseAgent")
-
-            elif isinstance(self, BaseAgent):
-                # Create a NEW agent span for this agent
-                # If there's already an agent span, nest within it; otherwise use trace
-                parent_context = _current_agent_span if _current_agent_span else _global_maxim_trace.get()
-                
-                if parent_context:
-                    span_id = str(uuid.uuid4())
-                    scribe().info(f"[MaximSDK] Creating agent span [{span_id}] for '{self.name}'")
-
-                    span = parent_context.span({
-                        "id": span_id,
-                        "name": f"Agent: {self.name}",
-                        "tags": {
-                            "agent_id": str(getattr(self, "id", "")),
-                            "agent_type": type(self).__name__,
-                        },
-                    })
-
-                    _agent_span_ids[id(self)] = span_id
-                    
-                    # Save the previous agent span so we can restore it later
-                    setattr(self, "_previous_agent_span", _current_agent_span)
-                    # Set this as the current agent span
-                    _current_agent_span = span
-                    scribe().info(f"[MaximSDK] Set {self.name} as current agent span")
-
-            elif isinstance(self, BaseLlm):
-                # Use agent span if available, otherwise use trace
-                parent_context = _current_agent_span if _current_agent_span else _global_maxim_trace.get()
-                
-                print(f"[MaximSDK] LLM method called! Parent context: {parent_context is not None}, Using agent span: {_current_agent_span is not None}")
-                scribe().info(f"[MaximSDK] LLM method called! Using agent span: {_current_agent_span is not None}")
-                
-                if parent_context:
-                    generation_id = str(uuid.uuid4())
-                    setattr(self, "_maxim_generation_id", generation_id)
-                    print(f"[MaximSDK] LLM generation [{generation_id}]")
-                    scribe().info(f"[MaximSDK] LLM generation [{generation_id}]")
-
-                    model_info = extract_model_info(self)
-                    
-                    # Extract and convert messages
-                    messages = []
-                    if args and len(args) > 0:
-                        llm_request = args[0] if isinstance(args[0], LlmRequest) else None
-                        if llm_request and hasattr(llm_request, 'contents'):
-                            messages = convert_messages_to_maxim_format(llm_request.contents)
-
-                    print(f"[MaximSDK] Model: {model_info.get('model', 'unknown')}, Messages: {len(messages)}")
-                    scribe().info(f"[MaximSDK] Model: {model_info.get('model', 'unknown')}, Messages: {len(messages)}")
-
-                    # Determine agent name for better context
-                    agent_name = "Unknown Agent"
-                    try:
-                        if _current_agent_span and hasattr(_current_agent_span, 'name'):
-                            # Extract agent name from agent span name (format: "Agent: agent_name")
-                            span_name = _current_agent_span.name
-                            if span_name.startswith("Agent: "):
-                                agent_name = span_name.replace("Agent: ", "")
-                    except Exception as e:
-                        scribe().debug(f"[MaximSDK] Could not extract agent name: {e}")
-                    
-                    # Create generation config with agent context
-                    generation_name = f"{agent_name} - LLM Generation" if agent_name != "Unknown Agent" else "LLM Generation"
-
-                    llm_generation_config = GenerationConfigDict({
-                        "id": generation_id,
-                        "name": generation_name,
-                        "provider": model_info.get("provider", "google"),
-                        "model": model_info.get("model", "unknown"),
-                        "messages": messages,
-                    })
-                    
-                    # Add agent name as metadata
-                    if agent_name != "Unknown Agent":
-                        llm_generation_config["tags"] = {"agent_name": agent_name}
-
-                    # Create generation within agent span (or trace if no agent span)
-                    generation = parent_context.generation(llm_generation_config)
-                    setattr(self, "_input", messages)
-                    
-                    context_type = "agent span" if _current_agent_span else "trace"
-                    print(f"[MaximSDK] Created generation in {context_type}")
-                    scribe().info(f"[MaximSDK] Created generation in {context_type}")
-                else:
-                    generation = None
-
-            elif isinstance(self, BaseTool):
-                # Use agent span if available, otherwise use trace
-                parent_context = _current_agent_span if _current_agent_span else _global_maxim_trace.get()
-                
-                if parent_context:
-                    tool_id = str(uuid.uuid4())
-                    tool_details = extract_tool_details(self)
-                    tool_args = str(processed_inputs.get("args", processed_inputs))
-                    
-                    # Get parent context ID safely
-                    parent_id = parent_context.id if hasattr(parent_context, 'id') else parent_context.get('id', 'unknown')
-                    
-                    # Extract agent name for context
-                    agent_name = None
-                    try:
-                        if _current_agent_span and hasattr(_current_agent_span, 'name'):
-                            span_name = _current_agent_span.name
-                            if span_name.startswith("Agent: "):
-                                agent_name = span_name.replace("Agent: ", "")
-                    except Exception:
-                        pass
-
-                    if tool_details.get('name') == "RagTool":
-                        context_type = "agent span" if _current_agent_span else "trace"
-                        tool_display_name = f"{agent_name} - RAG: {self.name}" if agent_name else f"RAG: {self.name}"
-                        scribe().info(f"[MaximSDK] RAG: Retrieval tool [{tool_id}] in {context_type}")
-                        tool_call = parent_context.retrieval({
-                            "id": tool_id,
-                            "name": tool_display_name,
-                            "tags": {
-                                "parent_id": parent_id,
-                                "agent_name": agent_name if agent_name else "unknown"
-                            },
-                        })
-                        setattr(tool_call, "_input", processed_inputs.get("query", ""))
-                        tool_call.input(processed_inputs.get("query", ""))
-                    else:
-                        context_type = "agent span" if _current_agent_span else "trace"
-                        tool_name = tool_details['name'] or self.name
-                        tool_display_name = f"{agent_name} - {tool_name}" if agent_name else tool_name
-                        scribe().info(f"[MaximSDK] TOOL: {self.name} [{tool_id}] in {context_type}")
-                        tool_call = parent_context.tool_call({
-                            "id": tool_id,
-                            "name": tool_display_name,
-                            "description": tool_details["description"] or self.description,
-                            "args": tool_args,
-                            "tags": {
-                                "tool_id": tool_id,
-                                "parent_id": parent_id,
-                                "agent_name": agent_name if agent_name else "unknown"
-                            },
-                        })
-                        setattr(tool_call, "_input", tool_args)
-
-            scribe().debug(f"[MaximSDK] --- Calling: {final_op_name} ---")
-
-            try:
-                # Call the original method
-                output = original_method(self, *args, **kwargs)
-                
-                # Handle async generators (for streaming responses)
-                if hasattr(output, '__aiter__'):
-                    print(f"[MaximSDK] Handling async generator for {final_op_name}")
-                    scribe().debug(f"[MaximSDK] Handling async generator for {final_op_name}")
-                    
-                    async def async_generator_wrapper():
-                        global _current_agent_span, _current_session, _current_session_id
-                        
-                        try:
-                            final_result = None
-                            chunk_count = 0
-                            async for chunk in output:
-                                chunk_count += 1
-                                final_result = chunk
-                                yield chunk
-                            
-                            print(f"[MaximSDK] Generator exhausted after {chunk_count} chunks. final_result={final_result is not None}")
-                            scribe().info(f"[MaximSDK] Generator exhausted after {chunk_count} chunks")
-                            
-                            # Process the final result for generations
-                            if isinstance(self, BaseLlm):
-                                print(f"[MaximSDK] Is BaseLlm instance: True, generation={generation is not None}, final_result={final_result is not None}")
-                                if generation and final_result:
-                                    print(f"[MaximSDK] Processing LLM result after generator completion")
-                                    scribe().info(f"[MaximSDK] Processing LLM result after generator completion")
-                                    await process_llm_result(self, generation, final_result)
-                                elif not generation:
-                                    print(f"[MaximSDK] No generation object to process!")
-                                elif not final_result:
-                                    print(f"[MaximSDK] No final_result to process!")
-                            
-                            # Complete agent span and trace for Runner after async generator exhaustion
-                            if isinstance(self, Runner) and trace:
-                                # End agent span first
-                                if _current_agent_span:
-                                    _current_agent_span.end()
-                                    scribe().info("[MaximSDK] AGENT SPAN: Completed agent span (async)")
-                                    _current_agent_span = None
-                                
-                                # Then end trace
-                                scribe().debug(f"[MaximSDK] TRACE: Completing trace (async) [{trace.id}]")
-                                if final_result is not None:
-                                    trace.set_output(extract_content_from_response(final_result))
-                                trace.end()
-                                
-                                # NOTE: Session persists across traces (not ended here)
-                                scribe().debug(f"[MaximSDK] SESSION: Keeping session [{_current_session_id}] active for next trace (async)")
-
-                                # Reset context
-                                if trace_token is not None:
-                                    _global_maxim_trace.reset(trace_token)
-                                else:
-                                    _global_maxim_trace.set(None)
-
-                                maxim_logger.flush()
-                                scribe().info("[MaximSDK] TRACE: Ended trace (async)")
-                                
-                        except Exception as e:
-                            print(f"[MaximSDK] Error in async generator wrapper: {e}")
-                            traceback.print_exc()
-                            scribe().error(f"[MaximSDK] Error in async generator wrapper: {e}")
-                            if generation:
-                                generation.error({"message": str(e)})
-                            
-                            # Handle error case for trace
-                            if isinstance(self, Runner) and trace:
-                                # End agent span first if it exists
-                                if _current_agent_span:
-                                    _current_agent_span.add_error({"message": str(e)})
-                                    _current_agent_span.end()
-                                    scribe().info("[MaximSDK] AGENT SPAN: Completed agent span with error (async)")
-                                    _current_agent_span = None
-                                
-                                # Then end trace
-                                trace.add_error({"message": str(e)})
-                                trace.end()
-                                
-                                # NOTE: Session persists even on error (not ended here)
-                                scribe().debug(f"[MaximSDK] SESSION: Keeping session [{_current_session_id}] active despite error (async)")
-                                
-                                if trace_token is not None:
-                                    _global_maxim_trace.reset(trace_token)
-                                else:
-                                    _global_maxim_trace.set(None)
-                                maxim_logger.flush()
-                            
-                            raise
-                    
-                    return async_generator_wrapper()
-                
-                # Handle async responses (coroutines)
-                elif hasattr(output, '__await__'):
-                    print(f"[MaximSDK] Handling coroutine for {final_op_name}")
-                    scribe().debug(f"[MaximSDK] Handling coroutine for {final_op_name}")
-                    
-                    async def async_wrapper():
-                        global _current_agent_span, _current_session, _current_session_id
-                        
-                        try:
-                            result = await output
-                            
-                            # Process the result for generations
-                            if isinstance(self, BaseLlm) and generation:
-                                print(f"[MaximSDK] Processing LLM result after coroutine completion")
-                                await process_llm_result(self, generation, result)
-                            
-                            # Complete agent span and trace for Runner after async completion
-                            if isinstance(self, Runner) and trace:
-                                # End agent span first
-                                if _current_agent_span:
-                                    _current_agent_span.end()
-                                    scribe().info("[MaximSDK] AGENT SPAN: Completed agent span (async coroutine)")
-                                    _current_agent_span = None
-                                
-                                # Then end trace
-                                scribe().debug(f"[MaximSDK] TRACE: Completing trace (async coroutine) [{trace.id}]")
-                                if result is not None:
-                                    trace.set_output(extract_content_from_response(result))
-                                trace.end()
-                                
-                                # NOTE: Session persists across traces (not ended here)
-                                scribe().debug(f"[MaximSDK] SESSION: Keeping session [{_current_session_id}] active for next trace (async coroutine)")
-
-                                # Reset context
-                                if trace_token is not None:
-                                    _global_maxim_trace.reset(trace_token)
-                                else:
-                                    _global_maxim_trace.set(None)
-
-                                maxim_logger.flush()
-                                scribe().info("[MaximSDK] TRACE: Ended trace (async coroutine)")
-                            
-                            return result
-                        except Exception as e:
-                            print(f"[MaximSDK] Error in async wrapper: {e}")
-                            scribe().error(f"[MaximSDK] Error in async wrapper: {e}")
-                            if generation:
-                                generation.error({"message": str(e)})
-                            
-                            # Handle error case for trace
-                            if isinstance(self, Runner) and trace:
-                                # End agent span first if it exists
-                                if _current_agent_span:
-                                    _current_agent_span.add_error({"message": str(e)})
-                                    _current_agent_span.end()
-                                    scribe().info("[MaximSDK] AGENT SPAN: Completed agent span with error (async coroutine)")
-                                    _current_agent_span = None
-                                
-                                # Then end trace
-                                trace.add_error({"message": str(e)})
-                                trace.end()
-                                
-                                # NOTE: Session persists even on error (not ended here)
-                                scribe().debug(f"[MaximSDK] SESSION: Keeping session [{_current_session_id}] active despite error (async coroutine)")
-                                
-                                if trace_token is not None:
-                                    _global_maxim_trace.reset(trace_token)
-                                else:
-                                    _global_maxim_trace.set(None)
-                                maxim_logger.flush()
-                            
-                            raise
-                    
-                    return async_wrapper()
-                
-                # Handle synchronous responses
-                processed_output = output
-                if output_processor:
-                    try:
-                        processed_output = output_processor(output)
-                    except Exception as e:
-                        scribe().debug(f"[MaximSDK] Failed to process output: {e}")
-
-                # Complete tool calls
-                if tool_call:
-                    if isinstance(tool_call, Retrieval):
-                        tool_call.output(processed_output)
-                        scribe().debug("[MaximSDK] RAG: Completed retrieval")
-                    else:
-                        tool_call.result(processed_output)
-                        scribe().debug("[MaximSDK] TOOL: Completed tool call")
-
-                # Complete generations for sync calls
-                if generation and not hasattr(output, '__await__'):
-                    process_llm_result_sync(self, generation, processed_output)
-
-                # Complete spans
-                if span and not isinstance(self, Runner):
-                    span.end()
-                    scribe().debug("[MaximSDK] SPAN: Completed span")
-                    
-                    # If this was a BaseAgent span, restore the previous agent span
-                    if isinstance(self, BaseAgent):
-                        previous_span = getattr(self, "_previous_agent_span", None)
-                        if previous_span:
-                            _current_agent_span = previous_span
-                            scribe().info(f"[MaximSDK] Restored previous agent span")
-                        else:
-                            # This was the root agent span, clear it
-                            _current_agent_span = None
-                            scribe().info(f"[MaximSDK] Cleared root agent span")
-                
-                # Complete agent span and trace for Runner
-                if isinstance(self, Runner) and trace:
-                    # End agent span first
-                    if _current_agent_span:
-                        _current_agent_span.end()
-                        scribe().info("[MaximSDK] AGENT SPAN: Completed agent span")
-                        _current_agent_span = None
-                    
-                    # Then end trace
-                    scribe().debug(f"[MaximSDK] TRACE: Completing trace [{trace.id}]")
-                    if processed_output is not None:
-                        trace.set_output(extract_content_from_response(processed_output))
-                    trace.end()
-                    
-                    # NOTE: Session persists across traces (not ended here)
-                    scribe().debug(f"[MaximSDK] SESSION: Keeping session [{_current_session_id}] active for next trace")
-
-                    # Reset context
-                    if trace_token is not None:
-                        _global_maxim_trace.reset(trace_token)
-                    else:
-                        _global_maxim_trace.set(None)
-
-                    maxim_logger.flush()
-
-                return output
-
-            except Exception as e:
-                traceback.print_exc()
-                scribe().error(f"[MaximSDK] {type(e).__name__} in {final_op_name}: {e}")
-
-                # Error handling for all components
-                if tool_call:
-                    if isinstance(tool_call, Retrieval):
-                        tool_call.output(f"Error occurred while calling tool: {e}")
-                    else:
-                        tool_call.result(f"Error occurred while calling tool: {e}")
-
-                if generation:
-                    generation.error({"message": str(e)})
-
-                if span:
-                    span.add_error({"message": str(e)})
-                    span.end()
-
-                if trace:
-                    # End agent span first if it exists
-                    if _current_agent_span:
-                        _current_agent_span.add_error({"message": str(e)})
-                        _current_agent_span.end()
-                        scribe().info("[MaximSDK] AGENT SPAN: Completed agent span with error")
-                        _current_agent_span = None
-                    
-                    # Then end trace
-                    trace.add_error({"message": str(e)})
-                    trace.end()
-                    
-                    # NOTE: Session persists even on error (not ended here)
-                    if _current_session_id and isinstance(self, Runner):
-                        scribe().debug(f"[MaximSDK] SESSION: Keeping session [{_current_session_id}] active despite error")
-                    
-                    if trace_token is not None:
-                        _global_maxim_trace.reset(trace_token)
-                    else:
-                        _global_maxim_trace.set(None)
-                    maxim_logger.flush()
-
-                raise
-
-        return maxim_wrapper
-
-    async def process_llm_result(llm_self, generation, result):
-        """Process LLM result and handle tool calls for async calls."""
-        print(f"[MaximSDK] Processing LLM result - type: {type(result)}")
-        usage_info = extract_usage_from_response(result)
-        model_info = getattr(llm_self, "_model_info", extract_model_info(llm_self))
-        
-        # Extract tool calls from the response
-        tool_calls = extract_tool_calls_from_response(result)
-        
-        # Extract meaningful content from the response
-        content = extract_content_from_response(result)
-        
-        print(f"[MaximSDK] Usage: {usage_info}")
-        print(f"[MaximSDK] Model: {model_info.get('model', 'unknown')}")
-        print(f"[MaximSDK] Content length: {len(content) if content else 0}")
-        print(f"[MaximSDK] Tool calls: {len(tool_calls) if tool_calls else 0}")
-        
-        # Get generation ID safely (handle both object and dict)
-        gen_id = generation.id if hasattr(generation, 'id') else generation.get('id', str(uuid.uuid4()))
-        
-        # Create generation result
-        gen_result = {
-            "id": f"gen_{gen_id}",
-            "object": "chat.completion",
-            "created": int(time()),
-            "model": model_info.get("model", "unknown"),
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": content,
-                },
-                "finish_reason": "stop",
-            }],
-            "usage": usage_info,
-        }
-        
-        # Add tool calls to the generation result if found
-        if tool_calls:
-            maxim_tool_calls = []
-            for tool_call in tool_calls:
-                # Ensure tool_call_id is never None
-                tool_call_id = tool_call.get("tool_call_id") or str(uuid.uuid4())
-                tool_name = tool_call.get("name", "unknown")
-                tool_args = tool_call.get("args", {})
-                
-                maxim_tool_call = {
-                    "id": tool_call_id,
-                    "type": "function",
-                    "function": {
-                        "name": tool_name,
-                        "arguments": str(tool_args)
-                    }
-                }
-                maxim_tool_calls.append(maxim_tool_call)
-                print(f"[MaximSDK] Tool call: {tool_name} (ID: {tool_call_id}, Args: {tool_args})")
-                scribe().info(f"[MaximSDK] Tool call: {tool_name} (ID: {tool_call_id})")
-            
-            gen_result["choices"][0]["message"]["tool_calls"] = maxim_tool_calls
-            print(f"[MaximSDK] Added {len(tool_calls)} tool calls to generation result")
-            scribe().info(f"[MaximSDK] Added {len(tool_calls)} tool calls to generation result")
-            
-            # Create tool call spans for each tool call (retroactive but visible)
-            parent_context = _current_agent_span if _current_agent_span else _global_maxim_trace.get()
-            if parent_context:
-                for tool_call in tool_calls:
-                    tool_call_id = tool_call.get("tool_call_id") or str(uuid.uuid4())
-                    tool_name = tool_call.get("name", "unknown")
-                    tool_args = tool_call.get("args", {})
-                    
-                    # Get agent name for display
-                    agent_name = "Unknown Agent"
-                    try:
-                        if _current_agent_span and hasattr(_current_agent_span, 'name'):
-                            span_name = _current_agent_span.name
-                            if span_name.startswith("Agent: "):
-                                agent_name = span_name.replace("Agent: ", "")
-                    except Exception as e:
-                        scribe().debug(f"[MaximSDK] Could not extract agent name: {e}")
-                    
-                    # Create tool display name with agent context
-                    tool_display_name = f"{agent_name} - {tool_name}" if agent_name != "Unknown Agent" else tool_name
-                    
-                    # Create tool call span
-                    try:
-                        tool_span = parent_context.tool_call({
-                            "id": tool_call_id,
-                            "name": tool_display_name,
-                            "description": f"Tool call to {tool_name}",
-                            "args": str(tool_args),
-                            "tags": {
-                                "tool_call_id": tool_call_id,
-                                "from_llm_response": "true",
-                                "agent_name": agent_name
-                            },
-                        })
-                        # Immediately complete the span since we already have the result
-                        tool_span.result("Tool call executed")
-                        print(f"[MaximSDK] Created tool call span: {tool_call_id} for {tool_display_name}")
-                        scribe().info(f"[MaximSDK] Created tool call span: {tool_call_id} for {tool_display_name}")
-                    except Exception as e:
-                        scribe().error(f"[MaximSDK] Failed to create tool call span: {e}")
-            else:
-                scribe().warning("[MaximSDK] No parent context available for tool call spans")
-        
-        generation.result(gen_result)
-        print(f"[MaximSDK] Generation result recorded!")
-        scribe().debug("[MaximSDK] GEN: Completed async generation")
-
-    def process_llm_result_sync(llm_self, generation, result):
-        """Process LLM result and handle tool calls for sync calls."""
-        usage_info = extract_usage_from_response(result)
-        model_info = getattr(llm_self, "_model_info", {})
-        
-        # Extract tool calls from the response
-        tool_calls = extract_tool_calls_from_response(result)
-        
-        # Extract meaningful content from the response
-        content = extract_content_from_response(result)
-        
-        # Get generation ID safely (handle both object and dict)
-        gen_id = generation.id if hasattr(generation, 'id') else generation.get('id', str(uuid.uuid4()))
-        
-        # Create generation result
-        gen_result = {
-            "id": f"gen_{gen_id}",
-            "object": "chat.completion", 
-            "created": int(time()),
-            "model": model_info.get("model", "unknown"),
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": content,
-                },
-                "finish_reason": "stop",
-            }],
-            "usage": usage_info,
-        }
-        
-        # Add tool calls to the generation result if found
-        if tool_calls:
-            maxim_tool_calls = []
-            for tool_call in tool_calls:
-                # Ensure tool_call_id is never None
-                tool_call_id = tool_call.get("tool_call_id") or str(uuid.uuid4())
-                maxim_tool_call = {
-                    "id": tool_call_id,
-                    "type": "function",
-                    "function": {
-                        "name": tool_call.get("name", "unknown"),
-                        "arguments": str(tool_call.get("args", {}))
-                    }
-                }
-                maxim_tool_calls.append(maxim_tool_call)
-            
-            gen_result["choices"][0]["message"]["tool_calls"] = maxim_tool_calls
-            scribe().debug(f"[MaximSDK] Found {len(tool_calls)} tool calls in model response")
-            
-            # NOTE: Tool call spans should be created by before_tool_callback or BaseTool wrapper
-            # NOT here, as this is retroactive and causes incorrect ordering
-        
-        generation.result(gen_result)
-        scribe().debug("[MaximSDK] GEN: Completed sync generation")
-
-    # Patch Runner methods
-    if Runner is not None:
-        runner_methods = ["run_async", "run"]
-        for method_name in runner_methods:
-            if hasattr(Runner, method_name):
-                original_method = getattr(Runner, method_name)
-                # Skip if already patched (idempotency guard)
-                if getattr(original_method, "__maxim_patched__", False):
-                    scribe().debug(f"[MaximSDK] Skipping already patched Runner.{method_name}")
-                    continue
-                wrapper = make_maxim_wrapper(
-                    original_method,
-                    f"google.adk.Runner.{method_name}",
-                    input_processor=google_adk_postprocess_inputs,
-                    display_name_fn=get_agent_display_name,
-                )
-                setattr(Runner, method_name, wrapper)
-                # Mark as patched to prevent double-wrapping
-                setattr(getattr(Runner, method_name), "__maxim_patched__", True)
-                scribe().info(f"[MaximSDK] Patched google.adk.Runner.{method_name}")
-
-    # Patch InMemoryRunner methods (only if they override Runner methods)
-    if InMemoryRunner is not None:
-        inmemory_runner_methods = ["run_async", "run"]
-        for method_name in inmemory_runner_methods:
-            # Only patch if method is defined in InMemoryRunner's own __dict__ (not inherited from Runner)
-            if hasattr(InMemoryRunner, method_name) and method_name in getattr(InMemoryRunner, "__dict__", {}):
-                original_method = getattr(InMemoryRunner, method_name)
-                # Skip if already patched (idempotency guard)
-                if getattr(original_method, "__maxim_patched__", False):
-                    scribe().debug(f"[MaximSDK] Skipping already patched InMemoryRunner.{method_name}")
-                    continue
-                wrapper = make_maxim_wrapper(
-                    original_method,
-                    f"google.adk.InMemoryRunner.{method_name}",
-                    input_processor=google_adk_postprocess_inputs,
-                    display_name_fn=get_agent_display_name,
-                )
-                setattr(InMemoryRunner, method_name, wrapper)
-                # Mark as patched to prevent double-wrapping
-                setattr(getattr(InMemoryRunner, method_name), "__maxim_patched__", True)
-                scribe().info(f"[MaximSDK] Patched google.adk.InMemoryRunner.{method_name}")
-            else:
-                scribe().debug(f"[MaximSDK] Skipping InMemoryRunner.{method_name} (inherited from Runner)")
-
-    # Patch BaseLlm methods
-    try:
-        if BaseLlm is not None:
-            llm_methods = ["generate_content_async"]
-            for method_name in llm_methods:
-                if hasattr(BaseLlm, method_name):
-                    original_method = getattr(BaseLlm, method_name)
-                    # Skip if already patched (idempotency guard)
-                    if getattr(original_method, "__maxim_patched__", False):
-                        scribe().debug(f"[MaximSDK] Skipping already patched BaseLlm.{method_name}")
-                        continue
-                    wrapper = make_maxim_wrapper(
-                        original_method,
-                        f"google.adk.BaseLlm.{method_name}",
-                        input_processor=lambda inputs: dictify(inputs),
-                        output_processor=lambda output: dictify(output),
-                    )
-                    setattr(BaseLlm, method_name, wrapper)
-                    # Mark as patched to prevent double-wrapping
-                    setattr(getattr(BaseLlm, method_name), "__maxim_patched__", True)
-                    print(f"[MaximSDK] Patched google.adk.BaseLlm.{method_name}")
-                    scribe().info(f"[MaximSDK] Patched google.adk.BaseLlm.{method_name}")
-    except Exception as e:
-        print(f"[MaximSDK] ERROR patching BaseLlm: {e}")
-        scribe().error(f"[MaximSDK] ERROR patching BaseLlm: {e}")
     
-    # Also patch Gemini class specifically (it's the concrete implementation)
+    # Store logger globally for end_maxim_session
+    _global_maxim_logger = maxim_logger
+    
+    # Patch Runner.__init__ to automatically inject Maxim plugin
     try:
-        print(f"[MaximSDK] About to check Gemini class... Gemini={Gemini}")
-        scribe().info(f"[MaximSDK] About to check Gemini class... Gemini={Gemini}")
-        if Gemini is not None:
-            print(f"[MaximSDK] Gemini class found, attempting to patch...")
-            scribe().info(f"[MaximSDK] Gemini class found, attempting to patch...")
-            llm_methods = ["generate_content_async"]
-            for method_name in llm_methods:
-                print(f"[MaximSDK] Checking if Gemini has {method_name}: {hasattr(Gemini, method_name)}")
-                if hasattr(Gemini, method_name):
-                    original_method = getattr(Gemini, method_name)
-                    # Skip if already patched (idempotency guard)
-                    if getattr(original_method, "__maxim_patched__", False):
-                        scribe().debug(f"[MaximSDK] Skipping already patched Gemini.{method_name}")
-                        continue
-                    print(f"[MaximSDK] Original method type: {type(original_method)}")
-                    wrapper = make_maxim_wrapper(
-                        original_method,
-                        f"google.adk.Gemini.{method_name}",
-                        input_processor=lambda inputs: dictify(inputs),
-                        output_processor=lambda output: dictify(output),
-                    )
-                    setattr(Gemini, method_name, wrapper)
-                    # Mark as patched to prevent double-wrapping
-                    setattr(getattr(Gemini, method_name), "__maxim_patched__", True)
-                    print(f"[MaximSDK] Patched google.adk.Gemini.{method_name}")
-                    scribe().info(f"[MaximSDK] Patched google.adk.Gemini.{method_name}")
-                else:
-                    print(f"[MaximSDK] Gemini does not have {method_name}")
-                    scribe().info(f"[MaximSDK] Gemini does not have {method_name}")
-        else:
-            print(f"[MaximSDK] Gemini class is None!")
-            scribe().info(f"[MaximSDK] Gemini class is None!")
+        from google.adk.runners import Runner
+        
+        _original_runner_init = Runner.__init__
+        
+        def _patched_runner_init(self, **kwargs):
+            """Patched Runner.__init__ that automatically adds Maxim plugin."""
+            plugins = kwargs.get('plugins') or []  # Handle None case
+            
+            # Check if Maxim plugin is already in the list
+            has_maxim_plugin = any(isinstance(p, MaximInstrumentationPlugin) for p in plugins)
+            
+            if not has_maxim_plugin:
+                # Create and add Maxim plugin with callbacks
+                maxim_plugin = MaximInstrumentationPlugin(
+                    maxim_logger, 
+                    debug,
+                    before_generation_callback=_global_callbacks.get("before_generation"),
+                    after_generation_callback=_global_callbacks.get("after_generation"),
+                    before_trace_callback=_global_callbacks.get("before_trace"),
+                    after_trace_callback=_global_callbacks.get("after_trace"),
+                    before_span_callback=_global_callbacks.get("before_span"),
+                    after_span_callback=_global_callbacks.get("after_span"),
+                )
+                plugins = list(plugins) + [maxim_plugin]
+                kwargs['plugins'] = plugins
+                scribe().info("[MaximSDK] Auto-injected Maxim plugin into Runner")
+            
+            # Call original __init__
+            _original_runner_init(self, **kwargs)
+        
+        Runner.__init__ = _patched_runner_init
+        scribe().info("[MaximSDK] Patched Runner.__init__ for automatic plugin injection")
+        print("[MaximSDK] ✅ Patched Runner for automatic Maxim plugin injection")
+        
     except Exception as e:
-        print(f"[MaximSDK] ERROR patching Gemini: {e}")
-        scribe().error(f"[MaximSDK] ERROR patching Gemini: {e}")
+        scribe().error(f"[MaximSDK] Failed to patch Runner: {e}")
+        print(f"[MaximSDK] ⚠️  Failed to patch Runner: {e}")
+    
+    # Patch AgentTool to properly pass plugin context to nested agents
+    try:
+        from google.adk.tools.agent_tool import AgentTool
+        _original_agent_tool_run_async = AgentTool.run_async
+        
+        async def _patched_agent_tool_run_async(self, *, args, tool_context):
+            """Patched run_async that passes plugin context to nested agents."""
+            from google.adk.runners import Runner
+            from google.adk.sessions.in_memory_session_service import InMemorySessionService
+            from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+            from google.adk.tools._forwarding_artifact_service import ForwardingArtifactService
+            from google.genai import types
+            from google.adk.agents.llm_agent import LlmAgent
+            from google.adk.utils.context_utils import Aclosing
+            
+            if self.skip_summarization:
+                tool_context.actions.skip_summarization = True
 
-    # Patch BaseTool methods
-    if BaseTool is not None:
-        tool_methods = ["run_async"]
-        for method_name in tool_methods:
-            if hasattr(BaseTool, method_name):
-                original_method = getattr(BaseTool, method_name)
-                # Skip if already patched (idempotency guard)
-                if getattr(original_method, "__maxim_patched__", False):
-                    scribe().debug(f"[MaximSDK] Skipping already patched BaseTool.{method_name}")
-                    continue
-                wrapper = make_maxim_wrapper(
-                    original_method,
-                    f"google.adk.BaseTool.{method_name}",
-                    input_processor=lambda inputs: dictify(inputs),
-                    output_processor=lambda output: dictify(output),
-                    display_name_fn=get_tool_display_name,
+            if isinstance(self.agent, LlmAgent) and self.agent.input_schema:
+                input_value = self.agent.input_schema.model_validate(args)
+                content = types.Content(
+                    role='user',
+                    parts=[
+                        types.Part.from_text(
+                            text=input_value.model_dump_json(exclude_none=True)
+                        )
+                    ],
                 )
-                setattr(BaseTool, method_name, wrapper)
-                # Mark as patched to prevent double-wrapping
-                setattr(getattr(BaseTool, method_name), "__maxim_patched__", True)
-                scribe().info(f"[MaximSDK] Patched google.adk.BaseTool.{method_name}")
-
-    # Patch BaseAgent methods (for agent-as-tool invocations)
-    if BaseAgent is not None:
-        agent_methods = ["run_async", "run"]
-        for method_name in agent_methods:
-            if hasattr(BaseAgent, method_name):
-                original_method = getattr(BaseAgent, method_name)
-                # Skip if already patched (idempotency guard)
-                if getattr(original_method, "__maxim_patched__", False):
-                    scribe().debug(f"[MaximSDK] Skipping already patched BaseAgent.{method_name}")
-                    continue
-                wrapper = make_maxim_wrapper(
-                    original_method,
-                    f"google.adk.BaseAgent.{method_name}",
-                    input_processor=lambda inputs: dictify(inputs),
-                    output_processor=lambda output: dictify(output),
-                    display_name_fn=lambda inputs: f"Agent: {inputs.get('self', {}).name if hasattr(inputs.get('self'), 'name') else 'Unknown'}",
+            else:
+                content = types.Content(
+                    role='user',
+                    parts=[types.Part.from_text(text=args['request'])],
                 )
-                setattr(BaseAgent, method_name, wrapper)
-                # Mark as patched to prevent double-wrapping
-                setattr(getattr(BaseAgent, method_name), "__maxim_patched__", True)
-                scribe().info(f"[MaximSDK] Patched google.adk.BaseAgent.{method_name}")
+            
+            # Get parent plugins and create nested plugin with trace context
+            parent_plugins = list(tool_context._invocation_context.plugin_manager.plugins)
+            nested_plugins = []
+            
+            for plugin in parent_plugins:
+                if isinstance(plugin, MaximInstrumentationPlugin):
+                    # Create a new plugin instance that inherits trace context and callbacks
+                    nested_plugin = MaximInstrumentationPlugin(
+                        maxim_logger=plugin.maxim_logger,
+                        debug=plugin.debug,
+                        parent_trace=plugin._trace,  # Pass parent trace
+                        parent_agent_span=plugin._agent_span,  # Pass parent agent span
+                        # Pass callbacks from parent plugin
+                        before_generation_callback=plugin._before_generation_callback,
+                        after_generation_callback=plugin._after_generation_callback,
+                        before_trace_callback=plugin._before_trace_callback,
+                        after_trace_callback=plugin._after_trace_callback,
+                        before_span_callback=plugin._before_span_callback,
+                        after_span_callback=plugin._after_span_callback,
+                    )
+                    # Transfer pending tool calls
+                    nested_plugin._pending_tool_calls = plugin._pending_tool_calls
+                    nested_plugin._tool_calls = plugin._tool_calls
+                    nested_plugins.append(nested_plugin)
+                    scribe().info(f"[MaximSDK] Created nested plugin for AgentTool: {self.agent.name}")
+                else:
+                    nested_plugins.append(plugin)
+            
+            runner = Runner(
+                app_name=self.agent.name,
+                agent=self.agent,
+                artifact_service=ForwardingArtifactService(tool_context),
+                session_service=InMemorySessionService(),
+                memory_service=InMemoryMemoryService(),
+                credential_service=tool_context._invocation_context.credential_service,
+                plugins=nested_plugins,  # Use nested plugins with trace context
+            )
 
-    scribe().info("[MaximSDK] Finished applying patches to Google ADK.")
+            state_dict = {
+                k: v
+                for k, v in tool_context.state.to_dict().items()
+                if not k.startswith('_adk')  # Filter out adk internal states
+            }
+            session = await runner.session_service.create_session(
+                app_name=self.agent.name,
+                user_id=tool_context._invocation_context.user_id,
+                state=state_dict,
+            )
+
+            last_content = None
+            async with Aclosing(
+                runner.run_async(
+                    user_id=session.user_id, session_id=session.id, new_message=content
+                )
+            ) as agen:
+                async for event in agen:
+                    # Forward state delta to parent session.
+                    if event.actions.state_delta:
+                        tool_context.state.update(event.actions.state_delta)
+                    if event.content:
+                        last_content = event.content
+
+            if not last_content:
+                return ''
+            merged_text = '\n'.join(p.text for p in last_content.parts if p.text)
+            if isinstance(self.agent, LlmAgent) and self.agent.output_schema:
+                tool_result = self.agent.output_schema.model_validate_json(
+                    merged_text
+                ).model_dump(exclude_none=True)
+            else:
+                tool_result = merged_text
+            return tool_result
+        
+        # Apply the patch
+        AgentTool.run_async = _patched_agent_tool_run_async
+        scribe().info("[MaximSDK] Patched AgentTool.run_async to propagate plugin context")
+        print("[MaximSDK] ✅ Patched AgentTool for nested agent tracing")
+        
+    except Exception as e:
+        scribe().error(f"[MaximSDK] Failed to patch AgentTool: {e}")
+        print(f"[MaximSDK] ⚠️  Failed to patch AgentTool: {e}")
+    
+    print("\n✅ [MaximSDK] Single-line instrumentation complete!")
+    print("📌 All Runner instances will now automatically include Maxim tracing")
+    print("📌 Simply create runners as usual: runner = InMemoryRunner(agent=my_agent)")
+    scribe().info("[MaximSDK] Google ADK instrumentation complete with automatic plugin injection")
 
 
-def create_maxim_plugin(maxim_logger: Logger, debug: bool = False) -> MaximInstrumentationPlugin:
-    """Create a Maxim instrumentation plugin for Google ADK."""
+def create_maxim_plugin(
+    maxim_logger: Logger, 
+    debug: bool = False, 
+    parent_trace=None, 
+    parent_agent_span=None,
+    before_generation_callback=None,
+    after_generation_callback=None,
+    before_trace_callback=None,
+    after_trace_callback=None,
+    before_span_callback=None,
+    after_span_callback=None,
+) -> MaximInstrumentationPlugin:
+    """
+    Create a Maxim instrumentation plugin for Google ADK.
+    
+    Note: When using instrument_google_adk(), you don't need to call this function.
+    This is only for advanced use cases where you want to manually create plugins.
+    
+    Args:
+        maxim_logger: The Maxim logger instance
+        debug: Enable debug logging
+        parent_trace: Optional parent trace for nested agents
+        parent_agent_span: Optional parent agent span for nested agents
+        before_generation_callback: Optional async callback before LLM generation
+        after_generation_callback: Optional async callback after LLM generation
+        before_trace_callback: Optional async callback before trace creation
+        after_trace_callback: Optional async callback after trace completion
+        before_span_callback: Optional async callback before span creation
+        after_span_callback: Optional async callback after span completion
+    
+    Returns:
+        MaximInstrumentationPlugin instance
+    """
     if not GOOGLE_ADK_AVAILABLE:
         raise ImportError(
             "google-adk is required. Install via `pip install google-adk` or "
             "an optional extra (e.g., maxim-py[google-adk])."
         )
-    return MaximInstrumentationPlugin(maxim_logger, debug)
+    return MaximInstrumentationPlugin(
+        maxim_logger, 
+        debug, 
+        parent_trace, 
+        parent_agent_span,
+        before_generation_callback=before_generation_callback,
+        after_generation_callback=after_generation_callback,
+        before_trace_callback=before_trace_callback,
+        after_trace_callback=after_trace_callback,
+        before_span_callback=before_span_callback,
+        after_span_callback=after_span_callback,
+    )
+
+
+# Legacy wrapper code removed - we use plugin-only approach now
+# This eliminates conflicts and duplicate spans
+
+_old_make_maxim_wrapper_code_removed = """
+Old wrapper-based instrumentation has been removed to avoid conflicts with the plugin approach.
+If you need the old behavior, please use an earlier version of the SDK.
+The plugin-based approach is cleaner and avoids duplicate spans.
+"""
+
+
+def end_maxim_session(maxim_logger=None):
+    """
+    Explicitly end the current Maxim session and flush all data.
+    Call this at the end of your application/session to ensure all traces are sent to Maxim.
+    
+    Args:
+        maxim_logger: Optional Logger instance. If not provided, will use the global logger from instrument_google_adk().
+    """
+    global _current_maxim_session, _current_maxim_session_id, _session_trace, _global_maxim_logger
+    
+    if _current_maxim_session_id and _current_maxim_session:
+        from maxim.scribe import scribe
+        
+        # End any open trace first
+        if _session_trace:
+            try:
+                _session_trace.end()
+                print("✅ [MaximSDK] Ended open trace")
+                scribe().info("[MaximSDK] Ended open trace")
+            except Exception as e:
+                scribe().warning(f"[MaximSDK] Failed to end trace: {e}")
+            _session_trace = None
+        
+        # End the session
+        try:
+            _current_maxim_session.end()
+            print(f"📦 [MaximSDK] Ended Maxim session: {_current_maxim_session_id}")
+            scribe().info(f"[MaximSDK] Ended Maxim session: {_current_maxim_session_id}")
+        except Exception as e:
+            scribe().warning(f"[MaximSDK] Failed to end session: {e}")
+        
+        # Flush the logger to ensure session is sent
+        logger_to_flush = maxim_logger or _global_maxim_logger
+        if logger_to_flush:
+            logger_to_flush.flush()
+            print("💾 [MaximSDK] Flushed logger after ending session")
+            scribe().info("[MaximSDK] Flushed logger after ending session")
+        
+        # Reset globals
+        _current_maxim_session = None
+        _current_maxim_session_id = None
+        
+        return True
+    else:
+        print("⚠️  [MaximSDK] No active Maxim session to end")
+        return False
