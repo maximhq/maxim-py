@@ -2,6 +2,7 @@ import functools
 import inspect
 import traceback
 import time
+from typing import Optional
 import uuid
 import weakref
 from datetime import datetime, timezone
@@ -41,7 +42,15 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     The session info along with room_id, agent_id, etc is stored in the thread-local store.
     """
     maxim_logger = get_maxim_logger()
-    scribe().debug(f"[Internal][{self.__class__.__name__}] Session started")
+
+    # Wait for start signal (max ~5s) before proceeding
+    for _ in range(500):
+        if getattr(self, "_started", False):
+            scribe().debug(f"[Internal][{self.__class__.__name__}] Session started")
+            break
+        time.sleep(0.01)
+    else:
+        scribe().debug(f"[Internal][{self.__class__.__name__}] start not signaled within timeout; continuing")
     # getting the room_id
     if isinstance(room, str):
         room_id = room
@@ -100,10 +109,10 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     )
 
     current_turn_id = str(uuid.uuid4())
-    if self.stt is not None or self._agent.stt is not NOT_GIVEN:
+    if self.stt is not None or agent.stt is not NOT_GIVEN:
         # Only add generation if we are not in realtime session
-        llm_opts: _LLMOptions = self.llm._opts if self.llm is not None else self._agent.llm._opts
-        model = self.llm.model if self.llm is not None else self._agent.llm.model
+        llm_opts: _LLMOptions = self.llm._opts if self.llm is not None else agent.llm._opts
+        model = self.llm.model if self.llm is not None else agent.llm.model
         if llm_opts is not None:
             model_parameters = extract_llm_model_parameters(llm_opts)
         else:

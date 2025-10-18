@@ -5,7 +5,7 @@ from livekit.plugins.openai import LLM, STT, TTS
 from ...logger import Logger
 from .agent_activity import instrument_agent_activity
 from .agent_session import instrument_agent_session
-from .gemini.instrumenter import instrument_gemini
+# Import instrument_gemini conditionally to avoid dependency issues
 from .llm import instrument_llm_init
 from .realtime_session import instrument_realtime_session
 from .stt import instrument_stt_init
@@ -115,4 +115,9 @@ def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
             setattr(TTS, name, instrument_tts(orig, name))
 
     # Instrument gemini models if present
-    instrument_gemini()
+    try:
+        from .gemini.instrumenter import instrument_gemini
+        instrument_gemini()
+    except (ImportError, NameError):
+        # Gemini dependencies not available, skip instrumentation
+        pass
