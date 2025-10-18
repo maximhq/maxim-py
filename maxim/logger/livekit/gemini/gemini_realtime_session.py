@@ -32,15 +32,21 @@ import traceback
 from io import BytesIO
 from typing import Union
 
-from google.genai.types import (
-    LiveConnectConfig,
-    LiveServerContent,
-    LiveServerToolCall,
-    UsageMetadata,
-    Content,
-)
+try:
+    from google.genai.types import (
+        LiveConnectConfig,
+        LiveServerContent,
+        LiveServerToolCall,
+        UsageMetadata,
+        Content,
+    )
+except ImportError:
+    pass
 from livekit.agents.llm import InputTranscriptionCompleted
-from livekit.plugins.google.beta.realtime.realtime_api import RealtimeSession
+try:
+    from livekit.plugins.google.realtime.realtime_api import RealtimeSession
+except ImportError:
+    from livekit.plugins.google.beta.realtime.realtime_api import RealtimeSession
 from livekit.rtc import AudioFrame
 
 from maxim.scribe import scribe
