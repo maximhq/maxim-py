@@ -60,6 +60,9 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.11.3
+- fix: Fixed Nested Spans issue for Google ADK
+
 ### 3.11.1
 - feat: Added `ContainerManager` to Langchain to manage containers
 - fix: Fixes `trace.end` in Langchain integration `MaximLangchainTracer`
