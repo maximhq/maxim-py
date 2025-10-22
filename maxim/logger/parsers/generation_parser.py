@@ -56,7 +56,9 @@ def parse_tool_calls(tool_calls_data):
     Returns:
         The parsed tool calls.
     """
-    if ChatCompletionMessageToolCall is not None and isinstance(tool_calls_data, ChatCompletionMessageToolCall):
+    if ChatCompletionMessageToolCall is not None and isinstance(
+        tool_calls_data, ChatCompletionMessageToolCall
+    ):
         validate_type(tool_calls_data.id, str, "id")
         validate_type(tool_calls_data.type, str, "type")
         parse_function_call(tool_calls_data.function)
@@ -217,9 +219,57 @@ def default_json_serializer(o: Any) -> Any:
     raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
 
 
+def is_openai_response_structure(data: Any) -> bool:
+    """
+    Check if data matches the general top-level shape of an OpenAI Responses API result.
+
+    The OpenAI Responses API structure includes:
+    - id: string identifier
+    - object: string (must be "response")
+    - created_at: integer timestamp
+    - status: string (e.g., "completed", "in_progress")
+    - output: list of output items
+    - usage: dict with token usage
+
+    Args:
+        data: The dictionary to check.
+
+    Returns:
+        True if the data matches the OpenAI Responses API structure, False otherwise.
+    """
+    if not isinstance(data, dict):
+        return False
+
+    # Check for required OpenAI Responses API fields
+    required_fields = {
+        "id": str,
+        "object": str,
+        "created_at": (int, float),
+        "status": str,
+        "output": list,
+        "usage": dict,
+    }
+
+    for field, expected_type in required_fields.items():
+        if field not in data:
+            return False
+
+        value = data[field]
+        if not isinstance(value, expected_type):
+            return False
+
+    # Verify that object is specifically "response"
+    if data.get("object") != "response":
+        return False
+
+    return True
+
+
 def parse_result(data: Any) -> Dict[str, Any]:
     """
     Parse result from a dictionary.
+
+    Supports both OpenAI Chat Completion API and OpenAI Responses API result structures.
 
     Args:
         data: The dictionary to parse.
@@ -229,6 +279,14 @@ def parse_result(data: Any) -> Dict[str, Any]:
     """
     if not isinstance(data, dict):
         raise ValueError("Text completion is not supported.")
+
+    # Check if this is an OpenAI Responses API result structure
+    if is_openai_response_structure(data):
+        # For Responses API results, return as-is without deep validation
+        # Only the general top-level shape is validated by is_openai_response_structure
+        return data
+
+    # Otherwise, process as Chat Completion API result (existing behavior)
     validate_type(data.get("id"), str, "id")
     validate_optional_type(data.get("object"), str, "object")
     validate_type(data.get("created"), int, "created")

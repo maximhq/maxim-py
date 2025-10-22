@@ -1,16 +1,18 @@
-import json
 import logging
 import os
 import unittest
+import dotenv
 
 from maxim import Maxim
 from maxim.models import QueryBuilder
 
 # reading testConfig.json and setting the values
 
+dotenv.load_dotenv()
+
 env = "dev"
 apiKey = os.getenv("MAXIM_API_KEY")
-promptId = os.getenv("PROMPT_ID")
+promptId: str = str(os.getenv("PROMPT_ID"))
 promptVersionId = os.getenv("PROMPT_VERSION_ID")
 folderID = os.getenv("FOLDER_ID")
 
@@ -26,6 +28,7 @@ class TestMaximPromptManagement(unittest.TestCase):
                 "api_key": apiKey,
                 "debug": True,
                 "prompt_management": True,
+                "base_url": "http://localhost:3000"
             }
         )
 
@@ -55,6 +58,21 @@ class TestMaximPromptManagement(unittest.TestCase):
             resp = prompt.run(
                 "What is Cosmos about?",
             )
+        except Exception as e:
+            self.fail(f"prompt.run() raised an exception: {e}")
+
+    def test_get_prompt_by_version_directly(self):
+        prompt = self.maxim.get_prompt(
+            promptId,
+            QueryBuilder().and_().prompt_version_number(1).build(),
+        )
+        if prompt is None:
+            raise Exception("Prompt not found")
+        try:
+            resp = prompt.run(
+                "What is Cosmos about?",
+            )
+            print(resp)
         except Exception as e:
             self.fail(f"prompt.run() raised an exception: {e}")
 
