@@ -30,7 +30,14 @@ from livekit.agents.llm import (
 from ...scribe import scribe
 from ..components import FileDataAttachment
 from ..utils import pcm16_to_wav_bytes
-from .gemini.gemini_realtime_session import handle_google_input_transcription_completed
+# Import Gemini handler conditionally to avoid dependency issues
+try:
+    from .gemini.gemini_realtime_session import handle_google_input_transcription_completed
+    GEMINI_HANDLER_AVAILABLE = True
+except (ImportError, NameError):
+    # Gemini dependencies not available
+    handle_google_input_transcription_completed = None
+    GEMINI_HANDLER_AVAILABLE = False
 from .openai.realtime.handler import (
     handle_openai_client_event_queued,
     handle_openai_input_transcription_completed,
@@ -73,7 +80,8 @@ def intercept_realtime_session_emit(self: RealtimeSession, event, data):
         if session_info.provider == "openai-realtime":
             handle_openai_input_transcription_completed(session_info, data)
         elif session_info.provider == "google-realtime":
-            handle_google_input_transcription_completed(session_info, data)
+            if GEMINI_HANDLER_AVAILABLE and handle_google_input_transcription_completed:
+                handle_google_input_transcription_completed(session_info, data)
     elif event == "error":
         scribe().debug(f"[Internal][{self.__class__.__name__}] error;")
         if data is not None and isinstance(data, RealtimeModelError):

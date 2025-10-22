@@ -60,6 +60,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.11.4
+- fix: Fixes race condition in LiveKit realtime tracing
+- fix: Fixes import errors for Gemini and Google realtime session imports
+
 ### 3.11.3
 - fix: Fixed Nested Spans issue for Google ADK
 
