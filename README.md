@@ -60,33 +60,49 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.12.0
+
+- feat: Added support for OpenAI Responses API format in addition to Chat Completion API
+- feat: Added TTL-based caching (60s) for prompt version number single-condition fetches
+- feat: Added new `prompt_version_number()` method in QueryBuilder for convenient version-specific queries
+- improvement: Enhanced `generation_parser` to detect and handle OpenAI Responses API structure
+
 ### 3.11.4
+
 - fix: Fixes race condition in LiveKit realtime tracing
 - fix: Fixes import errors for Gemini and Google realtime session imports
 
 ### 3.11.3
+
 - fix: Fixed Nested Spans issue for Google ADK
 
 ### 3.11.2
+
 - fix: Fixed Google ADK integration to support spans for agent hand offs and tool calls.
 
 ### 3.11.1
+
 - feat: Added `ContainerManager` to Langchain to manage containers
 - fix: Fixes `trace.end` in Langchain integration `MaximLangchainTracer`
 
 ### 3.11.0
+
 - feat: Added observability for google adk
 
 ### 3.10.10
+
 - feat: Added case for `commit_user_turn` for LiveKit logs
 
 ### 3.10.9
+
 - fix: Fixed session audio silences for LiveKit Realtime session implementation
 
 ### 3.10.8
+
 - feat: Added Pydantic AI Single Line Integration
 
 ### 3.10.7
+
 - fix: Fixes local data test runs
 
 ### 3.10.6

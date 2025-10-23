@@ -309,7 +309,7 @@ class MaximAPI:
             method, endpoint, body, headers, self.max_retries
         )
 
-    def get_prompt(self, id: str) -> VersionAndRulesWithPromptId:
+    def get_prompt(self, id: str, prompt_version_number: Optional[int] = None) -> VersionAndRulesWithPromptId:
         """
         Get a prompt by ID.
 
@@ -323,9 +323,10 @@ class MaximAPI:
             Exception: If the request fails
         """
         try:
-            res = self.__make_network_call(
-                method="GET", endpoint=f"/api/sdk/v4/prompts?promptId={id}"
-            )
+            endpoint = f"/api/sdk/v4/prompts?promptId={id}"
+            if prompt_version_number is not None:
+                endpoint += f"&promptVersionNumber={prompt_version_number}"
+            res = self.__make_network_call(method="GET", endpoint=endpoint)
             data = json.loads(res.decode())["data"]
             return VersionAndRulesWithPromptId.from_dict(data)
         except httpx.HTTPStatusError as e:

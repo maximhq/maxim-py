@@ -104,6 +104,21 @@ class QueryBuilder:
         self.query += f"{'!!' if enforce else ''}{key}={value}"
         return self
 
+    def prompt_version_number(self, number: int) -> 'QueryBuilder':
+        """
+        Adds a rule to fetch a specific prompt version by its numeric version.
+
+        Args:
+            number (int): The version number of the prompt to fetch.
+
+        Returns:
+            QueryBuilder: The current QueryBuilder instance for method chaining.
+        """
+        if len(self.query) > 0:
+            self.query += ","
+        self.query += f"promptVersionNumber={number}"
+        return self
+
     def build(self) -> QueryRule:
         """
         Builds the final query rule.

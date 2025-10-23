@@ -49,6 +49,7 @@ from .runnable import RunnablePrompt, RunnablePromptChain
 from .scribe import scribe
 from .test_runs import TestRunBuilder
 from .version import current_version
+from .expiring_key_value_store import ExpiringKeyValueStore
 
 
 class ConfigDict(TypedDict, total=False):
@@ -174,6 +175,8 @@ class Maxim:
         self.__loggers: Dict[str, Logger] = {}
         self.prompt_management = final_config.get("prompt_management", False)
         self.__cache = final_config.get("cache", MaximInMemoryCache())
+        # Local TTL cache for promptVersionNumber single-condition fetches
+        self.__prompt_version_by_number_cache: ExpiringKeyValueStore[Prompt] = ExpiringKeyValueStore()
         if self.prompt_management:
             self.__sync_thread = threading.Thread(target=self.__sync_timer)
             self.__sync_thread.daemon = True
@@ -748,6 +751,34 @@ class Maxim:
             raise Exception(
                 "prompt_management is disabled. You can enable it by initializing Maxim with Config(...prompt_management=True)."
             )
+        # First, check if this is a single-condition promptVersionNumber query
+        try:
+            parsed_rules = parse_incoming_query(rule.query)
+        except Exception:
+            parsed_rules = []
+        if len(parsed_rules) == 1 and parsed_rules[0].field == "promptVersionNumber" and parsed_rules[0].operator == "=":
+            version_number = None
+            try:
+                version_number = int(parsed_rules[0].value)
+            except Exception:
+                version_number = None
+            if version_number is not None:
+                cache_key = f"pvnum:{id}:{version_number}"
+                cached_prompt = self.__prompt_version_by_number_cache.get(cache_key)
+                if cached_prompt is not None:
+                    return RunnablePrompt(cached_prompt, self.maxim_api)
+                # Fetch prompt only for the specific version
+                version_and_rules_with_prompt_id = self.maxim_api.get_prompt(id, version_number)
+                if len(version_and_rules_with_prompt_id.versions) == 0:
+                    return None
+                specific = next((v for v in version_and_rules_with_prompt_id.versions if v.version == version_number), None)
+                if specific is None:
+                    return None
+                formatted = self.__format_prompt(specific)
+                # Cache for 60 seconds
+                self.__prompt_version_by_number_cache.set(cache_key, formatted, 60)
+                return RunnablePrompt(formatted, self.maxim_api)
+
         key = self.__get_cache_key("PROMPT", id)
         version_and_rules_with_prompt_id = self.__get_prompt_from_cache(key)
         if version_and_rules_with_prompt_id is None:

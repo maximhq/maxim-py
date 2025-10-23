@@ -699,6 +699,9 @@ class Generation(BaseContainer):
                     and result_dict["object"] == "text.completion"
                 ):
                     raise ValueError("Text completion is not yet supported.")
+                elif "object" in result_dict and result_dict["object"] == "response":
+                    # OpenAI Responses API format - return as-is for logging
+                    return result_dict
             return result
 
     def result(self, result: Any):
