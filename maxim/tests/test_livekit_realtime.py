@@ -11,6 +11,7 @@ from livekit.plugins import openai
 from tavily import TavilyClient
 from maxim import Maxim
 from maxim.logger.livekit import instrument_livekit
+from maxim.logger.livekit.wrapped_agent_session import MaximWrappedAgentSession
 
 dotenv.load_dotenv(override=True)
 logging.basicConfig(level=logging.DEBUG)
@@ -22,7 +23,6 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 def on_event(event: str, data: dict):
     if event == "maxim.session.started":
         session_id = data["session_id"]
-        logger.session({"id": session_id, "name": "custom session name"})
     elif event == "maxim.trace.started":
         trace_id = data["trace_id"]
         trace = data["trace"]
@@ -80,8 +80,9 @@ async def entrypoint(ctx: agents.JobContext):
             req
         )  # :contentReference[oaicite:0]{index=0}
         print(f"Room created: {room}")
-        session = AgentSession(
+        session = MaximWrappedAgentSession(
             llm=openai.realtime.RealtimeModel(voice="coral"),
+            maxim_params={"session_name": "realtime-check", "tags": {"user_id": "123", "department": "sales"}},
         )
         await session.start(room=room, agent=Assistant())
         await ctx.connect()
