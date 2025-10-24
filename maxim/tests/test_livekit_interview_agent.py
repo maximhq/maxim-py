@@ -6,10 +6,12 @@ from livekit import agents
 from livekit import api as livekit_api
 from livekit.agents import Agent, AgentSession, function_tool
 from livekit.protocol.room import CreateRoomRequest
-from livekit.plugins import google
+from livekit.plugins import openai
 from maxim import Maxim
 from maxim.logger.livekit import instrument_livekit
 from tavily import TavilyClient
+
+from maxim.logger.livekit.wrapped_agent_session import MaximWrappedAgentSession
 
 # Load environment variables
 dotenv.load_dotenv(override=True)
@@ -126,8 +128,8 @@ Opportunities to work on diverse and high-impact projects
         )
         room = await lkapi.room.create_room(req)
         print(f"Room created: {room}")
-        session = AgentSession(
-            llm=google.beta.realtime.RealtimeModel(model="gemini-2.0-flash-exp", voice="Puck"),
+        session = MaximWrappedAgentSession(
+            llm=openai.realtime.RealtimeModel(voice="alloy"),
         )
         await session.start(room=room, agent=InterviewAgent(jd))
         await ctx.connect()

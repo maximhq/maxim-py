@@ -2,7 +2,6 @@ import functools
 import inspect
 import traceback
 import time
-from typing import Optional
 import uuid
 import weakref
 from datetime import datetime, timezone
@@ -51,6 +50,20 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
         time.sleep(0.01)
     else:
         scribe().debug(f"[Internal][{self.__class__.__name__}] start not signaled within timeout; continuing")
+
+    # Check if this is a MaximWrappedAgentSession and extract custom parameters
+    custom_session_name = "livekit-session"  # default name
+    custom_tags = {}
+
+    if hasattr(self, '_maxim_params') and hasattr(self, 'get_all_maxim_params'):
+        # Use the typed methods for better type safety
+        maxim_params = self.get_all_maxim_params()
+        if maxim_params is not None:
+            custom_session_name = maxim_params.get("session_name") or "livekit-session"
+            custom_tags = maxim_params.get("tags", {})
+            scribe().debug(f"[Internal] Found custom session name: {custom_session_name}")
+            scribe().debug(f"[Internal] Found custom tags: {custom_tags}")
+
     # getting the room_id
     if isinstance(room, str):
         room_id = room
@@ -65,9 +78,11 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     scribe().debug(f"[Internal] Session key:{id(self)}")
     scribe().debug(f"[Internal] Room: {room_id}")
     scribe().debug(f"[Internal] Agent: {agent.instructions}")
+    scribe().debug(f"[Internal] Custom session name: {custom_session_name}")
+    
     # creating trace as well
     session_id = str(uuid.uuid4())
-    session = maxim_logger.session({"id": session_id, "name": "livekit-session"})
+    session = maxim_logger.session({"id": session_id, "name": custom_session_name})
     # adding tags to the session
     if room_id is not None:
         session.add_tag("room_id", str(room_id))
@@ -77,6 +92,10 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
         session.add_tag("session_id", str(session_id))
     if agent is not None:
         session.add_tag("agent_id", str(id(agent)))
+    
+    # Add custom tags from MaximWrappedAgentSession
+    for key, value in custom_tags.items():
+        session.add_tag(key, str(value))
     # If callback is set, emit the session started event
     callback = get_livekit_callback()
     if callback is not None:
@@ -97,6 +116,10 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
     tags["session_id"] = str(id(self))
     if agent is not None:
         tags["agent_id"] = str(id(agent))
+    
+    # Add custom tags to trace tags
+    for key, value in custom_tags.items():
+        tags[key] = str(value)
 
     trace = session.trace(
         {

@@ -18,6 +18,7 @@ When and why this module is used
 
 import functools
 import inspect
+from io import BytesIO
 import time
 import traceback
 from uuid import uuid4
@@ -130,19 +131,56 @@ def handle_off(self):
     session_info = get_session_store().get_session_by_rt_session_id(id(self))
     if session_info is None:
         return
+    
     session_id = session_info.mx_session_id
     index = session_info.conversation_buffer_index
-    if session_info.conversation_buffer.tell() == 0:
-        return
-    get_maxim_logger().session_add_attachment(
-        session_id,
-        FileDataAttachment(
-            data=pcm16_to_wav_bytes(session_info.conversation_buffer.getvalue()),
-            tags={"attach-to": "input"},
-            name=f"Conversation part {index}",
-            timestamp=int(time.time()),
-        ),
-    )
+    
+    # Handle the remaining conversation buffer content
+    buffer_data = session_info.conversation_buffer.getvalue()
+    buffer_size = len(buffer_data)
+    
+    # If buffer is larger than 10MB, split it into chunks
+    if buffer_size > 10 * 1024 * 1024:
+        chunk_size = 10 * 1024 * 1024
+        offset = 0
+        current_index = index
+        
+        while offset < buffer_size:
+            chunk_end = min(offset + chunk_size, buffer_size)
+            chunk_data = buffer_data[offset:chunk_end]
+            
+            get_maxim_logger().session_add_attachment(
+                session_id,
+                FileDataAttachment(
+                    data=pcm16_to_wav_bytes(chunk_data),
+                    tags={"attach-to": "input"},
+                    name=f"Conversation part {current_index}",
+                    timestamp=int(time.time()),
+                ),
+            )
+            
+            offset = chunk_end
+            current_index += 1
+        
+        session_info.conversation_buffer_index = current_index
+    else:
+        # Buffer is small enough, add as single attachment
+        get_maxim_logger().session_add_attachment(
+            session_id,
+            FileDataAttachment(
+                data=pcm16_to_wav_bytes(buffer_data),
+                tags={"attach-to": "input"},
+                name=f"Conversation",
+                timestamp=int(time.time()),
+            ),
+        )
+        
+        session_info.conversation_buffer_index = index + 1
+    
+    # Mark attachment as added to prevent duplicates
+    session_info.conversation_buffer = BytesIO()
+    get_session_store().set_session(session_info)
+
     get_maxim_logger().session_end(session_id=session_id)
 
 

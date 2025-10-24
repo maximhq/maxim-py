@@ -4,11 +4,11 @@ import os
 from dotenv import load_dotenv
 
 from livekit import rtc
-from livekit.agents import Agent, AgentSession, JobContext, JobRequest, RoomIO, WorkerOptions, cli
+from livekit.agents import Agent, JobContext, JobRequest, RoomIO, WorkerOptions, cli
 from livekit.agents.llm import ChatContext, ChatMessage 
 from livekit.plugins import openai
 from maxim import Maxim
-from maxim.logger.livekit import instrument_livekit
+from maxim.logger.livekit import instrument_livekit, MaximWrappedAgentSession
 
 logger = logging.getLogger("push-to-talk")
 logger.setLevel(logging.INFO)
@@ -40,7 +40,7 @@ class MyAgent(Agent):
 
 
 async def entrypoint(ctx: JobContext):
-    session = AgentSession(turn_detection="manual")
+    session = MaximWrappedAgentSession(turn_detection="manual", maxim_params={"session_name": "test-wrapped-session", "tags": {"user_id": "123", "department": "sales"}})
     room_io = RoomIO(session, room=ctx.room)
     await room_io.start()
 

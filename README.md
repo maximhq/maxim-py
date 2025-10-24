@@ -60,6 +60,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.12.1
+- feat: Added the ability to add custom session name and tags to LiveKit session
+- fix: Fixes conversation attachment being added multiple times
+
 ### 3.12.0
 
 - feat: Added support for OpenAI Responses API format in addition to Chat Completion API
