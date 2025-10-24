@@ -65,6 +65,110 @@ class OpenAIUtils:
         return model_params
 
     @staticmethod
+    def get_responses_model_params(**kwargs: Any) -> Dict[str, Any]:
+        model_params: Dict[str, Any] = {}
+        skip_keys = [
+            "input",
+            "extra_headers",
+        ]
+        # Common responses parameters to surface; pass through others except skip_keys
+        param_keys = [
+            "instructions",
+            "tools",
+            "tool_choice",
+            "response_format",
+            "temperature",
+            "top_p",
+            "max_output_tokens",
+            "modalities",
+            "audio",
+            "text_format",
+            "metadata",
+        ]
+        for key in param_keys:
+            if key in kwargs and kwargs[key] is not None:
+                model_params[key] = kwargs[key]
+
+        for key, value in kwargs.items():
+            if key not in param_keys and key not in skip_keys and value is not None:
+                model_params[key] = value
+
+        return model_params
+
+    @staticmethod
+    def parse_responses_input_to_messages(
+        input_value: Any,
+    ) -> List[GenerationRequestMessage]:
+        if input_value is None:
+            return []
+        if isinstance(input_value, str):
+            return [GenerationRequestMessage(role="user", content=input_value)]
+        # Fallback: stringify complex types for a concise summary
+        return [GenerationRequestMessage(role="user", content=str(input_value))]
+
+    @staticmethod
+    def extract_responses_output_text(response: Any) -> Optional[str]:
+        try:
+            output_text = getattr(response, "output_text", None)
+            if isinstance(output_text, str):
+                return output_text
+        except Exception:
+            pass
+        # Fallback for dict-like structure
+        try:
+            if isinstance(response, dict):
+                output = response.get("output", [])
+                if isinstance(output, list):
+                    texts: List[str] = []
+                    for item in output:
+                        if isinstance(item, dict) and item.get("type") in (
+                            "output_text",
+                            "text",
+                        ):
+                            text_val = item.get("text") or item.get("content")
+                            if isinstance(text_val, str):
+                                texts.append(text_val)
+                    if texts:
+                        return "".join(texts)
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def extract_responses_usage(response: Any) -> Optional[Dict[str, Any]]:
+        try:
+            usage = getattr(response, "usage", None)
+            if usage is None:
+                return None
+            # Pydantic or dataclass-like
+            if hasattr(usage, "model_dump"):
+                return usage.model_dump()
+            if hasattr(usage, "dict"):
+                return usage.dict()
+            if isinstance(usage, dict):
+                return usage
+        except Exception:
+            pass
+        # Fallback for dict-like response
+        if isinstance(response, dict):
+            maybe = response.get("usage")
+            if isinstance(maybe, dict):
+                return maybe
+        return None
+
+    @staticmethod
+    def extract_responses_text_delta(event: Any) -> Optional[str]:
+        try:
+            event_type = getattr(event, "type", None)
+            if isinstance(event_type, str) and event_type.endswith(".delta"):
+                delta = getattr(event, "delta", None)
+                if isinstance(delta, str):
+                    return delta
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
     def parse_completion(
         completion: Union[ChatCompletion, Stream[ChatCompletionChunk]],
     ) -> Dict[str, Any]:
@@ -147,7 +251,7 @@ class OpenAIUtils:
 
         # Get the last chunk for metadata
         last_chunk = chunks[-1]
-        
+
         # Combine all content from chunks
         combined_content = "".join(
             choice.delta.content or ""
@@ -159,25 +263,33 @@ class OpenAIUtils:
         # Combine all tool calls from chunks
         tool_calls = []
         current_tool_call = None
-        
+
         for chunk in chunks:
             for choice in chunk.choices:
                 if choice.delta and choice.delta.tool_calls:
                     for tool_call in choice.delta.tool_calls:
-                        if current_tool_call is None or (tool_call.index != current_tool_call.index):
+                        if current_tool_call is None or (
+                            tool_call.index != current_tool_call.index
+                        ):
                             if current_tool_call:
                                 tool_calls.append(current_tool_call)
                             current_tool_call = tool_call
                         else:
                             # Append to existing tool call
                             if tool_call.function.name:
-                                current_tool_call.function.name = tool_call.function.name
+                                current_tool_call.function.name = (
+                                    tool_call.function.name
+                                )
                             if tool_call.function.arguments:
                                 if current_tool_call.function.arguments:
-                                    current_tool_call.function.arguments += tool_call.function.arguments
+                                    current_tool_call.function.arguments += (
+                                        tool_call.function.arguments
+                                    )
                                 else:
-                                    current_tool_call.function.arguments = tool_call.function.arguments
-        
+                                    current_tool_call.function.arguments = (
+                                        tool_call.function.arguments
+                                    )
+
         if current_tool_call:
             tool_calls.append(current_tool_call)
 
@@ -187,16 +299,22 @@ class OpenAIUtils:
             "object": "chat.completion",
             "created": int(time.time()),
             "model": getattr(last_chunk, "model", None),
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": combined_content if not tool_calls else None,
-                    "tool_calls": tool_calls if tool_calls else None
-                },
-                "finish_reason": last_chunk.choices[0].finish_reason if last_chunk.choices else None
-            }],
-            "usage": last_chunk.usage.model_dump() if last_chunk.usage else {}
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": combined_content if not tool_calls else None,
+                        "tool_calls": tool_calls if tool_calls else None,
+                    },
+                    "finish_reason": (
+                        last_chunk.choices[0].finish_reason
+                        if last_chunk.choices
+                        else None
+                    ),
+                }
+            ],
+            "usage": last_chunk.usage.model_dump() if last_chunk.usage else {},
         }
-        
+
         return response

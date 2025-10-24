@@ -28,7 +28,6 @@ class TestMaximPromptManagement(unittest.TestCase):
                 "api_key": apiKey,
                 "debug": True,
                 "prompt_management": True,
-                "base_url": "http://localhost:3000"
             }
         )
 
@@ -70,7 +69,7 @@ class TestMaximPromptManagement(unittest.TestCase):
             raise Exception("Prompt not found")
         try:
             resp = prompt.run(
-                "What is Cosmos about?",
+                "Can you tell me about Cosmos?",
             )
             print(resp)
         except Exception as e:
