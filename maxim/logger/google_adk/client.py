@@ -7,12 +7,7 @@ from time import time
 from typing import Union, Optional, Any
 
 try:
-    from google.adk.agents.base_agent import BaseAgent
-    from google.adk.agents.llm_agent import LlmAgent
-    from google.adk.runners import Runner, InMemoryRunner
     from google.adk.tools.base_tool import BaseTool
-    from google.adk.models.base_llm import BaseLlm
-    from google.adk.models.google_llm import Gemini
     from google.adk.models.llm_request import LlmRequest
     from google.adk.models.llm_response import LlmResponse
     from google.adk.plugins.base_plugin import BasePlugin
@@ -107,7 +102,7 @@ class MaximInstrumentationPlugin(BasePlugin):
         if GOOGLE_ADK_AVAILABLE:
             super().__init__(name="maxim_instrumentation")
         else:
-            super().__init__()
+            super().__init__(name="non_maxim_instrumentation")
         self.maxim_logger = maxim_logger
         self.debug = debug
         self._parent_trace = parent_trace  # Parent trace for nested agents
@@ -121,7 +116,7 @@ class MaximInstrumentationPlugin(BasePlugin):
         self._pending_tool_calls = {}  # Store tool calls by ID for matching with agent invocations
         self._last_llm_response = None  # Store last LLM response for trace output
         self._trace_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}  # Aggregate usage
-        
+
         # Store user callbacks
         self._before_generation_callback = before_generation_callback
         self._after_generation_callback = after_generation_callback
@@ -130,113 +125,14 @@ class MaximInstrumentationPlugin(BasePlugin):
         self._before_span_callback = before_span_callback
         self._after_span_callback = after_span_callback
 
-    def _extract_user_input(self, invocation_context) -> str:
-        """Extract user input from Google ADK invocation context."""
-        try:
-            # Debug: Print available attributes
-            print(f"[MaximSDK] DEBUG: invocation_context attributes: {dir(invocation_context)}")
-            scribe().info(f"[MaximSDK] DEBUG: invocation_context attributes: {dir(invocation_context)}")
-            
-            # Method 1: Try new_message field (most direct for new user input)
-            if hasattr(invocation_context, 'new_message') and invocation_context.new_message:
-                print("[MaximSDK] DEBUG: Found new_message field")
-                scribe().info("[MaximSDK] DEBUG: Found new_message field")
-                if hasattr(invocation_context.new_message, 'parts'):
-                    text_parts = []
-                    for part in invocation_context.new_message.parts:
-                        if hasattr(part, 'text') and part.text:
-                            text_parts.append(part.text)
-                    if text_parts:
-                        user_input = " ".join(text_parts)
-                        print(f"[MaximSDK] DEBUG: Extracted from new_message.parts: {user_input[:100]}")
-                        scribe().info(f"[MaximSDK] DEBUG: Extracted from new_message.parts: {user_input[:100]}")
-                        return user_input
-                elif hasattr(invocation_context.new_message, 'text'):
-                    user_input = invocation_context.new_message.text
-                    print(f"[MaximSDK] DEBUG: Extracted from new_message.text: {user_input[:100]}")
-                    scribe().info(f"[MaximSDK] DEBUG: Extracted from new_message.text: {user_input[:100]}")
-                    return user_input
-            
-            # Method 2: Try to get the user message from history (most recent user message)
-            if hasattr(invocation_context, 'history') and invocation_context.history:
-                print(f"[MaximSDK] DEBUG: Checking history ({len(invocation_context.history)} messages)")
-                scribe().info(f"[MaximSDK] DEBUG: Checking history ({len(invocation_context.history)} messages)")
-                for msg in reversed(invocation_context.history):
-                    if hasattr(msg, 'role') and msg.role == 'user':
-                        if hasattr(msg, 'parts') and msg.parts:
-                            text_parts = []
-                            for part in msg.parts:
-                                if hasattr(part, 'text') and part.text:
-                                    text_parts.append(part.text)
-                            if text_parts:
-                                user_input = " ".join(text_parts)
-                                print(f"[MaximSDK] DEBUG: Extracted from history: {user_input[:100]}")
-                                scribe().info(f"[MaximSDK] DEBUG: Extracted from history: {user_input[:100]}")
-                                return user_input
-                        elif hasattr(msg, 'text') and msg.text:
-                            user_input = msg.text
-                            print(f"[MaximSDK] DEBUG: Extracted from history.text: {user_input[:100]}")
-                            scribe().info(f"[MaximSDK] DEBUG: Extracted from history.text: {user_input[:100]}")
-                            return user_input
-            
-            # Method 3: Fallback to user_message field
-            if hasattr(invocation_context, 'user_message') and invocation_context.user_message:
-                print("[MaximSDK] DEBUG: Checking user_message field")
-                scribe().info("[MaximSDK] DEBUG: Checking user_message field")
-                if hasattr(invocation_context.user_message, 'parts'):
-                    text_parts = []
-                    for part in invocation_context.user_message.parts:
-                        if hasattr(part, 'text') and part.text:
-                            text_parts.append(part.text)
-                    if text_parts:
-                        user_input = " ".join(text_parts)
-                        print(f"[MaximSDK] DEBUG: Extracted from user_message.parts: {user_input[:100]}")
-                        scribe().info(f"[MaximSDK] DEBUG: Extracted from user_message.parts: {user_input[:100]}")
-                        return user_input
-                elif hasattr(invocation_context.user_message, 'text'):
-                    user_input = invocation_context.user_message.text
-                    print(f"[MaximSDK] DEBUG: Extracted from user_message.text: {user_input[:100]}")
-                    scribe().info(f"[MaximSDK] DEBUG: Extracted from user_message.text: {user_input[:100]}")
-                    return user_input
-            
-            # Method 4: Try to get input from the agent's input directly
-            if hasattr(invocation_context, 'agent') and hasattr(invocation_context.agent, 'input'):
-                agent_input = invocation_context.agent.input
-                if agent_input:
-                    print(f"[MaximSDK] DEBUG: Found agent.input: {str(agent_input)[:100]}")
-                    scribe().info(f"[MaximSDK] DEBUG: Found agent.input: {str(agent_input)[:100]}")
-                    return str(agent_input)
-            
-            # Method 5: Try to get from the agent's state or context
-            if hasattr(invocation_context, 'state') and invocation_context.state:
-                state_dict = invocation_context.state.to_dict() if hasattr(invocation_context.state, 'to_dict') else invocation_context.state
-                if isinstance(state_dict, dict):
-                    for key, value in state_dict.items():
-                        if key.lower() in ['input', 'user_input', 'message', 'query', 'prompt'] and value:
-                            print(f"[MaximSDK] DEBUG: Found input in state.{key}: {str(value)[:100]}")
-                            scribe().info(f"[MaximSDK] DEBUG: Found input in state.{key}: {str(value)[:100]}")
-                            return str(value)
-            
-            # Fallback if no input found
-            print("[MaximSDK] WARNING: Could not extract user input from any source, using default")
-            scribe().warning("[MaximSDK] Could not extract user input from any source, using default")
-            return "Agent run started"
-            
-        except Exception as e:
-            print(f"[MaximSDK] ERROR: Failed to extract user input: {e}")
-            import traceback
-            print(f"[MaximSDK] Traceback: {traceback.format_exc()}")
-            scribe().warning(f"[MaximSDK] Failed to extract user input: {e}")
-            return "Agent run started"
-
     def _extract_user_input_from_messages(self, messages) -> str:
-        """Extract user input from the first user message in the conversation."""
+        """Extract user input from the last user message in the conversation."""
         try:
             if not messages:
                 return "Agent run started"
             
-            # Find the first user message
-            for message in messages:
+            # Find the last user message by iterating in reverse
+            for message in reversed(messages):
                 if isinstance(message, dict):
                     role = message.get('role', '')
                     content = message.get('content', '')
@@ -300,27 +196,27 @@ class MaximInstrumentationPlugin(BasePlugin):
                 scribe().info(f"[MaximSDK] Created Maxim session: {_current_maxim_session_id}")
             
             # Create trace within the session (new trace for each agent run)
-            if _session_trace is None:
-                # Call before_trace_callback if provided
-                if self._before_trace_callback:
-                    try:
-                        await self._before_trace_callback(invocation_context=invocation_context, user_input=user_input)
-                    except Exception as e:
-                        scribe().error(f"[MaximSDK] Error in before_trace_callback: {e}")
-                
-                trace_id = str(uuid.uuid4())
-                _session_trace = _current_maxim_session.trace({
-                    "id": trace_id,
-                    "name": f"Trace-{trace_id}",
-                    "tags": {
-                        "agent_name": invocation_context.agent.name,
-                        "invocation_id": invocation_context.invocation_id,
-                    },
-                    "input": user_input,
-                })
-                _global_maxim_trace.set(_session_trace)
-                print(f"🔗 [MaximSDK] Created trace in session: {trace_id}")
-                scribe().info(f"[MaximSDK] Created trace in session: {trace_id}")
+            # Always create a new trace for each root agent run to ensure unique inputs
+            # Call before_trace_callback if provided
+            if self._before_trace_callback:
+                try:
+                    await self._before_trace_callback(invocation_context=invocation_context, user_input=user_input)
+                except Exception as e:
+                    scribe().error(f"[MaximSDK] Error in before_trace_callback: {e}")
+            
+            trace_id = str(uuid.uuid4())
+            _session_trace = _current_maxim_session.trace({
+                "id": trace_id,
+                "name": f"Trace-{trace_id}",
+                "tags": {
+                    "agent_name": invocation_context.agent.name,
+                    "invocation_id": invocation_context.invocation_id,
+                },
+                "input": user_input,
+            })
+            _global_maxim_trace.set(_session_trace)
+            print(f"🔗 [MaximSDK] Created new trace in session: {trace_id}")
+            scribe().info(f"[MaximSDK] Created new trace in session: {trace_id}")
             
             self._trace = _session_trace
         
@@ -434,7 +330,7 @@ class MaximInstrumentationPlugin(BasePlugin):
             print("✅ [MaximSDK] Trace completed and flushed to Maxim")
             scribe().info("[MaximSDK] Trace completed and flushed to Maxim")
             
-            # Reset for next interaction
+            # Reset for next interaction - always reset _session_trace so each agent run gets a new trace
             _session_trace = None
             _global_maxim_trace.set(None)
             self._trace_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
