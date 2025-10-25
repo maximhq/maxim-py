@@ -2,6 +2,7 @@ import importlib.util
 
 from .async_client import MaximOpenAIAsyncClient
 from .client import MaximOpenAIClient
+from .responses import MaximOpenAIResponses
 from .utils import OpenAIUtils
 
 if importlib.util.find_spec("openai") is None:
@@ -9,4 +10,9 @@ if importlib.util.find_spec("openai") is None:
         "The openai package is required. Please install it using pip: `pip install openai` or `uv add openai`"
     )
 
-__all__ = ["OpenAIUtils", "MaximOpenAIAsyncClient", "MaximOpenAIClient"]
+__all__ = [
+    "OpenAIUtils",
+    "MaximOpenAIAsyncClient",
+    "MaximOpenAIClient",
+    "MaximOpenAIResponses",
+]

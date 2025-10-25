@@ -13,6 +13,9 @@ All dependencies and code stay within the test bounds.
 import json
 import logging
 import os
+from openai.types.responses.function_tool_param import FunctionToolParam
+from openai.types.responses.tool_param import ToolParam
+from typing_extensions import Iterable
 import unittest
 from uuid import uuid4
 
@@ -28,7 +31,7 @@ logging.basicConfig(level=logging.DEBUG)
 openai_api_key = os.getenv("OPENAI_API_KEY")
 maxim_api_key = os.getenv("MAXIM_API_KEY")
 maxim_base_url = os.getenv("MAXIM_BASE_URL")
-maxim_repo_id = os.getenv("MAXIM_LOG_REPO_ID")
+maxim_repo_id = str(os.getenv("MAXIM_LOG_REPO_ID"))
 
 
 class TestOpenAIResponsesLogger(unittest.TestCase):
@@ -127,22 +130,27 @@ class TestOpenAIResponsesLogger(unittest.TestCase):
 
         try:
             # Define the weather tool
-            tools = [
-                {
-                    "type": "function",
-                    "name": "get_weather",
-                    "description": "Get the current weather for a location",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "location": {
-                                "type": "string",
-                                "description": "The city and state, e.g., San Francisco, CA",
-                            }
-                        },
-                        "required": ["location"],
+            tools: Iterable[ToolParam] = [
+                FunctionToolParam({
+                  "name": "get_weather",
+                  "description": "Get the current weather for a location",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string",
+                        "description": "The city and state, e.g., San Francisco, CA",
+                      }
                     },
-                }
+                    "additionalProperties": {
+                      "type": "string",
+                      "description": "Any other arbitrary key-value pairs as strings."
+                    },
+                    "required": ["location"],
+                  },
+                  "strict": True,
+                  "type": "function",
+                })
             ]
 
             # Initial prompt requesting the tool
