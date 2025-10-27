@@ -18,6 +18,67 @@ pip install maxim-py
 
 You can find detailed documentation and available integrations [here](https://www.getmaxim.ai/docs/sdk/python/overview).
 
+### OpenAI Responses (one-line integration)
+
+Plug-and-play observability for the OpenAI Responses API. Works for both sync and streaming calls and captures model, parameters, messages, output text, tool calls, and errors without changing your OpenAI usage.
+
+Sync example:
+
+```python
+from openai import OpenAI
+from maxim import Maxim
+from maxim.logger.openai import MaximOpenAIClient
+
+maxim = Maxim({"api_key": os.getenv("MAXIM_API_KEY")})
+logger = maxim.logger({"id": str(os.getenv("MAXIM_LOG_REPO_ID"))})
+oai = OpenAI()  # reads OPENAI_API_KEY from environment
+client = MaximOpenAIClient(oai, logger=logger)
+
+res = client.responses.create(
+    model="gpt-4.1-mini",
+    input="Write a one-sentence summary of Maxim."
+)
+
+print(res.output_text)
+```
+
+Streaming example:
+
+```python
+from openai import OpenAI
+from maxim import Maxim
+from maxim.logger.openai import MaximOpenAIClient
+
+maxim = Maxim({"api_key": os.getenv("MAXIM_API_KEY")})
+logger = maxim.logger({"id": str(os.getenv("MAXIM_LOG_REPO_ID"))})
+oai = OpenAI()
+client = MaximOpenAIClient(oai, logger=logger)
+
+with client.responses.stream(
+    model="gpt-4.1-mini",
+    input="Stream a short poem about observability."
+) as stream:
+    for event in stream:
+        print(event, end="")
+    final = stream.get_final_response()
+```
+
+Optional headers to control trace metadata (pass via `extra_headers` on `create`/`stream`):
+
+```python
+extra_headers = {
+    "x-maxim-trace-id": "my-trace-id",
+    "x-maxim-generation-name": "homepage-summary",
+    "x-maxim-session-id": "abc123",
+}
+
+res = client.responses.create(
+    model="gpt-4.1-mini",
+    input="Hello",
+    extra_headers=extra_headers,
+)
+```
+
 ### Cookbook
 
 See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing an Agno agent.
@@ -59,6 +120,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 3. Run `uv sync`.
 
 ## Version changelog
+
+### 3.13.0
+
+- feat: Introduces OpenAI Responses one-line integration (sync and streaming) via `MaximOpenAIClient.responses`
 
 ### 3.12.1
 

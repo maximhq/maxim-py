@@ -36,27 +36,27 @@ class CustomEncoder(json.JSONEncoder):
         # Handle datetime objects
         if isinstance(o, datetime):
             return o.isoformat()
-        
+
         # Handle any object with model_dump (newer Pydantic)
-        if hasattr(o, 'model_dump') and callable(o.model_dump):
+        if hasattr(o, "model_dump") and callable(o.model_dump):
             return o.model_dump()
-            
+
         # Handle any object with dict (older Pydantic)
-        if hasattr(o, 'dict') and callable(o.dict):
+        if hasattr(o, "dict") and callable(o.dict):
             return o.dict()
-            
+
         # Handle any object with to_dict
-        if hasattr(o, 'to_dict') and callable(o.to_dict):
+        if hasattr(o, "to_dict") and callable(o.to_dict):
             return o.to_dict()
-            
+
         # Handle any object with __dict__
-        if hasattr(o, '__dict__'):
+        if hasattr(o, "__dict__"):
             return vars(o)
-            
+
         # Handle any object with _asdict (namedtuples)
-        if hasattr(o, '_asdict') and callable(o._asdict):
+        if hasattr(o, "_asdict") and callable(o._asdict):
             return o._asdict()
-            
+
         return super().default(o)
 
 
@@ -201,6 +201,7 @@ class GenerationError:
     """
     @deprecated: This class is deprecated and will be removed in a future version. Use GenerationErrorTypedDict instead.
     """
+
     message: str
     code: Optional[str] = None
     type: Optional[str] = None
