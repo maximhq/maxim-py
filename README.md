@@ -63,6 +63,64 @@ with client.responses.stream(
     final = stream.get_final_response()
 ```
 
+Async examples:
+
+Non-streaming (async):
+
+```python
+import os
+import asyncio
+from openai import AsyncOpenAI
+from maxim import Maxim
+from maxim.logger.openai import MaximOpenAIAsyncClient
+
+
+async def main():
+    maxim = Maxim({"api_key": os.getenv("MAXIM_API_KEY")})
+    logger = maxim.logger({"id": str(os.getenv("MAXIM_LOG_REPO_ID"))})
+    oai = AsyncOpenAI()  # reads OPENAI_API_KEY from environment
+    client = MaximOpenAIAsyncClient(oai, logger=logger)
+
+    res = await client.responses.create(
+        model="gpt-4.1-mini",
+        input="Write a one-sentence summary of Maxim.",
+    )
+    print(res.output_text)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Streaming (async):
+
+```python
+import os
+import asyncio
+from openai import AsyncOpenAI
+from maxim import Maxim
+from maxim.logger.openai import MaximOpenAIAsyncClient
+
+
+async def main():
+    maxim = Maxim({"api_key": os.getenv("MAXIM_API_KEY")})
+    logger = maxim.logger({"id": str(os.getenv("MAXIM_LOG_REPO_ID"))})
+    oai = AsyncOpenAI()
+    client = MaximOpenAIAsyncClient(oai, logger=logger)
+
+    async with client.responses.stream(
+        model="gpt-4.1-mini",
+        input="Stream a short poem about observability.",
+    ) as stream:
+        async for event in stream:
+            print(event, end="")
+        final = await stream.get_final_response()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
 Optional headers to control trace metadata (pass via `extra_headers` on `create`/`stream`):
 
 ```python
@@ -120,6 +178,10 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 3. Run `uv sync`.
 
 ## Version changelog
+
+### 3.13.1
+
+- feat: Adds OpenAI Responses one-line integration for the async client via `MaximOpenAIAsyncClient.responses` (non-streaming and streaming), matching sync behavior and `extra_headers` support.
 
 ### 3.13.0
 

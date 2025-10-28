@@ -3,6 +3,7 @@ import importlib.util
 from .async_client import MaximOpenAIAsyncClient
 from .client import MaximOpenAIClient
 from .responses import MaximOpenAIResponses
+from .async_responses import MaximAsyncOpenAIResponses
 from .utils import OpenAIUtils
 
 if importlib.util.find_spec("openai") is None:
@@ -15,4 +16,5 @@ __all__ = [
     "MaximOpenAIAsyncClient",
     "MaximOpenAIClient",
     "MaximOpenAIResponses",
+    "MaximAsyncOpenAIResponses",
 ]
