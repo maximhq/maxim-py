@@ -4,6 +4,7 @@ from ..logger import (
     Logger,
 )
 from .async_chat import MaximAsyncOpenAIChat
+from .async_responses import MaximAsyncOpenAIResponses
 
 
 class MaximOpenAIAsyncClient:
@@ -29,3 +30,11 @@ class MaximOpenAIAsyncClient:
         """
 
         return MaximAsyncOpenAIChat(self._client, self._logger)
+
+    @property
+    def responses(self) -> MaximAsyncOpenAIResponses:
+        """
+        This property represents the responses object of MaximOpenAIAsyncClient.
+        """
+
+        return MaximAsyncOpenAIResponses(self._client, self._logger)
