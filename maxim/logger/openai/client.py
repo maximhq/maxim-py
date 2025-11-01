@@ -6,6 +6,7 @@ from ..logger import (
 from .async_client import MaximOpenAIAsyncClient
 from .chat import MaximOpenAIChat
 from .responses import MaximOpenAIResponses
+from .realtime import MaximOpenAIRealtime
 
 
 class MaximOpenAIClient:
@@ -25,3 +26,12 @@ class MaximOpenAIClient:
     @property
     def responses(self) -> MaximOpenAIResponses:
         return MaximOpenAIResponses(self._client, self._logger)
+
+    @property
+    def realtime(self) -> MaximOpenAIRealtime:
+        """
+        This property represents the realtime object of MaximOpenAIAsyncClient.
+        This property is only available in the async version of the client.
+        """
+
+        return MaximOpenAIRealtime(self._client, self._logger)
