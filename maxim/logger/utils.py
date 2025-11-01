@@ -9,6 +9,7 @@ import wave
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from base64 import b64decode
 
 from ..scribe import scribe
 
@@ -76,6 +77,16 @@ def pcm16_to_wav_bytes(
         )
         return pcm_bytes
 
+def string_pcm_to_wav_bytes(
+    pcm_str: str | None, num_channels: int = 1, sample_rate: int = 24000
+) -> bytes:
+    """
+    Convert a string of PCM-16 audio data to WAV format bytes.
+    """
+    if pcm_str is None:
+        return b""
+    pcm_bytes = b64decode(pcm_str, validate=True)
+    return pcm16_to_wav_bytes(pcm_bytes, num_channels, sample_rate)
 
 def trim_silence_edges(
     pcm_bytes: bytes,

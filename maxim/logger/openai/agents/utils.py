@@ -133,3 +133,29 @@ def parse_response_input(
                     # Add the processed message to the result list
                     result.append(GenerationRequestMessage(role=role, content=content))
     return result
+
+def parse_transcription_output(output:str, id:str, created_at:int)-> Optional[GenerationResult]:
+    try:
+        return {
+            "id": id,
+            "created":  created_at,
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": output,
+                },
+                "finish_reason": "stop",
+                "logprobs": None
+            }],
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            },
+            "object": "chat.completion",
+            "model": "unknown"
+        }
+    except Exception as e:
+        scribe().error("[MaximSDK] Error while parsing transcription output {str(e)}")        
+        return None
