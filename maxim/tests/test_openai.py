@@ -1,7 +1,6 @@
 import logging
 import os
 import unittest
-import asyncio
 
 import dotenv
 from openai import OpenAI
@@ -24,12 +23,10 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.logger = Maxim({ "base_url": baseUrl }).logger()
+        self.logger = Maxim({"base_url": baseUrl}).logger()
 
     async def test_async_chat_completions(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        ).aio
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger).aio
         response = await client.chat.completions.create(
             messages=[{"role": "user", "content": "Explain how ML works"}],
             model="gpt-4o",
@@ -41,9 +38,7 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         self.logger.flush()
 
     async def test_async_chat_completions_stream(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        ).aio
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger).aio
         response = await client.chat.completions.create(
             messages=[{"role": "user", "content": "Explain how Deep learning works"}],
             model="gpt-4o",
@@ -55,7 +50,11 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         chunks = []
         async for chunk in response:
             chunks.append(chunk)
-            if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
+            if (
+                chunk.choices
+                and len(chunk.choices) > 0
+                and chunk.choices[0].delta.content
+            ):
                 print(chunk.choices[0].delta.content, end="", flush=True)
 
         # Verify we got some content
@@ -65,9 +64,7 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         self.logger.flush()
 
     async def test_async_chat_completions_with_functions(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        ).aio
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger).aio
 
         tools = [
             {
@@ -80,17 +77,19 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
                         "properties": {
                             "location": {
                                 "type": "string",
-                                "description": "The city and state, e.g. San Francisco, CA"
+                                "description": "The city and state, e.g. San Francisco, CA",
                             }
                         },
-                        "required": ["location"]
-                    }
-                }
+                        "required": ["location"],
+                    },
+                },
             }
         ]
 
         response = await client.chat.completions.create(
-            messages=[{"role": "user", "content": "What's the weather like in New York?"}],
+            messages=[
+                {"role": "user", "content": "What's the weather like in New York?"}
+            ],
             model="gpt-4o",
             tools=tools,
             tool_choice="auto",
@@ -100,13 +99,17 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         self.logger.flush()
 
     async def test_async_chat_completions_with_system_message(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        ).aio
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger).aio
 
         messages = [
-            {"role": "system", "content": "You are a helpful coding assistant who always writes code in Python."},
-            {"role": "user", "content": "Write a function to calculate fibonacci numbers"}
+            {
+                "role": "system",
+                "content": "You are a helpful coding assistant who always writes code in Python.",
+            },
+            {
+                "role": "user",
+                "content": "Write a function to calculate fibonacci numbers",
+            },
         ]
 
         response = await client.chat.completions.create(
@@ -118,9 +121,7 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         self.logger.flush()
 
     async def test_async_chat_completions_error_handling(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        ).aio
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger).aio
 
         # Test invalid model
         with self.assertRaises(Exception):
@@ -141,9 +142,7 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         self.logger.flush()
 
     async def test_async_chat_completions_stream_with_functions(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        ).aio
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger).aio
 
         tools = [
             {
@@ -156,17 +155,19 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
                         "properties": {
                             "location": {
                                 "type": "string",
-                                "description": "The city and state, e.g. San Francisco, CA"
+                                "description": "The city and state, e.g. San Francisco, CA",
                             }
                         },
-                        "required": ["location"]
-                    }
-                }
+                        "required": ["location"],
+                    },
+                },
             }
         ]
 
         response = await client.chat.completions.create(
-            messages=[{"role": "user", "content": "What's the weather like in New York?"}],
+            messages=[
+                {"role": "user", "content": "What's the weather like in New York?"}
+            ],
             model="gpt-4o",
             tools=tools,
             tool_choice="auto",
@@ -178,7 +179,11 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         chunks = []
         async for chunk in response:
             chunks.append(chunk)
-            if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
+            if (
+                chunk.choices
+                and len(chunk.choices) > 0
+                and chunk.choices[0].delta.content
+            ):
                 print(chunk.choices[0].delta.content, end="", flush=True)
 
         # Verify we got some content
@@ -209,9 +214,7 @@ class TestOpenAI(unittest.TestCase):
         self.logger.flush()
 
     def test_chat_completions_using_wrapper(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        )
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger)
         response = client.chat.completions.create(
             messages=[{"role": "user", "content": "Explain how AI works"}],
             model="gpt-4o",
@@ -223,9 +226,7 @@ class TestOpenAI(unittest.TestCase):
         self.logger.flush()
 
     def test_chat_completions_stream_using_wrapper(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        )
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger)
         response = client.chat.completions.create(
             messages=[{"role": "user", "content": "Explain how Nascar works"}],
             model="gpt-4o",
@@ -239,9 +240,7 @@ class TestOpenAI(unittest.TestCase):
         self.logger.flush()
 
     def test_chat_completions_with_tool_calls(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        )
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger)
 
         # Define the tools
         tools = [
@@ -255,17 +254,19 @@ class TestOpenAI(unittest.TestCase):
                         "properties": {
                             "location": {
                                 "type": "string",
-                                "description": "The city and state, e.g. San Francisco, CA"
+                                "description": "The city and state, e.g. San Francisco, CA",
                             }
                         },
-                        "required": ["location"]
-                    }
-                }
+                        "required": ["location"],
+                    },
+                },
             }
         ]
 
         response = client.chat.completions.create(
-            messages=[{"role": "user", "content": "What's the weather like in New York?"}],
+            messages=[
+                {"role": "user", "content": "What's the weather like in New York?"}
+            ],
             model="gpt-4o",
             tools=tools,
             tool_choice="auto",
@@ -277,9 +278,7 @@ class TestOpenAI(unittest.TestCase):
         self.logger.flush()
 
     def test_chat_completions_with_multiple_functions(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        )
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger)
 
         # Define multiple tools
         tools = [
@@ -293,12 +292,12 @@ class TestOpenAI(unittest.TestCase):
                         "properties": {
                             "location": {
                                 "type": "string",
-                                "description": "The city and state, e.g. San Francisco, CA"
+                                "description": "The city and state, e.g. San Francisco, CA",
                             }
                         },
-                        "required": ["location"]
-                    }
-                }
+                        "required": ["location"],
+                    },
+                },
             },
             {
                 "type": "function",
@@ -310,21 +309,26 @@ class TestOpenAI(unittest.TestCase):
                         "properties": {
                             "location": {
                                 "type": "string",
-                                "description": "The city and state"
+                                "description": "The city and state",
                             },
                             "cuisine": {
                                 "type": "string",
-                                "description": "Type of cuisine"
-                            }
+                                "description": "Type of cuisine",
+                            },
                         },
-                        "required": ["location", "cuisine"]
-                    }
-                }
-            }
+                        "required": ["location", "cuisine"],
+                    },
+                },
+            },
         ]
 
         response = client.chat.completions.create(
-            messages=[{"role": "user", "content": "Find me an Italian restaurant in New York and tell me if I need an umbrella"}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Find me an Italian restaurant in New York and tell me if I need an umbrella",
+                }
+            ],
             model="gpt-4o",
             tools=tools,
             tool_choice="auto",
@@ -334,13 +338,17 @@ class TestOpenAI(unittest.TestCase):
         self.logger.flush()
 
     def test_chat_completions_with_system_message(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        )
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger)
 
         messages = [
-            {"role": "system", "content": "You are a helpful coding assistant who always writes code in Python."},
-            {"role": "user", "content": "Write a function to calculate fibonacci numbers"}
+            {
+                "role": "system",
+                "content": "You are a helpful coding assistant who always writes code in Python.",
+            },
+            {
+                "role": "user",
+                "content": "Write a function to calculate fibonacci numbers",
+            },
         ]
 
         response = client.chat.completions.create(
@@ -352,12 +360,15 @@ class TestOpenAI(unittest.TestCase):
         self.logger.flush()
 
     def test_chat_completions_with_response_format(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        )
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger)
 
         response = client.chat.completions.create(
-            messages=[{"role": "user", "content": "Return a JSON object with name: John Doe, age: 30"}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Return a JSON object with name: John Doe, age: 30",
+                }
+            ],
             model="gpt-4o",
             response_format={"type": "json_object"},
             max_tokens=1000,
@@ -366,9 +377,7 @@ class TestOpenAI(unittest.TestCase):
         self.logger.flush()
 
     def test_chat_completions_with_temperature(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        )
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger)
 
         # Test with different temperature settings
         response_creative = client.chat.completions.create(
@@ -389,9 +398,7 @@ class TestOpenAI(unittest.TestCase):
         self.logger.flush()
 
     def test_chat_completions_error_handling(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        )
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger)
 
         # Test invalid model
         with self.assertRaises(Exception):
@@ -420,21 +427,29 @@ class TestOpenAI(unittest.TestCase):
         self.logger.flush()
 
     def test_chat_completions_with_seed(self):
-        client = MaximOpenAIClient(
-            OpenAI(api_key=openaiApiKey), logger=self.logger
-        )
+        client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger)
 
         # Make two identical requests with the same seed
         seed_value = 123
         response1 = client.chat.completions.create(
-            messages=[{"role": "user", "content": "Generate a random number between 1 and 100"}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Generate a random number between 1 and 100",
+                }
+            ],
             model="gpt-4o",
             seed=seed_value,
             max_tokens=1000,
         )
 
         response2 = client.chat.completions.create(
-            messages=[{"role": "user", "content": "Generate a random number between 1 and 100"}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Generate a random number between 1 and 100",
+                }
+            ],
             model="gpt-4o",
             seed=seed_value,
             max_tokens=1000,
@@ -446,6 +461,7 @@ class TestOpenAI(unittest.TestCase):
 
     def tearDown(self) -> None:
         return super().tearDown()
+
 
 if __name__ == "__main__":
     unittest.main()
