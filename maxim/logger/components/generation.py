@@ -133,6 +133,7 @@ valid_providers = [
     "bedrock",
     "cohere",
     "fireworks",
+    "elevenlabs",
     "unknown",
 ]
 
@@ -228,9 +229,11 @@ class GenerationUsage(TypedDict, total=False):
     This class represents generation usage.
     """
 
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
+    prompt_tokens: Optional[int]
+    completion_tokens: Optional[int]
+    total_tokens: Optional[int]
+    input_audio_duration: Optional[float]
+    output_audio_duration: Optional[float]
     input_token_details: Optional[TokenDetails]
     output_token_details: Optional[TokenDetails]
     cached_token_details: Optional[TokenDetails]
