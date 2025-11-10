@@ -83,6 +83,7 @@ def trim_silence_edges(
     frame_ms: int = DEFAULT_FRAME_MS,
     threshold: int = DEFAULT_SILENCE_THRESHOLD,
     lookback_ms: int = DEFAULT_LOOKBACK_MS,
+    last_non_silent_removal_frames: int = 1,
 ) -> bytes:
     """
     Remove leading and trailing silence from PCM16LE mono audio.
@@ -164,7 +165,7 @@ def trim_silence_edges(
                 first_non_silent = max(0, first_non_silent - lookback_frames)
 
         start_byte = first_non_silent * frame_size_bytes
-        end_byte = min((last_non_silent + 1) * frame_size_bytes, len(pcm_bytes))
+        end_byte = min((last_non_silent + last_non_silent_removal_frames) * frame_size_bytes, len(pcm_bytes))
 
         if start_byte <= 0 and end_byte >= len(pcm_bytes):
             # Nothing to trim
