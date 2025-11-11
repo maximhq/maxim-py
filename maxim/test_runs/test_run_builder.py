@@ -321,7 +321,7 @@ class TestRunBuilder(Generic[T]):
         Set the data for the test run
 
         Args:
-            data (DataValue[T]): The data to use
+            data (DataValue[T]): The data to use or the ID of the dataset and dataset split to use
 
         Returns:
             TestRunBuilder[T]: The current TestRunBuilder instance for method chaining
@@ -708,7 +708,7 @@ class TestRunBuilder(Generic[T]):
         thread = threading.Thread(target=process_all_entries, args=())
         thread.start()
 
-    def _run_test_with_dataset_id(
+    def _run_test_with_dataset_id_or_split_id(
         self,
         test_run: TestRun,
         dataset_id: str,
@@ -1000,7 +1000,7 @@ class TestRunBuilder(Generic[T]):
                 try:
                     if data is not None:
                         if isinstance(data, str):
-                            self._run_test_with_dataset_id(
+                            self._run_test_with_dataset_id_or_split_id(
                                 test_run=test_run,
                                 dataset_id=data,
                                 on_entry_failed=failed_entry_indices.append,
