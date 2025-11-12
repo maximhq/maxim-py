@@ -179,6 +179,9 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.13.3
+- feat: Adds callbacks for langchain tracer to capture trace ids and other events
+
 ### 3.13.2
 - feat: Adds ability to add tags to test runs using the `with_tags` method
 
