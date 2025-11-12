@@ -179,6 +179,9 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.13.2
+- feat: Adds ability to add tags to test runs using the `with_tags` method
+
 ### 3.13.1
 
 - feat: Adds OpenAI Responses one-line integration for the async client via `MaximOpenAIAsyncClient.responses` (non-streaming and streaming), matching sync behavior and `extra_headers` support.
