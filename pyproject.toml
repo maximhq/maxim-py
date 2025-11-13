@@ -63,4 +63,5 @@ dev = [
   "smolagents>=1.21.2",
   "pydantic-ai>=0.7.6",
   "google-adk>=1.16.0",
+  "elevenlabs>=2.21.0",
 ]

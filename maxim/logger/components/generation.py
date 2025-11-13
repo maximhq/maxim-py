@@ -234,7 +234,13 @@ class GenerationUsage(TypedDict, total=False):
     input_token_details: Optional[TokenDetails]
     output_token_details: Optional[TokenDetails]
     cached_token_details: Optional[TokenDetails]
+    input_audio_duration: Optional[float]
+    output_audio_duration: Optional[float]
 
+class GenerationCost(TypedDict):
+    input: float
+    output: float
+    total: float
 
 class GenerationResult(TypedDict):
     """Generation result.
@@ -248,6 +254,7 @@ class GenerationResult(TypedDict):
     model: str
     choices: List[GenerationResultChoice]
     usage: GenerationUsage
+    cost: Optional[GenerationCost]
 
 
 def get_generation_error_config_dict(
