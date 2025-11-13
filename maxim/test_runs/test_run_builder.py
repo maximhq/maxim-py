@@ -349,6 +349,19 @@ class TestRunBuilder(Generic[T]):
         sanitize_evaluators(evaluators_list)
         self._config.evaluators = evaluators_list
         return self
+    
+    def with_tags(self, tags: list[str]) -> "TestRunBuilder[T]":
+        """
+        Set the tags for the test run
+
+        Args:
+            tags (list[str]): The tags to use
+
+        Returns:
+            TestRunBuilder[T]: The current TestRunBuilder instance for method chaining
+        """
+        self._config.tags = tags
+        return self
 
     def with_human_evaluation_config(
         self, config: HumanEvaluationConfig
@@ -982,6 +995,7 @@ class TestRunBuilder(Generic[T]):
                     evaluator_config=evaluator_configs,
                     human_evaluation_config=human_evaluation_config or None,
                     requires_local_run=requires_local_run,
+                    tags=self._config.tags or None,
                 )
                 try:
                     if data is not None:

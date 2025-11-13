@@ -868,6 +868,7 @@ class TestRunConfig(Generic[T]):
         prompt_version_id (Optional[str]): The ID of the prompt version.
         prompt_chain_version_id (Optional[str]): The ID of the prompt chain version.
         name (str): The name of the test run.
+        tags (Optional[list[str]]): The tags for the test run.
         data_structure (Optional[T]): The structure of the test data.
         data (Optional[Union[str, DataValue[T], Callable[[int], Optional[DataValue[T]]]]]): The test data or a function to retrieve it.
         test_config_id (Optional[str]): The ID of the test configuration.
@@ -882,6 +883,7 @@ class TestRunConfig(Generic[T]):
     workflow: Optional[WorkflowConfig] = None
     prompt_version: Optional[PromptVersionConfig] = None
     prompt_chain_version: Optional[PromptChainVersionConfig] = None
+    tags: Optional[list[str]] = None
     data_structure: Optional[T] = None
     data: Optional[Data] = None
     test_config_id: Optional[str] = None

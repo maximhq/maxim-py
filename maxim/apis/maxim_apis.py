@@ -1171,6 +1171,7 @@ class MaximAPI:
         run_type: RunType,
         evaluator_config: list[Evaluator],
         requires_local_run: bool,
+        tags: Optional[list[str]] = None,
         human_evaluation_config: Optional[HumanEvaluationConfig] = None,
     ) -> TestRun:
         """
@@ -1220,6 +1221,7 @@ class MaximAPI:
                             "evaluatorConfig": [
                                 evaluator.to_dict() for evaluator in evaluator_config
                             ],
+                            "tags": tags,
                             "requiresLocalRun": requires_local_run,
                             "humanEvaluationConfig": (
                                 human_evaluation_config.to_dict()
