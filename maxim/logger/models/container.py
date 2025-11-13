@@ -125,6 +125,13 @@ class Container:
         """
         return self._type
 
+    def name(self) -> Optional[str]:
+        """
+        Returns:
+            str: name of the container
+        """
+        return self._name
+
     def is_created(self) -> bool:
         """
         Checks if the container has been created
