@@ -62,6 +62,72 @@ class MaximOpenAIChatCompletions(Completions):
         self._logger = logger
 
     @override
+    def parse(self, *args, **kwargs):
+        extra_headers = kwargs.get("extra_headers", None)
+        trace_id = None
+        generation_name = None
+        if extra_headers is not None:
+            trace_id = extra_headers.get("x-maxim-trace-id", None)
+            generation_name = extra_headers.get("x-maxim-generation-name", None)
+        is_local_trace = trace_id is None
+        model = kwargs.get("model", None)
+        final_trace_id = trace_id or str(uuid4())
+        generation: Optional[Generation] = None
+        trace: Optional[Trace] = None
+        messages = kwargs.get("messages", None)
+        is_streaming = kwargs.get("stream", False)
+
+        # Add stream_options with include_usage if not present
+        if is_streaming and "stream_options" not in kwargs:
+            kwargs["stream_options"] = {"include_usage": True}
+        elif is_streaming and "include_usage" not in kwargs.get("stream_options", {}):
+            kwargs["stream_options"]["include_usage"] = True
+
+        try:
+            trace = self._logger.trace({"id": final_trace_id})
+            gen_config = {
+                "id": str(uuid4()),
+                "model": model,
+                "provider": "openai",
+                "name": generation_name,
+                "model_parameters": OpenAIUtils.get_model_params(**kwargs),
+                "messages": OpenAIUtils.parse_message_param(messages),
+            }
+            generation = trace.generation(gen_config)
+        except Exception as e:
+            scribe().warning(
+                f"[MaximSDK][MaximOpenAIChatCompletions] Error in generating content: {str(e)}"
+            )
+        try:
+            response = super().parse(*args, **kwargs)
+        except Exception as e:
+            if generation is not None:
+                generation.error({"message": str(e)})
+            scribe().warning(
+                f"[MaximSDK][MaximOpenAIChatCompletions] Error in parsing content: {str(e)}"
+            )
+            raise
+        if is_streaming:
+            # For streaming responses, return a wrapped stream that handles logging
+            return StreamWrapper(response, generation, trace, is_local_trace)
+        else:
+            # For non-streaming responses, log immediately
+            try:
+                if generation is not None:
+                    result = OpenAIUtils.parse_completion(response)
+                    generation.result(result)
+                if is_local_trace and trace is not None:
+                    trace.set_output(response.choices[0].message.content or "")
+                    trace.end()
+            except Exception as e:
+                if generation is not None:
+                    generation.error({"message": str(e)})
+                scribe().warning(
+                    f"[MaximSDK][MaximOpenAIChatCompletions] Error in logging generation: {str(e)}"
+                )
+        return response
+
+    @override
     def create(self, *args, **kwargs):
         extra_headers = kwargs.get("extra_headers", None)
         trace_id = None
