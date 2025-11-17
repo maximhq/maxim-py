@@ -296,6 +296,34 @@ class BaseContainer:
         """
         writer.commit(CommitLog(entity, id, "update", {"tags": {key: value}}))
 
+    def set_start_timestamp(self, timestamp: datetime):
+        """Set the start timestamp for this base container.
+
+        Args:
+            timestamp (datetime): The start timestamp to set.
+        """
+        if not isinstance(timestamp, datetime):
+            scribe().warning(
+                f"[MaximSDK] Invalid start timestamp: {timestamp} for {self.entity.value}. Timestamp must be a datetime object."
+            )
+            return
+        self.start_timestamp = timestamp
+        self._commit("update", {"startTimestamp": timestamp})
+
+    def set_end_timestamp(self, timestamp: datetime):
+        """Set the end timestamp for this base container.
+
+        Args:
+            timestamp (datetime): The end timestamp to set.
+        """
+        if not isinstance(timestamp, datetime):
+            scribe().warning(
+                f"[MaximSDK] Invalid end timestamp: {timestamp} for {self.entity.value}. Timestamp must be a datetime object."
+            )
+            return
+        self.end_timestamp = timestamp
+        self._commit("update", {"endTimestamp": timestamp})
+
     def end(self):
         """End the base container.
 
@@ -465,3 +493,47 @@ class EventEmittingBaseContainer(BaseContainer):
                     "tags": tags,
                 },
             )
+
+    @staticmethod
+    def _set_start_timestamp_(
+        writer: LogWriter,
+        entity: Entity,
+        entity_id: str,
+        timestamp: datetime,
+    ):
+        """Set the start timestamp for the base container.
+
+        Args:
+            writer (LogWriter): The writer of the base container.
+            entity (Entity): The entity of the base container.
+            entity_id (str): The ID of the entity.
+            timestamp (datetime): The start timestamp to set.
+        """
+        if not isinstance(timestamp, datetime):
+            scribe().warning(
+                f"[MaximSDK] Invalid start timestamp: {timestamp} for {entity.value}. Timestamp must be a datetime object."
+            )
+            return
+        BaseContainer._commit_(writer, entity, entity_id, "update", {"startTimestamp": timestamp})
+
+    @staticmethod
+    def _set_end_timestamp_(
+        writer: LogWriter,
+        entity: Entity,
+        entity_id: str,
+        timestamp: datetime,
+    ):
+        """Set the end timestamp for the base container.
+
+        Args:
+            writer (LogWriter): The writer of the base container.
+            entity (Entity): The entity of the base container.
+            entity_id (str): The ID of the entity.
+            timestamp (datetime): The end timestamp to set.
+        """
+        if not isinstance(timestamp, datetime):
+            scribe().warning(
+                f"[MaximSDK] Invalid end timestamp: {timestamp} for {entity.value}. Timestamp must be a datetime object."
+            )
+            return
+        BaseContainer._commit_(writer, entity, entity_id, "update", {"endTimestamp": timestamp})

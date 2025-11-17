@@ -53,7 +53,7 @@ class TraceConfig:
     session_id: Optional[str] = None
     tags: Optional[Dict[str, str]] = None
     input: Optional[str] = None
-
+    start_timestamp: Optional[datetime] = None
 
 class TraceConfigDict(TypedDict, total=False):
     """Trace config dict.
@@ -66,6 +66,7 @@ class TraceConfigDict(TypedDict, total=False):
     session_id: Optional[str]
     tags: Optional[Dict[str, str]]
     input: Optional[str]
+    start_timestamp: Optional[datetime]
 
 
 def get_trace_config_dict(
@@ -87,6 +88,7 @@ def get_trace_config_dict(
             session_id=config.session_id,
             tags=config.tags,
             input=config.input,
+            start_timestamp=config.start_timestamp,
         )
         if isinstance(config, TraceConfig)
         else config
@@ -527,7 +529,7 @@ class Trace(EventEmittingBaseContainer):
         )
 
     @staticmethod
-    def end_(writer: LogWriter, trace_id: str, data: Optional[Dict[str, str]] = None):
+    def end_(writer: LogWriter, trace_id: str, data: Optional[Dict[str, Any]] = None):
         """
         Static method to end a trace.
 
@@ -541,14 +543,14 @@ class Trace(EventEmittingBaseContainer):
         """
         if data is None:
             data = {}
+        # Only set endTimestamp if it's not already provided in data
+        if "endTimestamp" not in data:
+            data["endTimestamp"] = datetime.now(timezone.utc)
         return EventEmittingBaseContainer._end_(
             writer,
             Entity.TRACE,
             trace_id,
-            {
-                "endTimestamp": datetime.now(timezone.utc),
-                **data,
-            },
+            data,
         )
 
     @staticmethod
@@ -577,6 +579,30 @@ class Trace(EventEmittingBaseContainer):
         return EventEmittingBaseContainer._event_(
             writer, Entity.TRACE, trace_id, id, event, tags, metadata
         )
+
+    @staticmethod
+    def set_start_timestamp_(writer: LogWriter, trace_id: str, timestamp: datetime):
+        """
+        Set the start timestamp for this trace.
+
+        Args:
+            writer: The LogWriter instance to use.
+            trace_id: The ID of the trace to set the start timestamp for.
+            timestamp: The start timestamp.
+        """
+        return EventEmittingBaseContainer._set_start_timestamp_(writer, Entity.TRACE, trace_id, timestamp)
+
+    @staticmethod
+    def set_end_timestamp_(writer: LogWriter, trace_id: str, timestamp: datetime):
+        """
+        Set the end timestamp for this trace.
+
+        Args:
+            writer: The LogWriter instance to use.
+            trace_id: The ID of the trace to set the end timestamp for.
+            timestamp: The end timestamp.
+        """
+        return EventEmittingBaseContainer._set_end_timestamp_(writer, Entity.TRACE, trace_id, timestamp)
 
     def data(self) -> Dict[str, Any]:
         """

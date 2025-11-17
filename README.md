@@ -179,6 +179,9 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.13.5
+- feat: Adds ability to override `startTimestamp` and `endTimestamp` for traces and sessions
+
 ### 3.13.4
 - feat: Adds support for chat.completions.parse for OpenAI SDK
 
