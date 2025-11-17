@@ -172,9 +172,20 @@ def parse_usage(usage_data):
     """
     if usage_data is None:
         return None
-    validate_type(usage_data.get("prompt_tokens"), int, "prompt_tokens")
-    validate_type(usage_data.get("completion_tokens"), int, "completion_tokens")
-    validate_type(usage_data.get("total_tokens"), int, "total_tokens")
+    if (
+        usage_data.get("input_audio_duration") is not None
+        or usage_data.get("output_audio_duration") is not None
+    ):
+        input_audio_duration = usage_data.get("input_audio_duration")
+        output_audio_duration = usage_data.get("output_audio_duration")
+        if input_audio_duration is not None:
+            validate_optional_type(input_audio_duration, float, "input_audio_duration")
+        if output_audio_duration is not None:
+            validate_optional_type(output_audio_duration, float, "output_audio_duration")
+    else:
+        validate_type(usage_data.get("prompt_tokens"), int, "prompt_tokens")
+        validate_type(usage_data.get("completion_tokens"), int, "completion_tokens")
+        validate_type(usage_data.get("total_tokens"), int, "total_tokens")
     return usage_data
 
 
