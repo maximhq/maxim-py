@@ -29,6 +29,7 @@ class SessionConfig:
     id: str
     name: Optional[str] = None
     tags: Optional[Dict[str, str]] = None
+    start_timestamp: Optional[datetime] = None
 
 class SessionConfigDict(TypedDict, total=False):
     """Session config dict.
@@ -39,7 +40,7 @@ class SessionConfigDict(TypedDict, total=False):
     id: str
     name: Optional[str]
     tags: Optional[Dict[str, str]]
-
+    start_timestamp: Optional[datetime]
 
 def get_session_config_dict(
     config: Union[SessionConfig, SessionConfigDict],
@@ -58,6 +59,7 @@ def get_session_config_dict(
                 id=config.id,
                 name=config.name,
                 tags=config.tags,
+                start_timestamp=config.start_timestamp,
             )
         )
         if isinstance(config, SessionConfig)
@@ -194,10 +196,10 @@ class Session(EventEmittingBaseContainer):
         """
         if data is None:
             data = {}
-        return EventEmittingBaseContainer._end_(writer, Entity.SESSION, session_id, {
-            "endTimestamp": datetime.now(timezone.utc),
-            **data,
-        })
+        # Only set endTimestamp if it's not already provided in data
+        if "endTimestamp" not in data:
+            data["endTimestamp"] = datetime.now(timezone.utc)
+        return EventEmittingBaseContainer._end_(writer, Entity.SESSION, session_id, data)
 
     @staticmethod
     def event_(writer: LogWriter, session_id: str, id: str, event: str, data: Dict[str, str]):
@@ -212,3 +214,27 @@ class Session(EventEmittingBaseContainer):
             data: Optional data to add to the event.
         """
         return EventEmittingBaseContainer._event_(writer, Entity.SESSION, session_id, id, event, data)
+
+    @staticmethod
+    def set_start_timestamp_(writer: LogWriter, session_id: str, timestamp: datetime):
+        """
+        Set the start timestamp for this session.
+
+        Args:
+            writer: The LogWriter instance to use.
+            session_id: The ID of the session to set the start timestamp for.
+            timestamp: The start timestamp.
+        """
+        return EventEmittingBaseContainer._set_start_timestamp_(writer, Entity.SESSION, session_id, timestamp)
+
+    @staticmethod
+    def set_end_timestamp_(writer: LogWriter, session_id: str, timestamp: datetime):
+        """
+        Set the end timestamp for this session.
+
+        Args:
+            writer: The LogWriter instance to use.
+            session_id: The ID of the session to set the end timestamp for.
+            timestamp: The end timestamp.
+        """
+        return EventEmittingBaseContainer._set_end_timestamp_(writer, Entity.SESSION, session_id, timestamp)
