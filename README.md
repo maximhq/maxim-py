@@ -179,6 +179,12 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.13.6
+- feat: Adds various voice observability integrations
+  - ElevenLabs STT-TTS: Adds ElevenLabs STT-TTS logging
+  - OpenAI Realtime: Extends the OpenAI one-line integration to support realtime behavior
+  - Audio support for OpenAI Agents: Extends `MaximOpenAITraceProcessor` to work with voice agents
+
 ### 3.13.5
 - feat: Adds ability to override `startTimestamp` and `endTimestamp` for traces and sessions
 
