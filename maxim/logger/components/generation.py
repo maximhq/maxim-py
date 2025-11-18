@@ -361,6 +361,23 @@ class Generation(BaseContainer):
         """
         self.model = model
         self._commit("update", {"model": model})
+        
+    def set_name(self, name: str):
+        """
+        Set the name for this generation.
+
+        Args:
+            name: The name to set.
+        """
+        self._name = name
+        self._commit("update", {"name": name})
+        
+    @staticmethod
+    def set_name_(writer: LogWriter, id: str, name: str):
+        """
+        Static method to set the name for a generation.
+        """
+        BaseContainer._commit_(writer, Entity.GENERATION, id, "update", {"name": name})
 
     def add_metric(self, name: str, value: float) -> None:
         """
