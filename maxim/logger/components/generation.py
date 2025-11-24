@@ -239,6 +239,17 @@ class GenerationUsage(TypedDict, total=False):
     cached_token_details: Optional[TokenDetails]
 
 
+class GenerationCost(TypedDict):
+    """Generation cost.
+
+    This class represents generation cost.
+    """
+
+    input: float
+    output: float
+    total: float
+
+
 class GenerationResult(TypedDict):
     """Generation result.
 
@@ -361,7 +372,7 @@ class Generation(BaseContainer):
         """
         self.model = model
         self._commit("update", {"model": model})
-        
+
     def set_name(self, name: str):
         """
         Set the name for this generation.
@@ -371,7 +382,7 @@ class Generation(BaseContainer):
         """
         self._name = name
         self._commit("update", {"name": name})
-        
+
     @staticmethod
     def set_name_(writer: LogWriter, id: str, name: str):
         """
@@ -400,6 +411,33 @@ class Generation(BaseContainer):
             id,
             "update",
             {"metrics": {"name": name, "value": value}},
+        )
+
+    def add_cost(self, cost: GenerationCost) -> None:
+        """
+        Add cost to this generation.
+
+        Args:
+            cost: A dictionary with "input", "output", and "total" keys representing cost values.
+        """
+        self._commit("add-cost", {"cost": cost})
+
+    @staticmethod
+    def add_cost_(writer: LogWriter, id: str, cost: GenerationCost):
+        """
+        Static method to add cost to a generation.
+
+        Args:
+            writer: The LogWriter instance to use.
+            id: The ID of the generation to add cost to.
+            cost: A dictionary with "input", "output", and "total" keys representing cost values.
+        """
+        BaseContainer._commit_(
+            writer,
+            Entity.GENERATION,
+            id,
+            "add-cost",
+            {"cost": cost},
         )
 
     @staticmethod
