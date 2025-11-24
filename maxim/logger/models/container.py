@@ -4,23 +4,24 @@ This module contains data models used for tracking and logging LangChain operati
 including metadata storage and run information.
 """
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+from typing_extensions import override
 
 from ...scribe import scribe
-from ..logger import (
+from ..__init__ import (
     ErrorConfig,
     Generation,
-    GenerationConfig,
+    GenerationConfigDict,
     Logger,
     Retrieval,
-    RetrievalConfig,
+    RetrievalConfigDict,
     Span,
-    SpanConfig,
+    SpanConfigDict,
     ToolCall,
-    ToolCallConfig,
-    TraceConfig,
+    ToolCallConfigDict,
+    TraceConfigDict,
 )
 
 
@@ -38,10 +39,10 @@ class Metadata:
     trace_name: Optional[str] = None
     generation_name: Optional[str] = None
     retrieval_name: Optional[str] = None
-    generation_tags: Optional[Dict[str, str]] = None
-    retrieval_tags: Optional[Dict[str, str]] = None
-    trace_tags: Optional[Dict[str, str]] = None
-    chain_tags: Optional[Dict[str, str]] = None
+    generation_tags: Optional[dict[str, str]] = None
+    retrieval_tags: Optional[dict[str, str]] = None
+    trace_tags: Optional[dict[str, str]] = None
+    chain_tags: Optional[dict[str, str]] = None
 
     def __init__(self, metadata: Optional[Dict[str, Any]]):
         """
@@ -75,7 +76,7 @@ class Metadata:
             )
 
 
-class Container:
+class Container(ABC):
     """
     Container class to hold the container id, type and name for logging
     """
@@ -94,7 +95,7 @@ class Container:
         container_type: str,
         name: Optional[str] = None,
         parent: Optional[str] = None,
-        mark_created=False,
+        mark_created: bool = False,
     ):
         self._logger = logger
         self._type = container_type
@@ -106,7 +107,7 @@ class Container:
     def set_name(self, name: str) -> None:
         self._name = name
 
-    def create(self, tags: Optional[Dict[str, str]] = None) -> None:
+    def create(self, tags: Optional[dict[str, str]] = None) -> None:
         """
         Creates the container in the logger
         """
@@ -148,7 +149,7 @@ class Container:
         return self._parent
 
     @abstractmethod
-    def add_generation(self, config: GenerationConfig) -> Generation:
+    def add_generation(self, config: GenerationConfigDict) -> Generation:
         """
         Adds a generation to the container
         Returns:
@@ -157,7 +158,7 @@ class Container:
         pass
 
     @abstractmethod
-    def add_tool_call(self, config: ToolCallConfig) -> ToolCall:
+    def add_tool_call(self, config: ToolCallConfigDict) -> ToolCall:
         """
         Adds a tool call to the container
         Returns:
@@ -165,7 +166,13 @@ class Container:
         """
         pass
 
-    def add_event(self, event_id: str, name: str, tags: Dict[str, str], metadata:Optional[Dict[str,Any]]=None) -> None:
+    def add_event(
+        self,
+        event_id: str,
+        name: str,
+        tags: Dict[str, str],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """
         Adds an event to the container.
 
@@ -179,7 +186,7 @@ class Container:
         """
 
     @abstractmethod
-    def add_span(self, config: SpanConfig) -> Span:
+    def add_span(self, config: SpanConfigDict) -> Span:
         """
         Adds a span to the container
         Returns:
@@ -188,7 +195,7 @@ class Container:
         pass
 
     @abstractmethod
-    def add_retrieval(self, config: RetrievalConfig) -> Retrieval:
+    def add_retrieval(self, config: RetrievalConfigDict) -> Retrieval:
         """
         Adds a retrieval to the container
         Returns:
@@ -196,7 +203,7 @@ class Container:
         """
         pass
 
-    def add_tags(self, tags: Dict[str, str]) -> None:
+    def add_tags(self, tags: dict[str, str]) -> None:
         """
         Adds tags to the container
         Args:
@@ -225,7 +232,7 @@ class Container:
             output (str): Output to set
         """
 
-    def add_metadata(self, metadata: Dict[str, str]) -> None:
+    def add_metadata(self, metadata: dict[str, str]) -> None:
         """
         Adds metadata to the container
         Args:
@@ -250,7 +257,7 @@ class TraceContainer(Container):
         trace_id: str,
         trace_name: Optional[str] = None,
         parent: Optional[str] = None,
-        mark_created=False,
+        mark_created: bool = False,
     ):
         super().__init__(
             logger=logger,
@@ -261,14 +268,16 @@ class TraceContainer(Container):
             mark_created=mark_created,
         )
 
-    def create(self, tags: Optional[Dict[str, str]] = None) -> None:
-        config = TraceConfig(id=self._id, name=self._name, tags=tags)
+    @override
+    def create(self, tags: Optional[dict[str, str]] = None) -> None:
+        config = TraceConfigDict({"id": self._id, "name": self._name, "tags": tags})
         if self._parent is not None:
-            config.session_id = self._parent
-        self._logger.trace(config)
-        self._created = True
+            config["session_id"] = self._parent
+        _ = self._logger.trace(config)
+        self._created: bool = True
 
-    def add_generation(self, config: GenerationConfig) -> Generation:
+    @override
+    def add_generation(self, config: GenerationConfigDict) -> Generation:
         """
         Adds a generation to the container
         Returns:
@@ -276,34 +285,50 @@ class TraceContainer(Container):
         """
         return self._logger.trace_add_generation(self._id, config)
 
-    def add_retrieval(self, config: RetrievalConfig) -> Retrieval:
+    @override
+    def add_retrieval(self, config: RetrievalConfigDict) -> Retrieval:
         return self._logger.trace_add_retrieval(self._id, config=config)
 
-    def add_event(self, event_id: str, name: str, tags: Dict[str, str],metadata:Optional[Dict[str,Any]]=None) -> None:
-        self._logger.trace_event(self._id, event_id, name, tags,metadata)
+    @override
+    def add_event(
+        self,
+        event_id: str,
+        name: str,
+        tags: dict[str, str],
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self._logger.trace_add_event(self._id, event_id, name, tags, metadata)
 
-    def add_span(self, config: SpanConfig) -> Span:
+    @override
+    def add_span(self, config: SpanConfigDict) -> Span:
         return self._logger.trace_add_span(self._id, config)
 
+    @override
     def add_error(self, error: ErrorConfig):
-        self._logger.trace_add_error(self._id, error)
+        _ = self._logger.trace_add_error(self._id, error)
 
+    @override
     def set_input(self, input: str) -> None:
         return self._logger.trace_set_input(self._id, input)
 
+    @override
     def set_output(self, output: str) -> None:
         return self._logger.trace_set_output(self._id, output)
 
-    def add_tags(self, tags: Dict[str, str]) -> None:
+    @override
+    def add_tags(self, tags: dict[str, str]) -> None:
         for key, value in tags.items():
             self._logger.trace_add_tag(self._id, key, value)
 
-    def add_tool_call(self, config: ToolCallConfig) -> ToolCall:
+    @override
+    def add_tool_call(self, config: ToolCallConfigDict) -> ToolCall:
         return self._logger.trace_add_tool_call(self._id, config)
 
-    def add_metadata(self, metadata: Dict[str, str]) -> None:
+    @override
+    def add_metadata(self, metadata: dict[str, str]) -> None:
         return self._logger.trace_add_metadata(self._id, metadata)
 
+    @override
     def end(self) -> None:
         """
         Ends the container
@@ -322,7 +347,7 @@ class SpanContainer(Container):
         logger: Logger,
         span_name: Optional[str] = None,
         parent: Optional[str] = None,
-        mark_created=False,
+        mark_created: bool = False,
     ):
         super().__init__(
             logger=logger,
@@ -333,44 +358,62 @@ class SpanContainer(Container):
             mark_created=mark_created,
         )
 
-    def create(self, tags: Optional[Dict[str, str]] = None) -> None:
-        config = SpanConfig(id=self._id, name=self._name, tags=tags)
+    @override
+    def create(self, tags: Optional[dict[str, str]] = None) -> None:
+        config = SpanConfigDict({"id": self._id, "name": self._name, "tags": tags})
         if self._parent is None:
             raise ValueError("[MaximSDK] Span without a parent is invalid")
-        self._logger.trace_add_span(self._parent, config)
-        self._created = True
+        _ = self._logger.trace_add_span(self._parent, config)
+        self._created: bool = True
 
-    def add_generation(self, config: GenerationConfig) -> Generation:
+    @override
+    def add_generation(self, config: GenerationConfigDict) -> Generation:
         return self._logger.span_add_generation(self._id, config)
 
-    def add_retrieval(self, config: RetrievalConfig) -> Retrieval:
+    @override
+    def add_retrieval(self, config: RetrievalConfigDict) -> Retrieval:
         return self._logger.span_add_retrieval(self._id, config=config)
 
-    def add_event(self, event_id: str, name: str, tags: Dict[str, str],metadata:Optional[Dict[str,Any]]=None) -> None:
-        self._logger.span_event(self._id, event_id, name, tags,metadata)
+    @override
+    def add_event(
+        self,
+        event_id: str,
+        name: str,
+        tags: dict[str, str],
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self._logger.span_event(self._id, event_id, name, tags, metadata)
 
-    def add_span(self, config: SpanConfig) -> Span:
+    @override
+    def add_span(self, config: SpanConfigDict) -> Span:
         return self._logger.span_add_sub_span(self._id, config)
 
+    @override
     def add_error(self, error: ErrorConfig):
-        self._logger.span_add_error(self._id, error)
+        _ = self._logger.span_add_error(self._id, error)
 
-    def add_tags(self, tags: Dict[str, str]) -> None:
+    @override
+    def add_tags(self, tags: dict[str, str]) -> None:
         for key, value in tags.items():
             self._logger.span_add_tag(self._id, key, value)
 
+    @override
     def set_input(self, input: str) -> None:
         return self._logger.span_add_metadata(self._id, {"input": input})
 
-    def set_output(self, output) -> None:
+    @override
+    def set_output(self, output: str) -> None:
         return self._logger.span_add_metadata(self._id, {"output": output})
 
-    def add_tool_call(self, config: ToolCallConfig) -> ToolCall:
+    @override
+    def add_tool_call(self, config: ToolCallConfigDict) -> ToolCall:
         return self._logger.span_add_tool_call(self._id, config)
 
-    def add_metadata(self, metadata: Dict[str, str]) -> None:
+    @override
+    def add_metadata(self, metadata: dict[str, str]) -> None:
         return self._logger.span_add_metadata(self._id, metadata)
 
+    @override
     def end(self) -> None:
         """
         Ends the container
@@ -389,9 +432,9 @@ class ContainerManager:
 
     def __init__(self) -> None:
         # Map a run_id (as string) to its current container (TraceContainer or SpanContainer)
-        self._run_id_to_container: Dict[str, Container] = {}
+        self._run_id_to_container: dict[str, Container] = {}
         # Track top-level root trace containers keyed by the originating run_id (no parent)
-        self._root_run_id_to_trace: Dict[str, TraceContainer] = {}
+        self._root_run_id_to_trace: dict[str, TraceContainer] = {}
 
     def get_container(self, run_id: str) -> Optional[Container]:
         return self._run_id_to_container.get(run_id)
@@ -401,7 +444,7 @@ class ContainerManager:
 
     def remove_run_id_mapping(self, run_id: str) -> None:
         if run_id in self._run_id_to_container:
-            self._run_id_to_container.pop(run_id)
+            _ = self._run_id_to_container.pop(run_id)
 
     def set_root_trace(self, run_id: str, trace_container: TraceContainer) -> None:
         self._root_run_id_to_trace[run_id] = trace_container

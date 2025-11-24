@@ -8,7 +8,7 @@ import types
 import wave
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 from base64 import b64decode
 
 from ..scribe import scribe
@@ -21,7 +21,11 @@ DEFAULT_LOOKBACK_MS = 500
 DEFAULT_MIN_SILENCE_RATIO = 0.95
 
 
-def is_silence(pcm_bytes, threshold=DEFAULT_SILENCE_THRESHOLD, min_silence_ratio=DEFAULT_MIN_SILENCE_RATIO):
+def is_silence(
+    pcm_bytes,
+    threshold=DEFAULT_SILENCE_THRESHOLD,
+    min_silence_ratio=DEFAULT_MIN_SILENCE_RATIO,
+):
     """
     Detects if the given PCM16 byte buffer is mostly silence.
 
@@ -77,8 +81,9 @@ def pcm16_to_wav_bytes(
         )
         return pcm_bytes
 
+
 def string_pcm_to_wav_bytes(
-    pcm_str: str | None, num_channels: int = 1, sample_rate: int = 24000
+    pcm_str: Optional[str], num_channels: int = 1, sample_rate: int = 24000
 ) -> bytes:
     """
     Convert a string of PCM-16 audio data to WAV format bytes.
@@ -88,9 +93,7 @@ def string_pcm_to_wav_bytes(
     try:
         pcm_bytes = b64decode(pcm_str, validate=True)
     except Exception as e:
-        scribe().error(
-            f"[MaximSDK] Error decoding string PCM-16 audio data: {e}"
-        )
+        scribe().error(f"[MaximSDK] Error decoding string PCM-16 audio data: {e}")
         return b""
     try:
         return pcm16_to_wav_bytes(pcm_bytes, num_channels, sample_rate)
@@ -99,6 +102,7 @@ def string_pcm_to_wav_bytes(
             f"[MaximSDK] Error converting string PCM-16 audio data to WAV format: {e}"
         )
         return b""
+
 
 def trim_silence_edges(
     pcm_bytes: bytes,
@@ -188,16 +192,17 @@ def trim_silence_edges(
                 first_non_silent = max(0, first_non_silent - lookback_frames)
 
         start_byte = first_non_silent * frame_size_bytes
-        end_byte = min((last_non_silent + last_non_silent_removal_frames) * frame_size_bytes, len(pcm_bytes))
+        end_byte = min(
+            (last_non_silent + last_non_silent_removal_frames) * frame_size_bytes,
+            len(pcm_bytes),
+        )
 
         if start_byte <= 0 and end_byte >= len(pcm_bytes):
             # Nothing to trim
             return pcm_bytes
         return pcm_bytes[start_byte:end_byte]
     except Exception as e:
-        scribe().warning(
-            f"[MaximSDK] trim_silence_edges failed; error={e}"
-        )
+        scribe().warning(f"[MaximSDK] trim_silence_edges failed; error={e}")
         # On failure, return original audio to avoid data loss
         return pcm_bytes
 
@@ -248,9 +253,9 @@ def make_object_serializable(obj: Any) -> Any:
             "name": obj.__name__,
             "module": obj.__module__,
             "source": inspect.getsource(obj) if inspect.isroutine(obj) else None,
-            "signature": str(inspect.signature(obj))
-            if inspect.isroutine(obj)
-            else None,
+            "signature": (
+                str(inspect.signature(obj)) if inspect.isroutine(obj) else None
+            ),
         }
 
     # Handle exceptions

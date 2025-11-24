@@ -28,6 +28,7 @@ from .components import (
     Generation,
     GenerationConfig,
     GenerationConfigDict,
+    GenerationCost,
     GenerationError,
     GenerationRequestMessage,
     Retrieval,
@@ -597,6 +598,16 @@ class Logger:
         Adds an attachment to the generation.
         """
         Generation.add_attachment_(self.writer, generation_id, attachment)
+
+    def generation_add_cost(self, generation_id: str, cost: GenerationCost):
+        """
+        Adds cost to the generation.
+
+        Args:
+            generation_id (str): The ID of the generation.
+            cost (GenerationCost): A dictionary with "input", "output", and "total" keys representing cost values.
+        """
+        Generation.add_cost_(self.writer, generation_id, cost)
 
     def generation_end(self, generation_id: str):
         """

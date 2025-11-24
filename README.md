@@ -158,6 +158,9 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 > Please reach out to us if you need support for any other package + provider + classes.
 
+For Langchain users, `MaximLangchainTracer` also supports an optional `callback` hook that receives structured events for each run.  
+On `generation.result` events, the callback is invoked with a payload containing `generation_id`, `generation_name`, and `token_usage`, which you can use to compute custom costs and attach them back to Maxim using `logger.generation_add_cost(generation_id, {"input": ..., "output": ..., "total": ...})`.
+
 ### Litellm
 
 | completion | acompletion | fallback | Prompt Management |
@@ -179,22 +182,33 @@ See [cookbook/agno_agent.py](cookbook/agno_agent.py) for an example of tracing a
 
 ## Version changelog
 
+### 3.14.0
+
+- feat: Adds `GenerationCost` and `logger.generation_add_cost` / `Generation.add_cost` helpers to attach custom cost metadata to generations.
+- feat: Extends `MaximLangchainTracer` with a `callback` hook that emits `generation.result` events including token usage, enabling per-token cost tracking and other custom behaviors.
+- chore: Updates Langchain tracer and container models to use `*ConfigDict` / `*ErrorDict` typed dicts (e.g., `TraceConfigDict`, `SpanConfigDict`, `ToolCallConfigDict`, `ToolCallErrorDict`) for improved type-safety and consistency.
+
 ### 3.13.6
+
 - feat: Adds various voice observability integrations
   - ElevenLabs STT-TTS: Adds ElevenLabs STT-TTS logging
   - OpenAI Realtime: Extends the OpenAI one-line integration to support realtime behavior
   - Audio support for OpenAI Agents: Extends `MaximOpenAITraceProcessor` to work with voice agents
 
 ### 3.13.5
+
 - feat: Adds ability to override `startTimestamp` and `endTimestamp` for traces and sessions
 
 ### 3.13.4
+
 - feat: Adds support for chat.completions.parse for OpenAI SDK
 
 ### 3.13.3
+
 - feat: Adds callbacks for langchain tracer to capture trace ids and other events
 
 ### 3.13.2
+
 - feat: Adds ability to add tags to test runs using the `with_tags` method
 
 ### 3.13.1

@@ -9,6 +9,8 @@ import unittest
 from time import sleep
 from uuid import uuid4
 
+import dotenv
+
 from langchain.chains.llm import LLMChain
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain.prompts.chat import (
@@ -27,8 +29,11 @@ from maxim.logger.components.generation import GenerationConfig
 from maxim.logger.components.span import SpanConfig
 from maxim.logger.components.trace import TraceConfig
 from maxim.logger.langchain.tracer import MaximLangchainTracer
-from maxim.logger.logger import LoggerConfig
+from maxim.logger.logger import LoggerConfig, LoggerConfigDict
 from maxim.maxim import Config, Maxim
+
+# Load environment variables from .env file
+dotenv.load_dotenv()
 
 env = "dev"
 
@@ -60,7 +65,7 @@ def subtraction_tool(a, b):
 
 class TestLoggingUsingLangchain(unittest.TestCase):
     def setUp(self):
-        self.maxim = Maxim()
+        self.maxim = Maxim({"api_key": apiKey, "base_url": baseUrl})
 
     def test_generation_chat_prompt(self):
         logger = self.maxim.logger(LoggerConfig(id=repoId))
@@ -865,6 +870,105 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         )
 
         print(result)
+
+    def test_generation_result_callback(self):
+        """Test that generation.result callback is called with correct values"""
+        logger = self.maxim.logger(LoggerConfigDict(id=repoId))
+
+        # Track callback events
+        callback_events = []
+
+        def callback(event_type: str, event_data: dict):
+            callback_events.append((event_type, event_data))
+            # If this is a generation.result event, add cost metadata
+            if event_type == "generation.result":
+                generation_id = event_data.get("generation_id")
+                token_usage = event_data.get("token_usage", {})
+
+                if generation_id and token_usage:
+                    # Calculate cost: each token * 10
+                    prompt_tokens = token_usage.get("prompt_tokens", 0) or 0
+                    completion_tokens = token_usage.get("completion_tokens", 0) or 0
+                    total_tokens = token_usage.get("total_tokens", 0) or 0
+
+                    cost = {
+                        "input": prompt_tokens * 10,
+                        "output": completion_tokens * 10,
+                        "total": total_tokens * 10,
+                    }
+
+                    # Add cost to the generation
+                    logger.generation_add_cost(generation_id, cost)
+
+        tracer = MaximLangchainTracer(logger, callback=callback)
+        model = ChatOpenAI(
+            callbacks=[tracer],
+            api_key=openAIKey,
+            model="gpt-3.5-turbo",
+            temperature=0,
+        )
+
+        generation_name = "test-generation"
+        messages = [
+            ("system", "You are a helpful assistant."),
+            ("human", "Say hello in one word."),
+        ]
+
+        model.invoke(
+            messages,
+            config={
+                "metadata": {
+                    "maxim": {
+                        "generation_name": generation_name,
+                    }
+                }
+            },
+        )
+
+        # Verify generation.result callback was called
+        generation_result_events = [
+            (event_type, event_data)
+            for event_type, event_data in callback_events
+            if event_type == "generation.result"
+        ]
+
+        self.assertGreater(
+            len(generation_result_events),
+            0,
+            "generation.result callback should be called at least once",
+        )
+
+        print(f"{baseUrl}")
+        print(f"Generation result events: {generation_result_events}")
+
+        # Check the first generation.result event
+        event_type, event_data = generation_result_events[0]
+        self.assertEqual(event_type, "generation.result")
+        self.assertIn("generation_id", event_data)
+        self.assertIn("generation_name", event_data)
+        self.assertIn("token_usage", event_data)
+
+        # Verify generation_name matches
+        self.assertEqual(event_data["generation_name"], generation_name)
+
+        # Verify token_usage structure
+        token_usage = event_data["token_usage"]
+        self.assertIsInstance(token_usage, dict)
+        # Token usage should have at least one of these keys
+        self.assertTrue(
+            any(
+                key in token_usage
+                for key in ["prompt_tokens", "completion_tokens", "total_tokens"]
+            ),
+            "token_usage should contain at least one token count field",
+        )
+
+        # Verify generation_id is a string
+        self.assertIsInstance(event_data["generation_id"], str)
+        self.assertGreater(len(event_data["generation_id"]), 0)
+
+        # Flush logs to ensure they're sent to Maxim
+        logger.flush()
 
     def tearDown(self) -> None:
         self.maxim.cleanup()

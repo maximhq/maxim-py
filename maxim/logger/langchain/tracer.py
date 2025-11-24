@@ -1,8 +1,16 @@
 import json
 import uuid
 from dataclasses import fields
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union, Literal
-from typing_extensions import Protocol, TypedDict
+from typing_extensions import override
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Union,
+)  # pyright: ignore[reportDeprecated]
 from uuid import UUID
 
 # Use LangChain features
@@ -14,15 +22,15 @@ from langchain_core.outputs import LLMResult
 
 from ...expiring_key_value_store import ExpiringKeyValueStore
 from ...logger import (
-    GenerationConfig,
+    GenerationConfigDict,
     Logger,
-    RetrievalConfig,
-    SpanConfig,
-    ToolCallConfig,
-    ToolCallError,
+    RetrievalConfigDict,
+    SpanConfigDict,
+    ToolCallConfigDict,
+    ToolCallErrorDict,
 )
 from ...scribe import scribe
-from ..logger import Generation
+from ..__init__ import Generation
 from ..models import Container, Metadata, SpanContainer, TraceContainer
 from ..models.container import ContainerManager
 from .utils import (
@@ -39,6 +47,7 @@ DEFAULT_TIMEOUT = 60 * 20
 
 tracer_callback_type = Callable[[str, Any], None]
 
+
 class MaximLangchainTracer(BaseCallbackHandler):
     """
     A callback handler that logs langchain outputs to Maxim logger
@@ -50,8 +59,8 @@ class MaximLangchainTracer(BaseCallbackHandler):
     def __init__(
         self,
         logger: Logger,
-        metadata: Optional[Dict[str, Any]] = None,
-        eval_config: Optional[Dict[str, List[str]]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        eval_config: Optional[dict[str, list[str]]] = None,
         callback: Optional[tracer_callback_type] = None,
     ) -> None:
         """Initializes the Langchain Tracer
@@ -63,14 +72,17 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 events with signature: callback(event_type: str, event_data: Dict[str, Any])
         """
         super().__init__()
-        self.run_inline = True
-        self.logger = logger
+        self.run_inline: bool = True
+        self.logger: Logger = logger
         self.container_manager: ContainerManager = ContainerManager()
-        self.metadata_store = ExpiringKeyValueStore()
-        self.to_be_evaluated_container_store = ExpiringKeyValueStore()
-        self.metadata = None
-        self.eval_config = eval_config
-        self.callback = callback
+        self.metadata_store: ExpiringKeyValueStore = ExpiringKeyValueStore()
+        self.to_be_evaluated_container_store: ExpiringKeyValueStore = (
+            ExpiringKeyValueStore()
+        )
+        self.generation_container_store: ExpiringKeyValueStore = ExpiringKeyValueStore()
+        self.metadata: Union[dict[str, Any], None] = None
+        self.eval_config: Union[dict[str, list[str]], None] = eval_config
+        self.callback: Union[tracer_callback_type, None] = callback
         if metadata is not None:
             self.__validate_maxim_metadata(metadata)
             self.metadata = metadata
@@ -80,11 +92,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         Parses the metadata
         """
         try:
-            if (
-                metadata is None
-                or not isinstance(metadata, dict)
-                or "maxim" not in metadata
-            ):
+            if metadata is None or "maxim" not in metadata:
                 return
             maxim_metadata = metadata.get("maxim", None)
             if maxim_metadata is None:
@@ -183,8 +191,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 container.add_tags(maxim_metadata.trace_tags)
             # Register this trace against the current run id and as root trace
             self.container_manager.set_container(str(run_id), container)
-            if isinstance(container, TraceContainer):
-                self.container_manager.set_root_trace(str(run_id), container)
+            self.container_manager.set_root_trace(str(run_id), container)
 
         return container
 
@@ -225,10 +232,9 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 self.container_manager.set_container(
                     str(parent_run_id), trace_container
                 )
-                if isinstance(trace_container, TraceContainer):
-                    self.container_manager.set_root_trace(
-                        str(parent_run_id), trace_container
-                    )
+                self.container_manager.set_root_trace(
+                    str(parent_run_id), trace_container
+                )
                 container = trace_container
         return container
 
@@ -248,6 +254,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
             return Metadata(self.metadata)
         return None
 
+    @override
     def on_llm_start(
         self,
         serialized: dict[str, Any],
@@ -268,21 +275,22 @@ class MaximLangchainTracer(BaseCallbackHandler):
             model, provider = parse_langchain_model_and_provider(model, provider)
             maxim_messages = parse_langchain_messages(prompts)
             last_input_message = ""
-            if maxim_messages is not None:
-                for message in maxim_messages:
-                    if "role" in message and message["role"] == "user":
-                        last_input_message = message["content"]
+            for message in maxim_messages:
+                if "role" in message and message["role"] == "user":
+                    last_input_message = message["content"]
             generation_id = str(run_id)
             maxim_metadata = self.__get_metadata(metadata)
             # Prepare generation config
-            generation_config = GenerationConfig(
-                id=generation_id,
-                name=maxim_metadata.generation_name if maxim_metadata else None,
-                provider=provider,
-                model=model,
-                messages=maxim_messages,
-                model_parameters=model_parameters,
-                tags=maxim_metadata.generation_tags if maxim_metadata else None,
+            generation_config = GenerationConfigDict(
+                {
+                    "id": generation_id,
+                    "name": maxim_metadata.generation_name if maxim_metadata else None,
+                    "provider": provider,
+                    "model": model,
+                    "messages": maxim_messages,
+                    "model_parameters": model_parameters,
+                    "tags": maxim_metadata.generation_tags if maxim_metadata else None,
+                }
             )
             # Adding it back to the container
             container = self.__get_container(run_id, parent_run_id)
@@ -304,6 +312,10 @@ class MaximLangchainTracer(BaseCallbackHandler):
             except Exception:
                 pass
             generation_container = container.add_generation(generation_config)
+            # Store generation container for callback
+            self.generation_container_store.set(
+                str(run_id), generation_container, DEFAULT_TIMEOUT
+            )
             # checking if we need to attach evaluator
             if (
                 metadata is not None
@@ -334,6 +346,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 traceback.format_exc(),
             )
 
+    @override
     def on_chat_model_start(
         self,
         serialized: Dict[str, Any],
@@ -364,14 +377,16 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     maxim_metadata.generation_name if maxim_metadata else None
                 )
             # Checking if generation id already present for this run_id
-            generation_config = GenerationConfig(
-                id=generation_id,
-                name=generation_name,
-                provider=provider,
-                model=model,
-                messages=maxim_messages,
-                model_parameters=model_parameters,
-                tags=maxim_metadata.generation_tags if maxim_metadata else None,
+            generation_config = GenerationConfigDict(
+                {
+                    "id": generation_id,
+                    "name": generation_name,
+                    "provider": provider,
+                    "model": model,
+                    "messages": maxim_messages,
+                    "model_parameters": model_parameters,
+                    "tags": maxim_metadata.generation_tags if maxim_metadata else None,
+                }
             )
             container = self.__get_container(run_id, kwargs.get("parent_run_id", None))
             if container is None:
@@ -386,6 +401,10 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 if isinstance(container, TraceContainer):
                     self.container_manager.set_root_trace(str(run_id), container)
             generation_container = container.add_generation(generation_config)
+            # Store generation container for callback
+            self.generation_container_store.set(
+                str(run_id), generation_container, DEFAULT_TIMEOUT
+            )
             # checking if we need to attach evaluator
             if (
                 metadata is not None
@@ -434,6 +453,22 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 return
             # here generation_id is the run_id
             self.logger.generation_result(str(run_id), result)
+            # Call generation.result callback
+            generation_container = self.generation_container_store.get(str(run_id))
+            if generation_container is not None and self.callback is not None:
+                generation_id = str(run_id)
+                generation_name = getattr(generation_container, "_name", None)
+                token_usage = result.get("usage", {})
+                self.callback(
+                    "generation.result",
+                    {
+                        "generation_id": generation_id,
+                        "generation_name": generation_name,
+                        "token_usage": token_usage,
+                    },
+                )
+                # Clean up the store entry to prevent leaks
+                self.generation_container_store.delete(str(run_id))
             # Remove mapping for this run_id when top-level (do not end here)
             if container.parent() is None:
                 self.container_manager.remove_run_id_mapping(str(run_id))
@@ -517,6 +552,8 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 return
             generation_error = parse_langchain_llm_error(error)
             self.logger.generation_error(str(run_id), generation_error)
+            # Clean up generation container store to prevent leaks
+            self.generation_container_store.delete(str(run_id))
             # Remove mapping for this run_id when top-level (do not end here)
             if container.parent() is None:
                 self.container_manager.remove_run_id_mapping(str(run_id))
@@ -560,7 +597,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
         try:
             scribe().debug("[MaximSDK] on_retriever_start called")
             retrieval_id = str(run_id)
-            retrieval_config = RetrievalConfig(id=retrieval_id)
+            retrieval_config = RetrievalConfigDict({"id": retrieval_id})
             container = self.__get_container(run_id, parent_run_id)
             if container is None:
                 scribe().error("[MaximSDK] Couldn't find a container for retrieval")
@@ -644,7 +681,9 @@ class MaximLangchainTracer(BaseCallbackHandler):
             if not container.is_created():
                 container.create()
 
-            span_config = SpanConfig(id=str(run_id), name=name, tags=tags)
+            span_config = SpanConfigDict(
+                {"id": str(run_id), "name": name, "tags": tags}
+            )
             span = container.add_span(span_config)
 
             # Add inputs metadata to the span like JS tracer
@@ -826,8 +865,13 @@ class MaximLangchainTracer(BaseCallbackHandler):
             if not container.is_created():
                 container.create()
             container.add_tool_call(
-                ToolCallConfig(
-                    id=str(run_id), name=name, description=description, args=input_str
+                ToolCallConfigDict(
+                    {
+                        "id": str(run_id),
+                        "name": name,
+                        "description": description,
+                        "args": input_str,
+                    }
                 )
             )
             if container.parent() is None:
@@ -866,12 +910,14 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     if isinstance(output.get("content", None), str):
                         self.logger.tool_call_error(
                             str(run_id),
-                            ToolCallError(message=output.get("content", None)),
+                            ToolCallErrorDict({"message": output.get("content", None)}),
                         )
                     else:
                         self.logger.tool_call_error(
                             str(run_id),
-                            ToolCallError(message=str(output.get("content", None))),
+                            ToolCallErrorDict(
+                                {"message": str(output.get("content", None))}
+                            ),
                         )
                 elif output.get("content", None) is not None:
                     self.logger.tool_call_result(
@@ -900,7 +946,8 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 return
             if error is not None and hasattr(error, "__str__"):
                 self.logger.tool_call_error(
-                    str(run_id), ToolCallError(message=str(error))
+                    str(run_id),
+                    ToolCallErrorDict({"message": str(error), "code": "", "type": ""}),
                 )
             if container.parent() is None:
                 self.container_manager.remove_run_id_mapping(str(run_id))
