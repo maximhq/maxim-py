@@ -39,7 +39,7 @@ def get_variables_from_row(
                 continue
             variables[column_name] = Variable(
                 type="text",
-                payload={"text": "" if val is None else str(val)},
+                payload="" if val is None else str(val),
             )
     return variables
 

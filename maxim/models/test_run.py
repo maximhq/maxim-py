@@ -259,6 +259,7 @@ class TestRun:
     eval_config: Dict[str, Any]
     human_evaluation_config: Optional[HumanEvaluationConfig] = None
     parent_test_run_id: Optional[str] = None
+    environment_name: Optional[str] = None
 
     def to_dict(self):
         return {
@@ -273,6 +274,7 @@ class TestRun:
                     else None
                 ),
                 "parentTestRunId": self.parent_test_run_id,
+                "environmentName": self.environment_name,
             }.items()
             if v is not None
         }
@@ -288,6 +290,7 @@ class TestRun:
                 else None
             ),
             "parentTestRunId": self.parent_test_run_id,
+            "environmentName": self.environment_name,
         }
 
     @classmethod
@@ -303,6 +306,7 @@ class TestRun:
                 else None
             ),
             parent_test_run_id=data.get("parentTestRunId"),
+            environment_name=data.get("environmentName"),
         )
 
     @classmethod
@@ -317,6 +321,7 @@ class TestRun:
                 else None
             ),
             parent_test_run_id=data.get("parentTestRunId"),
+            environment_name=data.get("environmentName"),
         )
 
 
@@ -432,6 +437,7 @@ class TestRunWithDatasetEntry(TestRun):
             eval_config=test_run.eval_config,
             human_evaluation_config=test_run.human_evaluation_config,
             parent_test_run_id=test_run.parent_test_run_id,
+            environment_name=test_run.environment_name,
         )
         self.dataset_entry_id = dataset_entry_id
         self.dataset_id = dataset_id
@@ -461,6 +467,7 @@ class TestRunWithDatasetEntry(TestRun):
                     else None
                 ),
                 "parentTestRunId": self.parent_test_run_id,
+                "environmentName": self.environment_name,
             }.items()
             if v is not None
         }
@@ -893,6 +900,7 @@ class TestRunConfig(Generic[T]):
         Callable[[LocalData], Union[YieldedOutput, Awaitable[YieldedOutput]]]
     ] = None
     concurrency: Optional[int] = None
+    environment_name: Optional[str] = None
 
 
 @dataclass

@@ -1317,7 +1317,7 @@ class MaximAPI:
                 run_config = {k: v for k, v in run_config.items() if v is not None}
             res = self.__make_network_call(
                 method="POST",
-                endpoint="/api/sdk/v2/test-run/push",
+                endpoint="/api/sdk/v3/test-run/push",
                 body=json.dumps(
                     {
                         "testRun": test_run.to_dict(),
