@@ -182,6 +182,10 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.1
+- feat: Adds support for choosing environment when running test runs with workflow using the `with_environment` method
+- fix: Fixes variable support for urls in test runs
+
 ### 3.14.0
 
 - feat: Adds `GenerationCost` and `logger.generation_add_cost` / `Generation.add_cost` helpers to attach custom cost metadata to generations.

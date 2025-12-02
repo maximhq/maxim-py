@@ -387,6 +387,16 @@ class TestRunBuilder(Generic[T]):
         self._config.human_evaluation_config = config
         return self
 
+    def with_environment(self, environment_name: str) -> "TestRunBuilder[T]":
+        """
+        Set the environment name for the test run
+
+        Args:
+            environment_name (str): The name of the environment to use
+        """
+        self._config.environment_name = environment_name
+        return self
+
     def with_workflow_id(
         self, workflow_id: Optional[str], context_to_evaluate: Optional[str] = None
     ) -> "TestRunBuilder[T]":
@@ -997,6 +1007,8 @@ class TestRunBuilder(Generic[T]):
                     requires_local_run=requires_local_run,
                     tags=self._config.tags or None,
                 )
+                if self._config.environment_name is not None:
+                    test_run.environment_name = self._config.environment_name
                 try:
                     if data is not None:
                         if isinstance(data, str):
