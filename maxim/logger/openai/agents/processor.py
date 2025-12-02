@@ -18,15 +18,15 @@ from agents.tracing.create import (
 )
 from agents.tracing.span_data import ResponseSpanData, TranscriptionSpanData
 
-from maxim.logger import FileDataAttachment 
+from maxim.logger import FileDataAttachment
 from maxim.logger.utils import string_pcm_to_wav_bytes
 from maxim.scribe import scribe
 
 from ...logger import (
     GenerationConfig,
+    GenerationError,
     Logger,
     SpanConfig,
-    GenerationError,
     ToolCallConfig,
 )
 from ...models import Container, SpanContainer, TraceContainer
@@ -301,7 +301,11 @@ class MaximOpenAIAgentsTracingProcessor(TracingProcessor):
                 self.logger.generation_set_model(
                     span.span_id, generation_data.model or "unknown"
                 )
-                temperature = generation_data.model_config.get("temperature", None) if generation_data.model_config else None
+                temperature = (
+                    generation_data.model_config.get("temperature", None)
+                    if generation_data.model_config
+                    else None
+                )
                 if temperature is not None:
                     self.logger.generation_set_model_parameters(
                         span.span_id,
@@ -358,7 +362,11 @@ class MaximOpenAIAgentsTracingProcessor(TracingProcessor):
                     self.logger.generation_set_model(
                         span.parent_id, speech_data.model or "unknown"
                     )
-                    temperature = speech_data.model_config.get("temperature", None) if speech_data.model_config else None
+                    temperature = (
+                        speech_data.model_config.get("temperature", None)
+                        if speech_data.model_config
+                        else None
+                    )
                     if temperature is not None:
                         self.logger.generation_set_model_parameters(
                             span.parent_id,
