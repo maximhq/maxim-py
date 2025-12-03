@@ -73,6 +73,7 @@ class GenerationConfig:
     span_id: Optional[str] = None
     name: Optional[str] = None
     maxim_prompt_id: Optional[str] = None
+    maxim_prompt_version_id: Optional[str] = None
     tags: Optional[Dict[str, str]] = None
 
 
@@ -90,6 +91,7 @@ class GenerationConfigDict(TypedDict, total=False):
     span_id: Optional[str]
     name: Optional[str]
     maxim_prompt_id: Optional[str]
+    maxim_prompt_version_id: Optional[str]
     tags: Optional[Dict[str, str]]
 
 
@@ -115,6 +117,7 @@ def get_generation_config_dict(
                 span_id=config.span_id,
                 name=config.name,
                 maxim_prompt_id=config.maxim_prompt_id,
+                maxim_prompt_version_id=config.maxim_prompt_version_id,
                 tags=config.tags,
             )
         )
@@ -301,6 +304,7 @@ class Generation(BaseContainer):
         super().__init__(Entity.GENERATION, final_config, writer)
         self.model = final_config.get("model", None)
         self.maxim_prompt_id = final_config.get("maxim_prompt_id", None)
+        self.maxim_prompt_version_id = final_config.get("maxim_prompt_version_id", None)
         self.messages = []
         self.provider = final_config.get("provider", None)
         if self.provider is not None:
@@ -866,6 +870,7 @@ class Generation(BaseContainer):
             "model": self.model,
             "provider": self.provider,
             "maximPromptId": self.maxim_prompt_id,
+            "maximPromptVersionId": self.maxim_prompt_version_id,
             "messages": self.messages,
             "modelParameters": self.model_parameters,
         }

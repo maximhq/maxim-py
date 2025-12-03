@@ -30,6 +30,7 @@ def generation(
     id: Optional[Union[Callable,str]] = None,
     name: Optional[str] = None,
     maxim_prompt_id: Optional[str] = None,
+    maxim_prompt_version_id: Optional[str] = None,
     tags: Optional[Dict[str, str]] = None,
     evaluators: Optional[List[str]] = None,
     evaluator_variables: Optional[Dict[str, str]] = None,
@@ -47,6 +48,7 @@ def generation(
             callable that returns a string. If None, generates a UUID.
         name (Optional[str]): Human-readable name for the generation.
         maxim_prompt_id (Optional[str]): ID of the Maxim prompt template used.
+        maxim_prompt_version_id (Optional[str]): ID of the Maxim prompt template version used.
         tags (Optional[Dict[str, str]]): Key-value pairs for tagging the generation.
         evaluators (Optional[List[str]]): List of evaluator names to run on this
             generation.
@@ -113,6 +115,7 @@ def generation(
                     model="unknown",
                     provider="unknown",
                     maxim_prompt_id=maxim_prompt_id,
+                    maxim_prompt_version_id=maxim_prompt_version_id,
                     tags=tags,
                 )
                 generation: Optional[Generation] = None
@@ -170,6 +173,7 @@ def generation(
                     model="unknown",
                     provider="unknown",
                     maxim_prompt_id=maxim_prompt_id,
+                    maxim_prompt_version_id=maxim_prompt_version_id,
                     tags=tags,
                 )
                 generation: Optional[Generation] = None
