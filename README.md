@@ -182,6 +182,10 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.2
+- fix: Fixes Fallback adapter handling in Livekit SDK
+- fix: Fixes a race condition in the initial session start
+
 ### 3.14.1
 - feat: Adds support for choosing environment when running test runs with workflow using the `with_environment` method
 - fix: Fixes variable support for urls in test runs

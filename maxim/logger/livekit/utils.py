@@ -4,11 +4,12 @@ from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, Optional
 from uuid import uuid4
+
+from livekit.agents.llm import LLM
 from livekit.agents.types import NOT_GIVEN
 from livekit.plugins.openai.llm import _LLMOptions
 
-from livekit.agents.llm import LLM
-
+from ...scribe import scribe
 from .store import (
     LLMUsage,
     SessionStoreEntry,
@@ -17,7 +18,6 @@ from .store import (
     get_maxim_logger,
     get_session_store,
 )
-from ...scribe import scribe
 
 
 class SameThreadExecutor(Executor):
@@ -58,11 +58,13 @@ class SameThreadExecutor(Executor):
 _thread_pool_executor = ThreadPoolExecutor(max_workers=1)
 _thread_pool_lock = threading.Lock()
 
+
 def get_thread_pool_executor() -> ThreadPoolExecutor:
     """Get the global thread pool executor for processing."""
     if _thread_pool_executor is None:
         raise ValueError("Thread pool executor is not initialized")
     return _thread_pool_executor
+
 
 def shutdown_thread_pool_executor(wait=True):
     """Shutdown the global thread pool executor."""
@@ -153,33 +155,74 @@ def start_new_turn(session_info: SessionStoreEntry):
             )
     return current_turn
 
+
 def extract_llm_usage(session_id: str, llm: Optional[LLM]) -> Optional[LLMUsage]:
     if llm is None:
         return None
 
-    if hasattr(llm, "_events") and llm._events is not None:
-        events = llm._events or getattr(llm, "_events", None)
-        if isinstance(events, dict) and "metrics_collected" in events:
-            session_info = get_session_store().get_session_by_agent_session_id(
-                session_id,
-            )
-            if session_info is not None:
-                turn = session_info.current_turn
-                if turn is not None:
-                    return turn.usage
+    session_info = get_session_store().get_session_by_agent_session_id(
+        session_id,
+    )
+    if session_info is not None:
+        turn = session_info.current_turn
+        if turn is not None:
+            return turn.usage
+
     return None
 
-def extract_llm_model_parameters(llm: Optional[_LLMOptions]) -> Optional[dict[str, Any]]:
+
+def extract_llm_model_parameters(
+    llm: Optional[_LLMOptions],
+) -> Optional[dict[str, Any]]:
     """
     Extract the model parameters from the LLM object.
     """
     if llm is None:
         return None
     model_parameters = {}
-    if hasattr(llm, "temperature") and llm.temperature is not None and llm.temperature != NOT_GIVEN:
+    if (
+        hasattr(llm, "temperature")
+        and llm.temperature is not None
+        and llm.temperature != NOT_GIVEN
+    ):
         model_parameters["temperature"] = llm.temperature
-    if hasattr(llm, "max_completion_tokens") and llm.max_completion_tokens is not None and llm.max_completion_tokens != NOT_GIVEN:
+    if (
+        hasattr(llm, "max_completion_tokens")
+        and llm.max_completion_tokens is not None
+        and llm.max_completion_tokens != NOT_GIVEN
+    ):
         model_parameters["max_completion_tokens"] = llm.max_completion_tokens
-    if hasattr(llm, "tool_choice") and llm.tool_choice is not None and llm.tool_choice != NOT_GIVEN:
+    if (
+        hasattr(llm, "tool_choice")
+        and llm.tool_choice is not None
+        and llm.tool_choice != NOT_GIVEN
+    ):
         model_parameters["tool_choice"] = llm.tool_choice
     return model_parameters
+
+
+def get_active_llm(llm: Optional[LLM]) -> Optional[LLM]:
+    """
+    Get the active LLM from the LLM object.
+    Handles cases where the LLM is a FallbackAdapter.
+    """
+    if llm is None:
+        return None
+
+    label = getattr(llm, "label", None)
+    if label is not None and label != NOT_GIVEN:
+        if (
+            label == "livekit.agents.llm.fallback_adapter.FallbackAdapter"
+            and hasattr(llm, "_llm_instances")
+            and hasattr(llm, "_status")
+            and len(llm._llm_instances) > 0
+        ):
+            first_available_llm_index = None
+            for index, llm_status in enumerate(llm._status):
+                if llm_status.available:
+                    first_available_llm_index = index
+                    break
+            if first_available_llm_index is not None:
+                return llm._llm_instances[first_available_llm_index]
+
+    return llm
