@@ -1,21 +1,28 @@
 import functools
 import inspect
-from io import BytesIO
 import time
 import traceback
-from uuid import uuid4
 import weakref
+from io import BytesIO
+from typing import Optional
+from uuid import uuid4
 
-from livekit.agents.metrics import AgentMetrics 
-from livekit.agents.voice.agent_activity import AgentActivity
+from livekit.agents import NOT_GIVEN
+from livekit.agents.metrics import AgentMetrics
 from livekit.agents.vad import VADEvent, VADEventType
+from livekit.agents.voice.agent_activity import AgentActivity
 from livekit.plugins.openai.llm import _LLMOptions
 
 from ...scribe import scribe
 from ..components import FileDataAttachment
 from ..utils import pcm16_to_wav_bytes
-from .store import get_session_store, get_maxim_logger
-from .utils import extract_llm_model_parameters, get_thread_pool_executor, start_new_turn
+from .store import get_maxim_logger, get_session_store
+from .utils import (
+    extract_llm_model_parameters,
+    get_active_llm,
+    get_thread_pool_executor,
+    start_new_turn,
+)
 
 agent_activity_f_skip_list = []
 
@@ -33,9 +40,7 @@ def handle_interrupt(self: AgentActivity):
 def post_realtime_session_start(self: AgentActivity):
     # Trying to get AgentSession and RealtimeSession handles
     rt_session_id = id(self.realtime_llm_session)
-    session_info = get_session_store().get_session_by_agent_session_id(
-        id(self.session)
-    )
+    session_info = get_session_store().get_session_by_agent_session_id(id(self.session))
     if session_info is None:
         scribe().warning(
             f"[Internal][{self.__class__.__name__}] session info is none at realtime session start. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues."
@@ -58,9 +63,7 @@ def post_start(self: AgentActivity):
 
 def handle_input_speech_started(self: AgentActivity):
     scribe().debug(f"[Internal][{self.__class__.__name__}] input speech started")
-    session_info = get_session_store().get_session_by_agent_session_id(
-        id(self.session)
-    )
+    session_info = get_session_store().get_session_by_agent_session_id(id(self.session))
     if session_info is None:
         scribe().warning(
             f"[Internal][{self.__class__.__name__}] session info is none at realtime session emit. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues."
@@ -91,9 +94,7 @@ def handle_create_speech_task(self: AgentActivity):
     scribe().debug(f"[Internal][{self.__class__.__name__}] create speech task")
     if self.agent.session.agent_state != "listening":
         return
-    session_info = get_session_store().get_session_by_agent_session_id(
-        id(self.session)
-    )
+    session_info = get_session_store().get_session_by_agent_session_id(id(self.session))
     if session_info is None:
         scribe().warning(
             f"[Internal][{self.__class__.__name__}] session info is none at realtime session emit. If you are seeing this frequently, please report issue at https://github.com/maximhq/maxim-py/issues."
@@ -149,7 +150,7 @@ def handle_vad_inference_done(self: AgentActivity, event: VADEvent):
         scribe().debug(f"[Internal][{self.__class__.__name__}] VAD inference done")
 
 
-def handle_final_transcript(self, event):
+def handle_final_transcript(self: AgentActivity, event):
     """Handle final transcript event and create generation with audio attachments"""
     try:
         session_info = get_session_store().get_session_by_agent_session_id(
@@ -167,9 +168,22 @@ def handle_final_transcript(self, event):
                 f"[Internal][{self.__class__.__name__}] current turn is none at final transcript."
             )
             return
+        
+        agent = self.session.current_agent
 
-        llm_opts: _LLMOptions = self.llm._opts if self.llm is not None else self._agent.llm._opts
-        model = self.llm.model if self.llm is not None else self._agent.llm.model
+        llm = (
+            get_active_llm(self.llm)
+            or get_active_llm(
+                agent.llm if agent.llm is not None and agent.llm is not NOT_GIVEN else None
+            )
+            or None
+        )
+
+
+        llm_opts: Optional[_LLMOptions] = (
+            getattr(llm, "_opts", None) if llm is not None else None
+        )
+        model = getattr(llm, "model", None) if llm is not None else None
         if llm_opts is not None:
             model_parameters = extract_llm_model_parameters(llm_opts)
         else:
@@ -199,7 +213,9 @@ def handle_final_transcript(self, event):
                         "model": model if model is not None else "unknown",
                         "name": "Conversation Turn",
                         "provider": "livekit",
-                        "model_parameters": model_parameters if model_parameters is not None else {},
+                        "model_parameters": model_parameters
+                        if model_parameters is not None
+                        else {},
                         "messages": [{"role": "user", "content": transcript}],
                     }
                 )
@@ -318,15 +334,14 @@ def handle_agent_speech_finished(self: AgentActivity):
             f"[Internal][{self.__class__.__name__}] agent speech finished handling failed; error={e!s}\n{traceback.format_exc()}"
         )
 
+
 def handle_metrics_collected(self: AgentActivity, metrics: AgentMetrics):
     """Handle metrics collected event"""
     if metrics.type != "llm_metrics":
         # Will only get the LLM metrics
         return
 
-    session_info = get_session_store().get_session_by_agent_session_id(
-        id(self.session)
-    )
+    session_info = get_session_store().get_session_by_agent_session_id(id(self.session))
     if session_info is None:
         return
 
@@ -335,13 +350,17 @@ def handle_metrics_collected(self: AgentActivity, metrics: AgentMetrics):
         return
 
     usage = {}
-    usage["completion_tokens"] = 0 if metrics.completion_tokens is None else metrics.completion_tokens
-    usage["prompt_tokens"] = 0 if metrics.prompt_tokens is None else metrics.prompt_tokens
+    usage["completion_tokens"] = (
+        0 if metrics.completion_tokens is None else metrics.completion_tokens
+    )
+    usage["prompt_tokens"] = (
+        0 if metrics.prompt_tokens is None else metrics.prompt_tokens
+    )
     usage["total_tokens"] = 0 if metrics.total_tokens is None else metrics.total_tokens
 
     turn.usage = usage
 
-    
+
 def handle_end_of_speech(self: AgentActivity, event: VADEvent):
     try:
         if event.type != VADEventType.END_OF_SPEECH:
@@ -355,35 +374,36 @@ def handle_end_of_speech(self: AgentActivity, event: VADEvent):
                 f"[Internal][{self.__class__.__name__}] session info is none at end of speech."
             )
             return
-        
+
         turn = session_info.current_turn
         if turn is None:
             scribe().warning(
                 f"[Internal][{self.__class__.__name__}] current turn is none at end of speech."
             )
             return
-        
+
         frames = event.frames[0] if len(event.frames) > 0 else None
         if frames is None:
             scribe().warning(
                 f"[Internal][{self.__class__.__name__}] frames is none at end of speech."
             )
             return
-        
+
         turn = start_new_turn(session_info)
         if turn.turn_input_audio_buffer is None:
             turn.turn_input_audio_buffer = BytesIO()
         turn.turn_input_audio_buffer.write(frames.data)
         session_info.current_turn = turn
         session_info.conversation_buffer.write(frames.data)
-        
-        if turn.turn_input_audio_buffer is not None and turn.turn_input_audio_buffer.tell() > 0:
+
+        if (
+            turn.turn_input_audio_buffer is not None
+            and turn.turn_input_audio_buffer.tell() > 0
+        ):
             get_maxim_logger().generation_add_attachment(
                 turn.turn_id,
                 FileDataAttachment(
-                    data=pcm16_to_wav_bytes(
-                        turn.turn_input_audio_buffer.getvalue()
-                    ),
+                    data=pcm16_to_wav_bytes(turn.turn_input_audio_buffer.getvalue()),
                     tags={"attach-to": "input"},
                     name="User Audio Input",
                     timestamp=int(time.time()),
@@ -395,6 +415,7 @@ def handle_end_of_speech(self: AgentActivity, event: VADEvent):
         scribe().warning(
             f"[Internal][{self.__class__.__name__}] handle_end_of_speech failed in function; error={e!s}\n{traceback.format_exc()}"
         )
+
 
 def pre_hook(self, hook_name, args, kwargs):
     ignored_hooks = ["push_audio"]
@@ -419,6 +440,7 @@ def pre_hook(self, hook_name, args, kwargs):
                     f"[Internal][{self.__class__.__name__}] handle_end_of_speech failed; error={e!s}\n{traceback.format_exc()}"
                 )
         elif hook_name == "_on_metrics_collected":
+            scribe().debug(f"[Internal][{self.__class__.__name__}] metrics collected handling {args[0]}")
             get_thread_pool_executor().submit(handle_metrics_collected, self, args[0])
         elif hook_name == "on_vad_inference_done":
             if not args or len(args) == 0:

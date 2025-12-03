@@ -1,19 +1,23 @@
+from typing import Optional
+
 from livekit.agents import AgentSession
 from livekit.agents.llm import RealtimeSession
 from livekit.agents.voice.agent_activity import AgentActivity
 from livekit.plugins.openai import LLM, STT, TTS
+
 from ...logger import Logger
 from .agent_activity import instrument_agent_activity
 from .agent_session import instrument_agent_session
+
 # Import instrument_gemini conditionally to avoid dependency issues
 from .llm import instrument_llm_init
 from .realtime_session import instrument_realtime_session
-from .stt import instrument_stt_init
 from .store import MaximLiveKitCallback, set_livekit_callback, set_maxim_logger
+from .stt import instrument_stt_init
 from .tts import instrument_tts_init
 
 
-def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
+def instrument_livekit(logger: Logger, callback: Optional[MaximLiveKitCallback] = None):
     """Instrument LiveKit classes with logging.
 
     This function adds logging instrumentation to LiveKit classes (Agent, JobContext, LLM)
@@ -29,7 +33,9 @@ def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
         "[MaximSDK] Warning: LiveKit instrumentation is in beta phase. Please report any issues here: https://github.com/maximhq/maxim-py/issues"
     )
     set_maxim_logger(logger)
-    set_livekit_callback(callback)
+    if callback is not None:
+        set_livekit_callback(callback)
+
     # Instrument AgentSession methods
     for name, orig in [
         (n, getattr(AgentSession, n))
@@ -43,8 +49,8 @@ def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
     # for name, orig in [
     #     (n, getattr(Worker, n)) for n in dir(Worker) if callable(getattr(Worker, n))
     # ]:
-        # if name != "__class__" and not name.startswith("__"):
-        #     setattr(Worker, name, instrument_worker(orig, name))
+    # if name != "__class__" and not name.startswith("__"):
+    #     setattr(Worker, name, instrument_worker(orig, name))
 
     # Instrument RealtimeSession methods
     for name, orig in [
@@ -117,6 +123,7 @@ def instrument_livekit(logger: Logger, callback: MaximLiveKitCallback = None):
     # Instrument gemini models if present
     try:
         from .gemini.instrumenter import instrument_gemini
+
         instrument_gemini()
     except (ImportError, NameError):
         # Gemini dependencies not available, skip instrumentation
