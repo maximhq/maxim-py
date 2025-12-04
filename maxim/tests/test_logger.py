@@ -575,6 +575,7 @@ class TestCreatingSession(unittest.TestCase):
                 span_id=None,
                 name="FormFill",
                 maxim_prompt_id=None,
+                maxim_prompt_version_id=None,
                 tags={"tenant_id": "20", "user_id": "20"},
             ),
         )
@@ -629,6 +630,7 @@ class TestCreatingSession(unittest.TestCase):
                 span_id=None,
                 name="FormFill",
                 maxim_prompt_id=None,
+                maxim_prompt_version_id=None,
                 tags={"tenant_id": "20", "user_id": "20"},
             ),
         )
@@ -674,6 +676,7 @@ class TestCreatingSession(unittest.TestCase):
                 span_id=None,
                 name="FormFill",
                 maxim_prompt_id=None,
+                maxim_prompt_version_id=None,
                 tags={"tenant_id": "20", "user_id": "20"},
             ),
         )
@@ -729,6 +732,7 @@ class TestCreatingSession(unittest.TestCase):
                 span_id=None,
                 name="IntentClassifier",
                 maxim_prompt_id=None,
+                maxim_prompt_version_id=None,
                 tags=None,
             ),
         )
