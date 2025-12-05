@@ -182,6 +182,9 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.3
+- feat: Adds a new optional parameter `maxim_prompt_version_id` in `generation`
+
 ### 3.14.2
 - fix: Fixes Fallback adapter handling in Livekit SDK
 - fix: Fixes a race condition in the initial session start
