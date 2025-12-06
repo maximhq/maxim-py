@@ -119,6 +119,32 @@ class ElevenLabsUtils:
         return trace_id
 
     @staticmethod
+    def should_disable_auto_input_output(kwargs: dict[str, Any]) -> bool:
+        """
+        Check if auto input/output detection should be disabled via header.
+        
+        Args:
+            kwargs: Function kwargs containing request_options
+            
+        Returns:
+            True if x-maxim-disable-auto-input-output header is present and truthy, False otherwise
+        """
+        request_options = kwargs.get("request_options")
+        if not request_options:
+            return False
+        request_options = RequestOptions(request_options)
+        if request_options and "additional_headers" in request_options:
+            additional_headers = request_options["additional_headers"]
+            if isinstance(additional_headers, dict):
+                disable_flag = additional_headers.get("x-maxim-disable-auto-input-output")
+                # Check if flag is present and truthy (allows "true", "1", True, etc.)
+                if disable_flag:
+                    if isinstance(disable_flag, str):
+                        return disable_flag.lower() in ("true", "1", "yes")
+                    return bool(disable_flag)
+        return False
+
+    @staticmethod
     def detect_audio_mime_type(audio_data: bytes) -> str:
         """
         Detect the MIME type of audio data from its header bytes.
