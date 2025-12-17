@@ -2,26 +2,21 @@
 # This file uses langchain 0.3.x
 ###########################################
 
-import json
+import base64
 import logging
 import os
 import unittest
+from pathlib import Path
 from time import sleep
 from uuid import uuid4
 
 import dotenv
-
 from langchain.chains.llm import LLMChain
-from langchain.prompts import ChatPromptTemplate, PromptTemplate
-from langchain.prompts.chat import (
-    ChatPromptTemplate,
-    HumanMessagePromptTemplate,
-    SystemMessagePromptTemplate,
-)
-from langchain.schema.output_parser import StrOutputParser
-from langchain.schema.runnable import RunnableLambda, RunnableSequence
+from langchain.prompts import ChatPromptTemplate, PromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 from langchain_anthropic import AnthropicLLM, ChatAnthropic
 from langchain_community.llms.openai import AzureOpenAI, OpenAI
+from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import tool
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
@@ -29,13 +24,11 @@ from maxim.logger.components.generation import GenerationConfig
 from maxim.logger.components.span import SpanConfig
 from maxim.logger.components.trace import TraceConfig
 from maxim.logger.langchain.tracer import MaximLangchainTracer
-from maxim.logger.logger import LoggerConfig, LoggerConfigDict
-from maxim.maxim import Config, Maxim
+from maxim.logger.logger import LoggerConfigDict
+from maxim.maxim import Maxim
 
 # Load environment variables from .env file
 dotenv.load_dotenv()
-
-env = "dev"
 
 awsAccessKeyId = os.getenv("BEDROCK_ACCESS_KEY_ID")
 awsAccessKeySecret = os.getenv("BEDROCK_SECRET_ACCESS_KEY")
@@ -65,10 +58,16 @@ def subtraction_tool(a, b):
 
 class TestLoggingUsingLangchain(unittest.TestCase):
     def setUp(self):
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
         self.maxim = Maxim({"api_key": apiKey, "base_url": baseUrl})
 
     def test_generation_chat_prompt(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = OpenAI(callbacks=[MaximLangchainTracer(logger)], api_key=openAIKey)
         messages = [
             (
@@ -81,7 +80,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print(f"result {result}")
 
     def test_generation_chat_prompt_with_external_trace(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         trace_id = str(uuid4())
         trace = logger.trace(TraceConfig(id=trace_id, name="pre-defined-trace"))
 
@@ -109,7 +112,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         trace.end()
 
     def test_generation_chat_prompt_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = ChatOpenAI(callbacks=[MaximLangchainTracer(logger)], api_key=openAIKey)
         messages = [
             (
@@ -121,10 +128,14 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         model.invoke(messages)
 
     def test_generation_chat_prompt_azure_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = AzureChatOpenAI(
             api_key=azureOpenAIKey,
-            model="gpt-35-turbo-16k",
+            model="gpt-4o-mini",
             azure_endpoint=azureOpenAIBaseUrl,
             callbacks=[MaximLangchainTracer(logger)],
             api_version="2024-02-01",
@@ -143,10 +154,14 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         logger.flush()
 
     def test_generation_chat_prompt_azure_chat_model_with_streaming(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = AzureChatOpenAI(
             api_key=azureOpenAIKey,
-            model="gpt-35-turbo-16k",
+            model="gpt-4o-mini",
             azure_endpoint=azureOpenAIBaseUrl,
             callbacks=[MaximLangchainTracer(logger)],
             api_version="2024-02-01",
@@ -439,10 +454,14 @@ class TestLoggingUsingLangchain(unittest.TestCase):
     #     logger.flush()
 
     def test_generation_chat_prompt_anthropic_llm(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = AnthropicLLM(
             api_key=anthropicApiKey,
-            model_name="claude-3-5-sonnet-20240620",
+            model_name="claude-4-sonnet",
             callbacks=[MaximLangchainTracer(logger)],
         )
         messages = [
@@ -457,11 +476,15 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         logger.flush()
 
     def test_generation_chat_prompt_anthropic_sonnet_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = ChatAnthropic(
             api_key=anthropicApiKey,
             callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-5-sonnet-20240620",
+            model_name="claude-4-sonnet",
             timeout=10,
             stop=None,
         )
@@ -477,11 +500,15 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         logger.flush()
 
     def test_generation_chat_prompt_anthropic_sonnet_chat_model_streaming(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = ChatAnthropic(
             api_key=anthropicApiKey,
             callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-5-sonnet-20240620",
+            model_name="claude-4-sonnet",
             timeout=10,
             stop=None,
             stream_usage=True,
@@ -499,7 +526,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         logger.flush()
 
     def test_generation_chat_prompt_openai_chat_model_with_tool_call(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = model = ChatOpenAI(
             callbacks=[MaximLangchainTracer(logger)],
             api_key=openAIKey,
@@ -520,7 +551,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
     def test_generation_chat_prompt_openai_chat_model_with_tool_call_with_streaming(
         self,
     ):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = model = ChatOpenAI(
             callbacks=[MaximLangchainTracer(logger)],
             api_key=openAIKey,
@@ -541,7 +576,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         logger.flush()
 
     def test_generation_chat_prompt_openai_chat_model_with_streaming(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = model = ChatOpenAI(
             callbacks=[MaximLangchainTracer(logger)],
             api_key=openAIKey,
@@ -563,11 +602,15 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         logger.flush()
 
     def test_generation_chat_prompt_anthropic_sonnet_chat_model_with_tool_call(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = ChatAnthropic(
             api_key=anthropicApiKey,
             callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-5-sonnet-20240620",
+            model_name="claude-4-sonnet",
             timeout=10,
             stop=None,
         )
@@ -584,11 +627,15 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         logger.flush()
 
     def test_generation_chat_prompt_anthropic_3_sonnet_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = ChatAnthropic(
             api_key=anthropicApiKey,
             callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-sonnet-20240229",
+            model_name="claude-4-sonnet",
             timeout=10,
             stop=None,
         )
@@ -604,7 +651,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         logger.flush()
 
     def test_generation_chat_prompt_anthropic_haiku_chat_model(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = ChatAnthropic(
             api_key=anthropicApiKey,
             callbacks=[MaximLangchainTracer(logger)],
@@ -624,10 +675,14 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         logger.flush()
 
     def test_generation_chat_prompt_azure_chat_model_old_class(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = AzureOpenAI(
             api_key=azureOpenAIKey,
-            model="gpt-35-turbo-16k",
+            model="gpt-4o",
             azure_endpoint=azureOpenAIBaseUrl,
             callbacks=[MaximLangchainTracer(logger)],
             api_version="2024-02-01",
@@ -645,7 +700,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         sleep(5)
 
     def test_generation_chat_prompt_chat_model_with_span(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         trace = logger.trace(TraceConfig(id=str(uuid4()), name="test-trace"))
         span = trace.span(SpanConfig(id=str(uuid4()), name="test-span"))
         model = ChatOpenAI(callbacks=[MaximLangchainTracer(logger)], api_key=openAIKey)
@@ -662,9 +721,13 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         trace.end()
 
     def test_generation_chat_prompt_chat_model_error(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = ChatOpenAI(
-            model="gpt2", callbacks=[MaximLangchainTracer(logger)], api_key=openAIKey
+            model="gpt-4.1", callbacks=[MaximLangchainTracer(logger)], api_key=openAIKey
         )
         messages = [
             (
@@ -677,7 +740,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
             model.invoke(messages)
 
     def test_langchain_generation_with_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         llm = ChatOpenAI(
             temperature=0.7,
             model="gpt-4o",
@@ -697,10 +764,14 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print(result)
 
     def test_langchain_generation_with_azure_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         llm = AzureChatOpenAI(
             api_key=azureOpenAIKey,
-            model="gpt-35-turbo-16k",
+            model="gpt-4o",
             azure_endpoint=azureOpenAIBaseUrl,
             api_version="2024-02-01",
             callbacks=[MaximLangchainTracer(logger)],
@@ -719,10 +790,12 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print(result)
 
     def test_langchain_generation_with_azure_multi_prompt_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger({
+            "id": repoId,
+        })
         llm = AzureChatOpenAI(
             api_key=azureOpenAIKey,
-            model="gpt-35-turbo-16k",
+            model="gpt-4o",
             azure_endpoint=azureOpenAIBaseUrl,
             api_version="2024-02-01",
             callbacks=[MaximLangchainTracer(logger)],
@@ -766,7 +839,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print("Data Cleaning Result:", result_cleaning)
 
     def test_langchain_tools(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         llm = ChatOpenAI(
             temperature=0.7,
             model="gpt-4o",
@@ -779,7 +856,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         result = llm_with_tools.invoke(query)
 
     def test_langchain_tools_with_chat_openai_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         prompt = PromptTemplate(
             input_variables=["first_int", "second_int"],
             template="What is {first_int} multiplied by {second_int}?",
@@ -797,9 +878,12 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print(response)
 
     def test_custom_result_with_generation_chat_prompt(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         model = OpenAI(api_key=openAIKey)
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
         trace = logger.trace(TraceConfig(id=str(uuid4()), name="test-trace"))
         generation = trace.generation(
             GenerationConfig(
@@ -828,7 +912,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         trace.end()
 
     def test_simple_langchain_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         llm = ChatOpenAI(temperature=0.7, model="gpt-4o", n=3, api_key=openAIKey)
         system_template = SystemMessagePromptTemplate.from_template(
             "You are an expert in Data Science and Machine Learning"
@@ -845,7 +933,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print(result)
 
     def test_multi_node_langchain_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         llm = ChatOpenAI(temperature=0.7, model="gpt-4o", n=3, api_key=openAIKey)
 
         # Define a simple function to use in the chain
@@ -866,10 +958,175 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         # Run the chain with input
         input_text = "This is a test of a multi-node Langchain."
         result = chain.invoke(
-            input_text, config={"callbacks": [MaximLangchainTracer(logger)]}
+            input_text 
         )
 
         print(result)
+
+    def test_human_message_with_image_file_attachment(self):
+        """Test LangChain chat model with image file attached in human message using raw bytes.
+
+        This test demonstrates LangChain's support for raw bytes using the 'media' content type.
+        No base64 encoding is required - just read the file as bytes and pass directly.
+        """
+        # Get the path to the test image file
+        test_files_dir = Path(__file__).parent / "files"
+        image_path = test_files_dir / "png_image.png"
+
+        # Read the file as raw bytes - no base64 encoding needed!
+        file_bytes = image_path.read_bytes()
+
+        # Create a multimodal message with text and image using raw bytes
+        message_with_image = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "What do you see in this image? Describe it briefly.",
+                },
+                {
+                    "type": "media",
+                    "mime_type": "image/png",
+                    "data": file_bytes,  # Raw bytes for LangChain
+                },
+            ]
+        )
+
+        model = ChatOpenAI(
+            api_key=openAIKey,
+            model="gpt-4o-mini",
+        )
+
+        result = model.invoke([message_with_image])
+        print(f"Result with image attachment: {result}")
+
+    def test_human_message_with_image_url_attachment(self):
+        """Test LangChain chat model with image URL attached in human message"""
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Use a public image URL
+        image_url = "https://pyxis.nymag.com/v1/imgs/7e2/b83/01a7d3094f5856a53f409a59b9d16e392e-22-transformers-fighting.jpg"
+
+        # Create a multimodal message with text and image URL
+        message_with_image = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "What do you see in this image? Describe it briefly.",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_url},
+                },
+            ]
+        )
+
+        model = ChatOpenAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            api_key=openAIKey,
+            model="gpt-4o-mini",
+        )
+
+        result = model.invoke([message_with_image])
+        print(f"Result with image URL attachment: {result}")
+
+        logger.flush()
+
+    def test_human_message_with_multiple_image_attachments(self):
+        """Test LangChain chat model with multiple images attached in human message.
+
+        This test demonstrates mixing raw bytes (local file) with URL-based images.
+        """
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Get the path to the test image file
+        test_files_dir = Path(__file__).parent / "files"
+        image_path = test_files_dir / "png_image.png"
+
+        # Read the file as raw bytes
+        file_bytes = image_path.read_bytes()
+
+        # Use a public image URL as second image
+        image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/300px-PNG_transparency_demonstration_1.png"
+
+        # Create a multimodal message with text and multiple images
+        # Mix raw bytes (local file) with URL-based image
+        message_with_images = HumanMessage(
+            content=[
+                {
+                    "type": "media",
+                    "mime_type": "image/png",
+                    "data": file_bytes,  # Raw bytes for local file
+                },
+            ]
+        )
+
+        model = ChatOpenAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            api_key=openAIKey,
+            model="gpt-4o-mini",
+        )
+
+        result = model.invoke([message_with_images])
+        print(f"Result with multiple image attachments: {result}")
+
+        logger.flush()
+
+    def test_human_message_with_audio_file_attachment(self):
+        """Test LangChain chat model with audio file attached in human message using raw bytes.
+
+        This test demonstrates attaching audio files using the 'media' content type.
+        Supported formats for media in LangChain:
+        1. URL: {"type": "image_url", "image_url": {"url": "https://..."}}
+        2. Raw bytes: {"type": "media", "mime_type": "audio/wav", "data": bytes}
+        3. Base64 data URL: {"type": "image_url", "image_url": {"url": "data:audio/wav;base64,..."}}
+        """
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Get the path to the test audio file
+        test_files_dir = Path(__file__).parent / "files"
+        audio_path = test_files_dir / "wav_audio.wav"
+
+        # Read the file as raw bytes
+        file_bytes = audio_path.read_bytes()
+
+        # Create a multimodal message with text and audio using raw bytes
+        message_with_audio = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "What do you hear in this audio? Describe it briefly.",
+                },
+                {
+                    "type": "media",
+                    "mime_type": "audio/wav",
+                    "data": file_bytes,  # Raw bytes for LangChain
+                },
+            ]
+        )
+
+        # Use gpt-4o-audio-preview for audio input support
+        model = ChatOpenAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            api_key=openAIKey,
+            model="gpt-4o-audio-preview",
+        )
+
+        result = model.invoke([message_with_audio])
+        print(f"Result with audio attachment: {result}")
+
+        logger.flush()
 
     def test_generation_result_callback(self):
         """Test that generation.result callback is called with correct values"""
