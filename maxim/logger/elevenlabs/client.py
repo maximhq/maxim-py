@@ -8,7 +8,7 @@ from uuid import uuid4
 from maxim.logger import GenerationConfigDict
 from maxim.logger.components.attachment import FileDataAttachment
 from maxim.logger.components.generation import (
-    AudioContent,
+    GenerationRequestMessage,
     GenerationResult,
     GenerationResultChoice,
 )
@@ -32,6 +32,9 @@ _trace_to_stt_generation: Dict[str, str] = {}
 _trace_to_tts_generation: Dict[str, str] = {}
 # Map trace_id to audio durations for pipeline operations
 _trace_to_durations: Dict[str, Dict[str, float]] = {}
+# Track if input/output have been set for a trace_id to avoid overwriting
+_trace_input_set: Dict[str, bool] = {}
+_trace_output_set: Dict[str, bool] = {}
 
 
 def wrap_speech_to_text_convert(func, logger: Logger):
@@ -140,7 +143,7 @@ def wrap_speech_to_text_convert(func, logger: Logger):
                             provider="elevenlabs",
                             model=kwargs.get("model_id", "unknown"),
                             name="STT Generation",
-                            messages=[{"role": "user", "content": transcript}],
+                            messages=[],  # Input is audio (attached), not text - no user message needed
                         )
                     )
 
@@ -171,8 +174,27 @@ def wrap_speech_to_text_convert(func, logger: Logger):
                                 mime_type=audio_data_mime_type,
                             )
                         )
+                        # Also attach to trace for pipeline operations
+                        trace.add_attachment(
+                            FileDataAttachment(
+                                data=audio_data,
+                                tags={"attach-to": "input"},
+                                name="User Speech Audio",
+                                timestamp=int(time.time()),
+                                mime_type=audio_data_mime_type,
+                            )
+                        )
 
-                    # Set STT generation output as transcript in user message
+                        # Set trace input directly to prevent workers from auto-detecting TTS user message as input
+                        # Only set if not disabled via header and not already set
+                        if not ElevenLabsUtils.should_disable_auto_input_output(kwargs):
+                            if not _trace_input_set.get(final_trace_id, False):
+                                trace.set_input(
+                                    transcript
+                                )  # Set transcript as trace input
+                                _trace_input_set[final_trace_id] = True
+
+                    # Set STT generation output as transcript in assistant message
                     generation_result = GenerationResult(
                         id=str(uuid4()),
                         object="stt.response",
@@ -182,7 +204,7 @@ def wrap_speech_to_text_convert(func, logger: Logger):
                             GenerationResultChoice(
                                 index=0,
                                 message={
-                                    "role": "user",
+                                    "role": "assistant",
                                     "content": transcript,
                                     "tool_calls": [],
                                 },
@@ -205,6 +227,13 @@ def wrap_speech_to_text_convert(func, logger: Logger):
 
         except Exception as e:
             scribe().error(f"[MaximSDK] STT conversion error: {e}")
+            # Clean up maps if this was a pipeline operation
+            if not is_local_trace:
+                _trace_to_stt_generation.pop(final_trace_id, None)
+                _trace_to_tts_generation.pop(final_trace_id, None)
+                _trace_to_durations.pop(final_trace_id, None)
+                _trace_input_set.pop(final_trace_id, None)
+                _trace_output_set.pop(final_trace_id, None)
             # Only end trace if we're managing its lifecycle
             if is_local_trace:
                 trace.end()
@@ -325,7 +354,9 @@ def wrap_text_to_speech_convert(func, logger: Logger):
                             provider="elevenlabs",
                             model=kwargs.get("model_id", "unknown"),
                             name="TTS Generation",
-                            messages=[{"role": "user", "content": text}],
+                            messages=[
+                                GenerationRequestMessage(role="user", content=text)
+                            ],
                         )
                     )
 
@@ -339,9 +370,7 @@ def wrap_text_to_speech_convert(func, logger: Logger):
                     if output_duration is not None:
                         if final_trace_id not in _trace_to_durations:
                             _trace_to_durations[final_trace_id] = {}
-                        _trace_to_durations[final_trace_id]["output"] = (
-                            output_duration
-                        )
+                        _trace_to_durations[final_trace_id]["output"] = output_duration
 
                     # Attach audio output to TTS generation
                     logger.generation_add_attachment(
@@ -354,13 +383,30 @@ def wrap_text_to_speech_convert(func, logger: Logger):
                             timestamp=int(time.time()),
                         ),
                     )
+                    # Also attach to trace for pipeline operations
+                    trace.add_attachment(
+                        FileDataAttachment(
+                            data=audio_data,
+                            tags={"attach-to": "output"},
+                            name="Assistant Speech Audio",
+                            mime_type=output_mime_type,
+                            timestamp=int(time.time()),
+                        )
+                    )
+
+                    # Set trace output directly to prevent workers from auto-detecting STT assistant message as output
+                    # Only set if not disabled via header and not already set
+                    if not ElevenLabsUtils.should_disable_auto_input_output(kwargs):
+                        if not _trace_output_set.get(final_trace_id, False):
+                            trace.set_output(text)  # Set TTS input text as trace output
+                            _trace_output_set[final_trace_id] = True
 
                 # Use the calculated output_duration if available, otherwise get from stored durations
                 if output_duration is None:
                     durations = _trace_to_durations.get(final_trace_id, {})
                     output_duration = durations.get("output", 0.0)
 
-                # Set TTS generation output as assistant response transcript
+                # Set TTS generation output - output is audio (attached), no assistant message needed
                 generation_result = GenerationResult(
                     id=str(uuid4()),
                     object="tts.response",
@@ -371,9 +417,7 @@ def wrap_text_to_speech_convert(func, logger: Logger):
                             index=0,
                             message={
                                 "role": "assistant",
-                                "content": [
-                                    AudioContent(type="audio", transcript=text)
-                                ],
+                                "content": None,  # Output is audio attachment, not text/transcript
                                 "tool_calls": [],
                             },
                             finish_reason="stop",
@@ -387,11 +431,13 @@ def wrap_text_to_speech_convert(func, logger: Logger):
                     },
                 )
                 logger.generation_result(tts_generation_id, generation_result)
-                
+
                 # Clean up maps after pipeline operation completes
                 _trace_to_stt_generation.pop(final_trace_id, None)
                 _trace_to_tts_generation.pop(final_trace_id, None)
                 _trace_to_durations.pop(final_trace_id, None)
+                _trace_input_set.pop(final_trace_id, None)
+                _trace_output_set.pop(final_trace_id, None)
 
             scribe().debug(
                 f"[MaximSDK] TTS conversion completed: {len(audio_data) if audio_data else 0} bytes"
@@ -405,6 +451,8 @@ def wrap_text_to_speech_convert(func, logger: Logger):
                 _trace_to_stt_generation.pop(final_trace_id, None)
                 _trace_to_tts_generation.pop(final_trace_id, None)
                 _trace_to_durations.pop(final_trace_id, None)
+                _trace_input_set.pop(final_trace_id, None)
+                _trace_output_set.pop(final_trace_id, None)
             # Only end trace if we're managing its lifecycle
             if is_local_trace:
                 trace.end()
@@ -486,10 +534,14 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                                 trace.end()
                             else:
                                 # For pipeline TTS stream, create separate TTS generation
-                                tts_generation_id = _trace_to_tts_generation.get(final_trace_id)
+                                tts_generation_id = _trace_to_tts_generation.get(
+                                    final_trace_id
+                                )
                                 if tts_generation_id is None:
                                     tts_generation_id = str(uuid4())
-                                    _trace_to_tts_generation[final_trace_id] = tts_generation_id
+                                    _trace_to_tts_generation[final_trace_id] = (
+                                        tts_generation_id
+                                    )
 
                                 # Create TTS generation with text input
                                 trace.generation(
@@ -498,13 +550,17 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                                         provider="elevenlabs",
                                         model=kwargs.get("model_id", "unknown"),
                                         name="TTS Generation",
-                                        messages=[{"role": "user", "content": text}],
+                                        messages=[
+                                            GenerationRequestMessage(
+                                                role="user", content=text
+                                            )
+                                        ],
                                     )
                                 )
 
                                 # Calculate output audio duration
-                                output_mime_type = (
-                                    ElevenLabsUtils.get_audio_mime_type(kwargs)
+                                output_mime_type = ElevenLabsUtils.get_audio_mime_type(
+                                    kwargs
                                 )
                                 output_duration = (
                                     ElevenLabsUtils.calculate_audio_duration(
@@ -516,9 +572,9 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                                 if output_duration is not None:
                                     if final_trace_id not in _trace_to_durations:
                                         _trace_to_durations[final_trace_id] = {}
-                                    _trace_to_durations[final_trace_id][
-                                        "output"
-                                    ] = output_duration
+                                    _trace_to_durations[final_trace_id]["output"] = (
+                                        output_duration
+                                    )
 
                                 logger.generation_add_attachment(
                                     tts_generation_id,
@@ -530,6 +586,27 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                                         timestamp=int(time.time()),
                                     ),
                                 )
+                                # Also attach to trace for pipeline operations
+                                trace.add_attachment(
+                                    FileDataAttachment(
+                                        data=combined_audio,
+                                        tags={"attach-to": "output"},
+                                        name="Assistant Speech Audio (Stream)",
+                                        mime_type=output_mime_type,
+                                        timestamp=int(time.time()),
+                                    )
+                                )
+
+                                # Set trace output directly to prevent workers from auto-detecting STT assistant message as output
+                                # Only set if not disabled via header and not already set
+                                if not ElevenLabsUtils.should_disable_auto_input_output(
+                                    kwargs
+                                ):
+                                    if not _trace_output_set.get(final_trace_id, False):
+                                        trace.set_output(
+                                            text
+                                        )  # Set TTS input text as trace output
+                                        _trace_output_set[final_trace_id] = True
 
                                 # Use the calculated output_duration if available, otherwise get from stored durations
                                 if output_duration is None:
@@ -538,7 +615,7 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                                     )
                                     output_duration = durations.get("output", 0.0)
 
-                                # Set TTS generation output as assistant response transcript
+                                # Set TTS generation output - output is audio (attached), no assistant message needed
                                 generation_result = GenerationResult(
                                     id=str(uuid4()),
                                     object="tts.response",
@@ -549,12 +626,7 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                                             index=0,
                                             message={
                                                 "role": "assistant",
-                                                "content": [
-                                                    AudioContent(
-                                                        type="audio",
-                                                        transcript=text,
-                                                    )
-                                                ],
+                                                "content": None,  # Output is audio attachment, not text/transcript
                                                 "tool_calls": [],
                                             },
                                             finish_reason="stop",
@@ -570,7 +642,7 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                                 logger.generation_result(
                                     tts_generation_id, generation_result
                                 )
-                                
+
                                 # Clean up maps after pipeline operation completes
                                 _trace_to_stt_generation.pop(final_trace_id, None)
                                 _trace_to_tts_generation.pop(final_trace_id, None)
@@ -607,22 +679,22 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                                     provider="elevenlabs",
                                     model=kwargs.get("model_id", "unknown"),
                                     name="TTS Generation",
-                                    messages=[{"role": "user", "content": text}],
+                                    messages=[
+                                        GenerationRequestMessage(
+                                            role="user", content=text
+                                        )
+                                    ],
                                 )
                             )
 
                         # Calculate output audio duration
-                        output_mime_type = ElevenLabsUtils.get_audio_mime_type(
-                            kwargs
-                        )
+                        output_mime_type = ElevenLabsUtils.get_audio_mime_type(kwargs)
                         output_duration = None
                         if isinstance(audio_data, bytes):
-                            output_duration = (
-                                ElevenLabsUtils.calculate_audio_duration(
-                                    audio_data,
-                                    output_mime_type,
-                                    kwargs.get("output_format"),
-                                )
+                            output_duration = ElevenLabsUtils.calculate_audio_duration(
+                                audio_data,
+                                output_mime_type,
+                                kwargs.get("output_format"),
                             )
                             if output_duration is not None:
                                 if final_trace_id not in _trace_to_durations:
@@ -641,12 +713,32 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                                 timestamp=int(time.time()),
                             ),
                         )
+                        # Also attach to trace for pipeline operations
+                        trace.add_attachment(
+                            FileDataAttachment(
+                                data=audio_data,
+                                tags={"attach-to": "output"},
+                                name="Assistant Speech Audio (Stream)",
+                                mime_type=output_mime_type,
+                                timestamp=int(time.time()),
+                            )
+                        )
+
+                        # Set trace output directly to prevent workers from auto-detecting STT assistant message as output
+                        # Only set if not disabled via header and not already set
+                        if not ElevenLabsUtils.should_disable_auto_input_output(kwargs):
+                            if not _trace_output_set.get(final_trace_id, False):
+                                trace.set_output(
+                                    text
+                                )  # Set TTS input text as trace output
+                                _trace_output_set[final_trace_id] = True
+
                         # Use the calculated output_duration if available, otherwise get from stored durations
                         if output_duration is None:
                             durations = _trace_to_durations.get(final_trace_id, {})
                             output_duration = durations.get("output", 0.0)
 
-                        # Set TTS generation output as assistant response transcript
+                        # Set TTS generation output - output is audio (attached), no assistant message needed
                         generation_result = GenerationResult(
                             id=str(uuid4()),
                             object="tts.response",
@@ -657,11 +749,7 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                                     index=0,
                                     message={
                                         "role": "assistant",
-                                        "content": [
-                                            AudioContent(
-                                                type="audio", transcript=text
-                                            )
-                                        ],
+                                        "content": None,  # Output is audio attachment, not text/transcript
                                         "tool_calls": [],
                                     },
                                     finish_reason="stop",
@@ -675,7 +763,7 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                             },
                         )
                         logger.generation_result(tts_generation_id, generation_result)
-                        
+
                         # Clean up maps after pipeline operation completes
                         _trace_to_stt_generation.pop(final_trace_id, None)
                         _trace_to_tts_generation.pop(final_trace_id, None)
@@ -690,6 +778,8 @@ def wrap_text_to_speech_stream(func, logger: Logger):
                 _trace_to_stt_generation.pop(final_trace_id, None)
                 _trace_to_tts_generation.pop(final_trace_id, None)
                 _trace_to_durations.pop(final_trace_id, None)
+                _trace_input_set.pop(final_trace_id, None)
+                _trace_output_set.pop(final_trace_id, None)
             # Only end trace if we're managing its lifecycle
             if is_local_trace:
                 trace.end()
