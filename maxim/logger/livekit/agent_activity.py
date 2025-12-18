@@ -16,8 +16,9 @@ from livekit.plugins.openai.llm import _LLMOptions
 from ...scribe import scribe
 from ..components import FileDataAttachment
 from ..utils import pcm16_to_wav_bytes
-from .store import get_maxim_logger, get_session_store
+from .store import get_livekit_callback, get_maxim_logger, get_session_store
 from .utils import (
+    extract_llm_model_and_provider,
     extract_llm_model_parameters,
     get_active_llm,
     get_thread_pool_executor,
@@ -149,6 +150,27 @@ def handle_vad_inference_done(self: AgentActivity, event: VADEvent):
     if event.speaking:
         scribe().debug(f"[Internal][{self.__class__.__name__}] VAD inference done")
 
+def handle_end_of_turn(self: AgentActivity):
+    """
+    This function is called when the turn is ended.
+    """
+    trace = get_session_store().get_current_trace_for_agent_session(id(self.session))
+    if trace is None:
+        return
+
+    callback = get_livekit_callback()
+    if callback is not None:
+        try:
+            callback("maxim.trace.ended", {"trace_id": trace.id, "trace": trace})
+        except Exception as e:
+            scribe().warning(
+                f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}",
+                exc_info=True,
+            )
+
+    trace.end()
+
+
 
 def handle_final_transcript(self: AgentActivity, event):
     """Handle final transcript event and create generation with audio attachments"""
@@ -188,6 +210,11 @@ def handle_final_transcript(self: AgentActivity, event):
             model_parameters = extract_llm_model_parameters(llm_opts)
         else:
             model_parameters = None
+            
+        result = extract_llm_model_and_provider(model, llm.provider if llm is not None else None)
+        provider = llm.provider
+        if result is not None:
+            model, provider = result
 
         # Extract transcript
         transcript = ""
@@ -212,7 +239,7 @@ def handle_final_transcript(self: AgentActivity, event):
                         "id": turn.turn_id,
                         "model": model if model is not None else "unknown",
                         "name": "Conversation Turn",
-                        "provider": "livekit",
+                        "provider": provider if provider is not None else "livekit",
                         "model_parameters": model_parameters
                         if model_parameters is not None
                         else {},
@@ -450,6 +477,8 @@ def pre_hook(self, hook_name, args, kwargs):
             if not args or len(args) == 0:
                 return
             get_thread_pool_executor().submit(handle_final_transcript, self, args[0])
+        elif hook_name == "on_end_of_turn":
+            get_thread_pool_executor().submit(handle_end_of_turn, self)
         elif hook_name == "_conversation_item_added":
             if args and len(args) > 0:
                 item = args[0]

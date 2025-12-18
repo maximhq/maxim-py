@@ -1,3 +1,4 @@
+import asyncio
 import functools
 import inspect
 import time
@@ -12,7 +13,7 @@ from livekit.agents import Agent, AgentSession
 from livekit.agents.types import NOT_GIVEN
 from livekit.agents.voice.events import FunctionToolsExecutedEvent
 from livekit.plugins.openai.llm import _LLMOptions
-from livekit.protocol.models import Room
+from livekit.rtc import Room
 
 from maxim.logger.components.attachment import FileDataAttachment
 from maxim.logger.components.generation import (
@@ -34,6 +35,7 @@ from maxim.logger.livekit.store import (
     get_tts_store,
 )
 from maxim.logger.livekit.utils import (
+    extract_llm_model_and_provider,
     extract_llm_model_parameters,
     extract_llm_usage,
     get_active_llm,
@@ -44,7 +46,7 @@ from maxim.logger.utils import pcm16_to_wav_bytes
 from maxim.scribe import scribe
 
 
-def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
+def intercept_session_start(self: AgentSession, room, agent: Agent):
     """
     This function is called when a session starts.
     This is the point where we create a new session for Maxim.
@@ -63,13 +65,34 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
             scribe().debug(
                 f"[Internal][{self.__class__.__name__}] start not signaled within timeout; continuing"
             )
+        room_name = None
         # getting the room_id
         if isinstance(room, str):
             room_id = room
             room_name = room
         elif isinstance(room, Room):
-            room_id = room.sid
-            room_name = room.name
+            # room.sid is a coroutine, so we need to run it in an event loop
+            # Since we're in a thread pool executor, we can safely create a new event loop
+            try:
+                room_id = asyncio.run(room.sid)
+            except RuntimeError:
+                # If there's already a running event loop, create a new one for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    room_id = loop.run_until_complete(room.sid)
+                finally:
+                    loop.close()
+            except Exception as e:
+                scribe().warning(f"[Internal] Failed to get room.sid: {e}")
+                room_id = str(id(room))
+            
+            # room.name is a direct property (string), not a coroutine
+            try:
+                room_name = room.name
+            except Exception as e:
+                scribe().warning(f"[Internal] Failed to get room.name: {e}")
+                room_name = None
         else:
             room_id = id(room)
             if isinstance(room, dict):
@@ -82,13 +105,11 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
         session = maxim_logger.session({"id": session_id, "name": "livekit-session"})
         # adding tags to the session
         if room_id is not None:
-            session.add_tag("room_id", str(room_id))
+            session.add_tag("Room session ID", str(room_id))
         if room_name is not None:
-            session.add_tag("room_name", str(room_name))
-        if session_id is not None:
-            session.add_tag("session_id", str(session_id))
+            session.add_tag("Room name", str(room_name))
         if agent is not None:
-            session.add_tag("agent_id", str(id(agent)))
+            session.add_tag("Agent ID", agent.id if agent.id is not None else str(id(agent)))
         # If callback is set, emit the session started event
         callback = get_livekit_callback()
         if callback is not None:
@@ -104,12 +125,13 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
         trace_id = str(uuid.uuid4())
         tags: dict[str, str] = {}
         if room_id is not None:
-            tags["room_id"] = str(room_id)
+            tags["Room session ID"] = str(room_id)
         if room_name is not None:
-            tags["room_name"] = room_name
-        tags["session_id"] = str(id(self))
+            tags["Room name"] = room_name
         if agent is not None:
-            tags["agent_id"] = str(id(agent))
+            tags["Agent ID"] = agent.id if agent.id is not None else str(id(agent))
+        if session_id is not None:
+            tags["maxim_session_id"] = str(session_id)
 
         current_turn_id = str(uuid.uuid4())
         scribe().debug(f"[Internal] STT: {self.stt or agent.stt}")
@@ -171,7 +193,10 @@ def intercept_session_start(self: AgentSession, room, room_name, agent: Agent):
                 getattr(llm, "_opts", None) if llm is not None else None
             )
             model = getattr(llm, "model", None) if llm is not None else None
-            provider = getattr(llm, "_provider_fmt", None) if llm is not None else None
+            provider = llm.provider if llm is not None else getattr(llm, "_provider_fmt", None)
+            result = extract_llm_model_and_provider(model, provider)
+            if result is not None:
+                model, provider = result
             if llm_opts is not None:
                 model_parameters = extract_llm_model_parameters(llm_opts)
             else:
@@ -366,6 +391,9 @@ def handle_agent_response_complete(self: AgentSession, response_text, agent: Age
                 "logprobs": None,
             }
             choices.append(choice)
+            result = extract_llm_model_and_provider(model, None)
+            if result is not None:
+                model, _ = result
             result = GenerationResult(
                 id=str(uuid.uuid4()),
                 object="tts.response",
@@ -417,15 +445,36 @@ def intercept_commit_user_turn(self: AgentSession):
         return
     start_new_turn(session_info)
 
+    
+def handle_end_of_session(self: AgentSession):
+    """
+    This function is called when the session is ended.
+    """
+    session = get_session_store().get_session_by_agent_session_id(id(self))
+    if session is None:
+        return
+
+    callback = get_livekit_callback()
+    if callback is not None:
+        try:
+            callback("maxim.session.ended", {"session_id": session.mx_session_id, "session": session})
+        except Exception as e:
+            scribe().warning(
+                f"[MaximSDK] An error was captured during LiveKit callback execution: {e!s}",
+                exc_info=True,
+            )
+
+    logger = get_maxim_logger()
+    logger.session_end(session.mx_session_id)
+    
 
 def pre_hook(self: AgentSession, hook_name, args, kwargs):
     try:
         if hook_name == "start":
             room = kwargs.get("room")
-            room_name = kwargs.get("room_name")
             agent = kwargs.get("agent")
             get_thread_pool_executor().submit(
-                intercept_session_start, self, room, room_name, agent
+                intercept_session_start, self, room, agent
             )
         elif hook_name == "_update_agent_state":
             if not args or len(args) == 0:
@@ -497,6 +546,8 @@ def post_hook(self: AgentSession, result, hook_name, args, kwargs):
                     )
         elif hook_name == "commit_user_turn":
             get_thread_pool_executor().submit(intercept_commit_user_turn, self)
+        elif hook_name == "aclose":
+            get_thread_pool_executor().submit(handle_end_of_session, self)
         else:
             scribe().debug(
                 f"[Internal][{self.__class__.__name__}] {hook_name} completed; result={result}"

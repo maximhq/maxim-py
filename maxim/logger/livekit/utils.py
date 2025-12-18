@@ -115,13 +115,13 @@ def start_new_turn(session_info: SessionStoreEntry):
     trace_id = str(uuid4())
     tags = {}
     if session_info.room_id is not None:
-        tags["room_id"] = session_info.room_id
+        tags["Room session ID"] = session_info.room_id
     if session_info.agent_id is not None:
-        tags["agent_id"] = session_info.agent_id
+        tags["Agent ID"] = session_info.agent_id
     if session_info.room_name is not None:
-        tags["room_name"] = session_info.room_name
+        tags["Room name"] = session_info.room_name
     if session_info.agent_session_id is not None:
-        tags["agent_session_id"] = session_info.agent_session_id
+        tags["maxim_session_id"] = session_info.mx_session_id
     current_turn = Turn(
         turn_id=str(uuid4()),
         turn_sequence=next_turn_sequence,
@@ -226,3 +226,18 @@ def get_active_llm(llm: Optional[LLM]) -> Optional[LLM]:
                 return llm._llm_instances[first_available_llm_index]
 
     return llm
+
+def extract_llm_model_and_provider(modelProvider: Optional[str], provider: Optional[str]) -> Optional[tuple[str, str]]:
+    """
+    Extract the model and provider from the LLM object.
+    """
+    if modelProvider is None:
+        return None
+    
+    if "/" in modelProvider:
+        provider, model = modelProvider.split("/")
+    else:
+        model = modelProvider
+        provider = provider if provider is not None else "livekit"
+
+    return model, provider

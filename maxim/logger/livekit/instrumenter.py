@@ -49,8 +49,8 @@ def instrument_livekit(logger: Logger, callback: Optional[MaximLiveKitCallback] 
     # for name, orig in [
     #     (n, getattr(Worker, n)) for n in dir(Worker) if callable(getattr(Worker, n))
     # ]:
-    # if name != "__class__" and not name.startswith("__"):
-    #     setattr(Worker, name, instrument_worker(orig, name))
+    #     if name != "__class__" and not name.startswith("__"):
+    #         setattr(Worker, name, instrument_worker(orig, name))
 
     # Instrument RealtimeSession methods
     for name, orig in [
