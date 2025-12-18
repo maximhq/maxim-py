@@ -182,6 +182,11 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.3
+- feat: Added a new `maxim_prompt_version_id` parameter to the generation decorator
+- fix: Elevenlabs logging fixes for user and assistant transcripts
+- fix: LiveKit fixes for latency, room and agent details
+
 ### 3.14.2
 - fix: Fixes Fallback adapter handling in Livekit SDK
 - fix: Fixes a race condition in the initial session start
