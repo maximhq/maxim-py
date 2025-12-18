@@ -182,6 +182,10 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.4
+
+- fix: Fixed pydantic_ai Agents session and traces implementation
+
 ### 3.14.3
 - feat: Added a new `maxim_prompt_version_id` parameter to the generation decorator
 - fix: Elevenlabs logging fixes for user and assistant transcripts
