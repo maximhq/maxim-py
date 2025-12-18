@@ -43,6 +43,7 @@ class Metadata:
     retrieval_tags: Optional[dict[str, str]] = None
     trace_tags: Optional[dict[str, str]] = None
     chain_tags: Optional[dict[str, str]] = None
+    session_tags: Optional[dict[str, str]] = None
 
     def __init__(self, metadata: Optional[Dict[str, Any]]):
         """
@@ -66,6 +67,7 @@ class Metadata:
             self.retrieval_tags = metadata.get("retrieval_tags", None)
             self.trace_tags = metadata.get("trace_tags", None)
             self.chain_tags = metadata.get("chain_tags", None)
+            self.session_tags = metadata.get("session_tags", None)
         except Exception as e:
             import traceback
 
