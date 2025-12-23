@@ -2,6 +2,7 @@ import functools
 import inspect
 import time
 import traceback
+import uuid
 import weakref
 from io import BytesIO
 from typing import Optional
@@ -16,7 +17,7 @@ from livekit.plugins.openai.llm import _LLMOptions
 from ...scribe import scribe
 from ..components import FileDataAttachment
 from ..utils import pcm16_to_wav_bytes
-from .store import get_livekit_callback, get_maxim_logger, get_session_store
+from .store import AudioUsage, get_livekit_callback, get_maxim_logger, get_session_store
 from .utils import (
     extract_llm_model_and_provider,
     extract_llm_model_parameters,
@@ -150,6 +151,7 @@ def handle_vad_inference_done(self: AgentActivity, event: VADEvent):
     if event.speaking:
         scribe().debug(f"[Internal][{self.__class__.__name__}] VAD inference done")
 
+
 def handle_end_of_turn(self: AgentActivity):
     """
     This function is called when the turn is ended.
@@ -171,7 +173,6 @@ def handle_end_of_turn(self: AgentActivity):
     trace.end()
 
 
-
 def handle_final_transcript(self: AgentActivity, event):
     """Handle final transcript event and create generation with audio attachments"""
     try:
@@ -190,17 +191,18 @@ def handle_final_transcript(self: AgentActivity, event):
                 f"[Internal][{self.__class__.__name__}] current turn is none at final transcript."
             )
             return
-        
+
         agent = self.session.current_agent
 
         llm = (
             get_active_llm(self.llm)
             or get_active_llm(
-                agent.llm if agent.llm is not None and agent.llm is not NOT_GIVEN else None
+                agent.llm
+                if agent.llm is not None and agent.llm is not NOT_GIVEN
+                else None
             )
             or None
         )
-
 
         llm_opts: Optional[_LLMOptions] = (
             getattr(llm, "_opts", None) if llm is not None else None
@@ -210,9 +212,12 @@ def handle_final_transcript(self: AgentActivity, event):
             model_parameters = extract_llm_model_parameters(llm_opts)
         else:
             model_parameters = None
-            
-        result = extract_llm_model_and_provider(model, llm.provider if llm is not None else None)
-        provider = llm.provider
+
+        provider = llm.provider if llm is not None else None
+        result = extract_llm_model_and_provider(
+            model, provider
+        )
+
         if result is not None:
             model, provider = result
 
@@ -246,15 +251,29 @@ def handle_final_transcript(self: AgentActivity, event):
                         "messages": [{"role": "user", "content": transcript}],
                     }
                 )
+                
+                turn.current_model = model if model is not None else "unknown"
 
                 # Add input audio attachment if available
                 if (
                     turn.turn_input_audio_buffer is not None
                     and turn.turn_input_audio_buffer.tell() > 0
                 ):
+                    trace.add_attachment(
+                        FileDataAttachment(
+                            id=str(uuid.uuid4()),
+                            data=pcm16_to_wav_bytes(
+                                turn.turn_input_audio_buffer.getvalue()
+                            ),
+                            tags={"attach-to": "input"},
+                            name="User Audio Input",
+                            timestamp=int(time.time()),
+                        ),
+                    )
                     get_maxim_logger().generation_add_attachment(
                         turn.turn_id,
                         FileDataAttachment(
+                            id=str(uuid.uuid4()),
                             data=pcm16_to_wav_bytes(
                                 turn.turn_input_audio_buffer.getvalue()
                             ),
@@ -266,7 +285,6 @@ def handle_final_transcript(self: AgentActivity, event):
 
                 # Clear the input buffer after attaching the audio data
                 turn.turn_input_audio_buffer = None
-                trace.set_input(transcript)
 
             session_info.current_turn = turn
             get_session_store().set_session(session_info)
@@ -310,12 +328,12 @@ def handle_agent_response_complete(self, response_text):
                     ),
                 )
 
-            # Update trace output
-            trace = get_session_store().get_current_trace_for_agent_session(
-                id(self.session)
-            )
-            if trace is not None:
-                trace.set_output(response_text)
+            # # Update trace output
+            # trace = get_session_store().get_current_trace_for_agent_session(
+            #     id(self.session)
+            # )
+            # if trace is not None:
+            #     trace.set_output(response_text)
 
             session_info.current_turn = turn
             get_session_store().set_session(session_info)
@@ -346,6 +364,7 @@ def handle_agent_speech_finished(self: AgentActivity):
             get_maxim_logger().generation_add_attachment(
                 turn.turn_id,
                 FileDataAttachment(
+                    id=str(uuid.uuid4()),
                     data=pcm16_to_wav_bytes(turn.turn_output_audio_buffer.getvalue()),
                     tags={"attach-to": "output"},
                     name="Agent Audio Response",
@@ -364,28 +383,68 @@ def handle_agent_speech_finished(self: AgentActivity):
 
 def handle_metrics_collected(self: AgentActivity, metrics: AgentMetrics):
     """Handle metrics collected event"""
-    if metrics.type != "llm_metrics":
-        # Will only get the LLM metrics
-        return
+    if metrics.type == "llm_metrics":
+        session_info = get_session_store().get_session_by_agent_session_id(
+            id(self.session)
+        )
+        if session_info is None:
+            return
 
-    session_info = get_session_store().get_session_by_agent_session_id(id(self.session))
-    if session_info is None:
-        return
+        turn = session_info.current_turn
+        if turn is None:
+            return
 
-    turn = session_info.current_turn
-    if turn is None:
-        return
+        usage = {}
+        usage["completion_tokens"] = (
+            0 if metrics.completion_tokens is None else metrics.completion_tokens
+        )
+        usage["prompt_tokens"] = (
+            0 if metrics.prompt_tokens is None else metrics.prompt_tokens
+        )
+        usage["total_tokens"] = (
+            0 if metrics.total_tokens is None else metrics.total_tokens
+        )
 
-    usage = {}
-    usage["completion_tokens"] = (
-        0 if metrics.completion_tokens is None else metrics.completion_tokens
-    )
-    usage["prompt_tokens"] = (
-        0 if metrics.prompt_tokens is None else metrics.prompt_tokens
-    )
-    usage["total_tokens"] = 0 if metrics.total_tokens is None else metrics.total_tokens
-
-    turn.usage = usage
+        turn.usage = usage
+        if turn.metrics is None:
+            turn.metrics = {}
+        turn.metrics["ttft"] = metrics.ttft
+        turn.metrics["tokens_per_second"] = metrics.tokens_per_second
+    elif metrics.type == "stt_metrics":
+        session_info = get_session_store().get_session_by_agent_session_id(
+            id(self.session)
+        )
+        if session_info is None:
+            return
+        turn = session_info.current_turn
+        if turn is None:
+            return
+        turn.stt_usage = AudioUsage(
+            audio_duration=metrics.audio_duration,
+            provider=metrics.metadata.model_provider
+            if metrics.metadata is not None
+            else None,
+            model=metrics.metadata.model_name if metrics.metadata is not None else None,
+        )
+    elif metrics.type == "tts_metrics":
+        session_info = get_session_store().get_session_by_agent_session_id(
+            id(self.session)
+        )
+        if session_info is None:
+            return
+        turn = session_info.current_turn
+        if turn is None:
+            return
+        turn.tts_usage = AudioUsage(
+            audio_duration=metrics.audio_duration,
+            provider=metrics.metadata.model_provider
+            if metrics.metadata is not None
+            else None,
+            model=metrics.metadata.model_name if metrics.metadata is not None else None,
+        )
+        if turn.tts_metrics is None:
+            turn.tts_metrics = {}
+        turn.tts_metrics["ttfb"] = metrics.ttfb
 
 
 def handle_end_of_speech(self: AgentActivity, event: VADEvent):
@@ -427,9 +486,19 @@ def handle_end_of_speech(self: AgentActivity, event: VADEvent):
             turn.turn_input_audio_buffer is not None
             and turn.turn_input_audio_buffer.tell() > 0
         ):
+            get_maxim_logger().trace_add_attachment(
+                session_info.mx_current_trace_id,
+                FileDataAttachment(
+                    data=pcm16_to_wav_bytes(turn.turn_input_audio_buffer.getvalue()),
+                    tags={"attach-to": "input"},
+                    name="User Audio Input",
+                    timestamp=int(time.time()),
+                ),
+            )
             get_maxim_logger().generation_add_attachment(
                 turn.turn_id,
                 FileDataAttachment(
+                    id=str(uuid.uuid4()),
                     data=pcm16_to_wav_bytes(turn.turn_input_audio_buffer.getvalue()),
                     tags={"attach-to": "input"},
                     name="User Audio Input",
@@ -467,7 +536,9 @@ def pre_hook(self, hook_name, args, kwargs):
                     f"[Internal][{self.__class__.__name__}] handle_end_of_speech failed; error={e!s}\n{traceback.format_exc()}"
                 )
         elif hook_name == "_on_metrics_collected":
-            scribe().debug(f"[Internal][{self.__class__.__name__}] metrics collected handling {args[0]}")
+            scribe().debug(
+                f"[Internal][{self.__class__.__name__}] metrics collected handling {args[0]}"
+            )
             get_thread_pool_executor().submit(handle_metrics_collected, self, args[0])
         elif hook_name == "on_vad_inference_done":
             if not args or len(args) == 0:

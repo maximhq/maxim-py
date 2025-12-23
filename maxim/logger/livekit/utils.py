@@ -231,8 +231,11 @@ def extract_llm_model_and_provider(modelProvider: Optional[str], provider: Optio
     """
     Extract the model and provider from the LLM object.
     """
-    if modelProvider is None:
+    if modelProvider is None and provider is None:
         return None
+    
+    if provider is not None and "." in provider:
+        _, provider, _ = provider.split(".")
     
     if "/" in modelProvider:
         provider, model = modelProvider.split("/")

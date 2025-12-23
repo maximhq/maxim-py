@@ -26,6 +26,12 @@ class LLMUsage(TypedDict):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    
+class AudioUsage(TypedDict):
+    audio_duration: float
+    provider: str
+    model: str
+    model_parameters: Optional[dict[str, Any]]
 
 @dataclass
 class Turn:
@@ -39,6 +45,12 @@ class Turn:
     turn_output_audio_buffer: BytesIO
     trace_id: Optional[str] = None
     usage: Optional[LLMUsage] = None
+    stt_usage: Optional[AudioUsage] = None
+    tts_usage: Optional[AudioUsage] = None
+    metrics: Optional[dict[str, float]] = None
+    stt_metrics: Optional[dict[str, float]] = None
+    tts_metrics: Optional[dict[str, float]] = None
+    current_model: Optional[str] = None
 
 @dataclass
 class SessionStoreEntry:

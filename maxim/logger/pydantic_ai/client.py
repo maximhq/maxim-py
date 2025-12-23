@@ -857,7 +857,7 @@ def instrument_pydantic_ai(
 
     # Patch Agent methods
     if Agent is not None:
-        agent_methods = ["run", "run_sync", "run_stream"]
+        agent_methods = ["run", "run_stream"]
         for method_name in agent_methods:
             if hasattr(Agent, method_name):
                 original_method = getattr(Agent, method_name)
@@ -872,7 +872,7 @@ def instrument_pydantic_ai(
 
     # Patch AbstractAgent methods
     if AbstractAgent is not None:
-        abstract_agent_methods = ["run", "run_sync", "run_stream"]
+        abstract_agent_methods = ["run", "run_stream"]
         for method_name in abstract_agent_methods:
             if hasattr(AbstractAgent, method_name):
                 original_method = getattr(AbstractAgent, method_name)

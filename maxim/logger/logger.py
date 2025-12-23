@@ -528,6 +528,12 @@ class Logger:
         Adds an attachment to the trace.
         """
         Trace.add_attachment_(self.writer, trace_id, attachment)
+        
+    def trace_add_metric(self, trace_id: str, name: str, value: float):
+        """
+        Adds a metric to the trace.
+        """
+        Trace.add_metric_(self.writer, trace_id, name, value)
 
     def trace_end(self, trace_id: str):
         """
@@ -629,12 +635,21 @@ class Logger:
         Generation.error_(self.writer, generation_id, error)
 
     def generation_add_metadata(self, generation_id: str, metadata: Dict[str, Any]):
+        """
+        Adds metadata to the generation.
+        """
         Generation.add_metadata_(
             self.writer, Entity.GENERATION, generation_id, metadata
         )
 
     def generation_evaluate(self, generation_id: str) -> EvaluateContainer:
         return Generation._evaluate_(self.writer, Entity.GENERATION, generation_id)
+    
+    def generation_add_metric(self, generation_id: str, name: str, value: float):
+        """
+        Adds a metric to the generation.
+        """
+        Generation.add_metric_(self.writer, generation_id, name, value)
 
     # Span methods
     @deprecated(
