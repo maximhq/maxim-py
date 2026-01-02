@@ -23,10 +23,11 @@ from openai.types.realtime import (
     SessionUpdatedEvent,
 )
 
-from maxim.logger import Generation, Logger, Session, Trace
+from maxim.logger import Logger
 from maxim.logger.components import FileDataAttachment, GenerationRequestMessage
 from maxim.logger.components.generation import GenerationConfigDict
-from maxim.logger.openai.realtime_handlers.async_handlers import (
+from maxim.logger.models import ContainerManager, SessionContainer, TraceContainer
+from maxim.logger.openai.realtime_handlers.utils import (
     handle_conversation_item_message,
     handle_function_call_response,
     handle_text_response,
@@ -46,28 +47,51 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
         self._extra_headers = extra_headers or {}
 
         # Extract session metadata from headers
-        session_id = self._extra_headers.get("x-maxim-session-id", None)
-        generation_name = self._extra_headers.get("x-maxim-generation-name", None)
+        session_id = self._extra_headers.get("maxim-session-id", None)
+        generation_name = self._extra_headers.get("maxim-generation-name", None)
+        session_name = self._extra_headers.get("maxim-session-name", None)
+        session_tags_raw = self._extra_headers.get("maxim-session-tags", None)
+
+        # Parse session tags (can be JSON string or dict)
+        session_tags: Optional[Dict[str, str]] = None
+        if session_tags_raw is not None:
+            if isinstance(session_tags_raw, dict):
+                session_tags = session_tags_raw
+            elif isinstance(session_tags_raw, str):
+                try:
+                    session_tags = json.loads(session_tags_raw)
+                except json.JSONDecodeError:
+                    scribe().warning(
+                        f"[MaximSDK][MaximOpenAIRealtimeConnection] Failed to parse maxim-session-tags as JSON: {session_tags_raw}"
+                    )
 
         # Create or use existing session
         self._session_id = session_id or str(uuid4())
         self._generation_name = generation_name
+        self._session_name = session_name
+        self._session_tags = session_tags
         self._is_local_session = session_id is None
 
+        # Container management
+        self._container_manager = ContainerManager()
+        self._session_container: Optional[SessionContainer] = None
+        self._current_trace_container: Optional[TraceContainer] = None
+
         # State tracking
-        self._session: Optional[Session] = None
         self._transcription_model: Optional[str] = None
         self._transcription_language: Optional[str] = None
         self._output_audio: Optional[bytes] = None
-        self._current_trace: Optional[Trace] = None
-        self._current_generation: Optional[Generation] = None
+        self._current_generation_id: Optional[str] = None
         self._last_user_message: Optional[str] = None
         self._session_model: Optional[str] = None
         self._session_config: Optional[Dict[str, Any]] = None
         self._system_instructions: str | None = None
-        self._function_call_arguments: Dict[
-            str, str
-        ] = {}  # call_id -> accumulated arguments
+        self._function_calls: Dict[str, Dict[str, Any]] = (
+            {}
+        )  # call_id -> function call data
+        self._function_call_arguments: Dict[str, str] = (
+            {}
+        )  # call_id -> accumulated arguments
         self._has_pending_tool_calls: bool = (
             False  # Track if current response has tool calls
         )
@@ -76,11 +100,14 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
         )
         self._tool_calls: Dict[str, Any] = {}  # call_id -> ToolCall object
         self._tool_call_outputs: Dict[str, str] = {}  # call_id -> tool output
-        self._user_audio_buffer: Dict[
-            str, bytes
-        ] = {}  # item_id -> accumulated user audio bytes
+        self._user_audio_buffer: Dict[str, bytes] = (
+            {}
+        )  # item_id -> accumulated user audio bytes
         self._pending_user_audio: bytes = bytes()  # Buffer audio before item is created
-        self._current_item_id: Optional[str] = None  # Track current item_id for audio association
+        self._current_item_id: Optional[str] = (
+            None  # Track current item_id for audio association
+        )
+        self._current_model_parameters: Optional[Dict[str, Any]] = None
 
         # Wrap input_audio_buffer to capture user audio
 
@@ -110,6 +137,31 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
         # Replace the input_audio_buffer with our wrapper
         self.input_audio_buffer = MaximInputAudioBuffer(self, self)
 
+    def _get_or_create_session_container(self) -> SessionContainer:
+        """Get or create the session container."""
+        if self._session_container is None:
+            self._session_container = SessionContainer(
+                logger=self._logger,
+                session_id=self._session_id,
+                session_name=self._session_name or "OpenAI Realtime Session",
+                mark_created=False,
+            )
+            self._session_container.create(tags=self._session_tags)
+            self._container_manager.set_container(
+                self._session_id, self._session_container
+            )
+        return self._session_container
+
+    def _create_trace_container(self, trace_id: str) -> TraceContainer:
+        """Create a new trace container."""
+        session_container = self._get_or_create_session_container()
+        trace_container = session_container.add_trace(
+            {"id": trace_id, "name": "Realtime Interaction"}
+        )
+        self._container_manager.set_container(trace_id, trace_container)
+        self._container_manager.set_root_trace(trace_id, trace_container)
+        return trace_container
+
     def __iter__(self) -> Iterator[RealtimeServerEvent]:
         """
         Override to intercept events and log them to Maxim.
@@ -121,18 +173,18 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                 self._handle_event(event)
                 yield event
         except ConnectionClosedOK:
-            # End current trace if exists
-            if self._current_trace is not None:
+            # End current trace container if exists
+            if self._current_trace_container is not None:
                 try:
-                    self._current_trace.end()
+                    self._current_trace_container.end()
                 except Exception as e:
                     scribe().warning(
                         f"[MaximSDK][MaximOpenAIRealtimeConnection] Error ending trace: {str(e)}"
                     )
-            # End session if it's a local session
-            if self._is_local_session and self._session is not None:
+            # End session container if it's a local session
+            if self._is_local_session and self._session_container is not None:
                 try:
-                    self._logger.session_end(self._session_id)
+                    self._session_container.end()
                 except Exception as e:
                     scribe().warning(
                         f"[MaximSDK][MaximOpenAIRealtimeConnection] Error ending session: {str(e)}"
@@ -196,24 +248,37 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
             elif isinstance(session, dict):
                 self._session_config = session.copy()
 
-            if self._session is None:
-                try:
-                    self._session = self._logger.session(
-                        {"id": self._session_id, "name": "OpenAI Realtime Session"}
-                    )
-                except Exception as e:
-                    scribe().warning(
-                        f"[MaximSDK][MaximOpenAIRealtimeConnection] Error creating session: {str(e)}"
-                    )
+            # Create session container
+            self._get_or_create_session_container()
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][MaximOpenAIRealtimeConnection] Error handling session.created: {str(e)}"
             )
 
     def _handle_session_updated(self, event: SessionUpdatedEvent) -> None:
-        """Handle session.updated event to extract model configuration and create Maxim session."""
+        """Handle session.updated event to extract model configuration and update session config."""
         try:
             session = event.session
+
+            # Update session config with any new values (including tools)
+            if hasattr(session, "model_dump"):
+                updated_config = session.model_dump()
+                if self._session_config is None:
+                    self._session_config = updated_config
+                else:
+                    # Merge updated config into existing config
+                    for key, value in updated_config.items():
+                        if value is not None:
+                            self._session_config[key] = value
+            elif isinstance(session, dict):
+                if self._session_config is None:
+                    self._session_config = session.model_copy()
+                else:
+                    for key, value in session.items():
+                        if value is not None:
+                            self._session_config[key] = value
+
+            # Extract transcription settings
             if (
                 session.audio is not None
                 and session.audio.input is not None
@@ -233,7 +298,10 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
     ) -> None:
         """Handle conversation.item.input_audio_transcription.completed event to handle the transcription of the audio."""
         try:
-            if self._current_generation is not None and self._current_trace is not None:
+            if (
+                self._current_generation_id is not None
+                and self._current_trace_container is not None
+            ):
                 # Ok, so let me explain why the below code is necessary.
                 # So, basically, we get the `response.created` event before the `conversation.item.input_audio_transcription.completed` event.
                 # In the `response.created` event, we create a new generation for the user's message
@@ -241,19 +309,30 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                 # So, instead, what I do is that I override the current generation for the transcription and create a new generation for the assistant.
                 # Not setting it in any other events as `input_audio_buffer.committed` happens before the `response.created` event so there is no trace present there (for the first turn) or would go into the previous turn's trace.
 
-                model_parameters = self._current_generation.model_parameters
-                self._current_generation.set_model(self._transcription_model)
-                self._current_generation.add_message(
+                model_parameters = self._current_model_parameters or {}
+
+                # End the current generation with STT result
+                self._logger.generation_set_model(
+                    self._current_generation_id, self._transcription_model
+                )
+                self._logger.generation_add_message(
+                    self._current_generation_id,
                     GenerationRequestMessage(
                         role="user",
                         content=event.transcript,
-                    )
+                    ),
                 )
-                self._current_generation.set_model_parameters({
-                    "language": self._transcription_language,
-                })
-                self._current_generation.set_name("User Speech Transcription")
-                self._current_generation.result(
+                self._logger.generation_set_model_parameters(
+                    self._current_generation_id,
+                    {
+                        "language": self._transcription_language,
+                    },
+                )
+                self._logger.generation_set_name(
+                    self._current_generation_id, "User Speech Transcription"
+                )
+                self._logger.generation_result(
+                    self._current_generation_id,
                     {
                         "id": event.event_id,
                         "object": "stt.response",
@@ -265,66 +344,88 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                             "completion_tokens": event.usage.output_tokens or 0,
                             "total_tokens": event.usage.total_tokens or 0,
                         },
-                    }
+                    },
                 )
+
                 # Attach user audio if available (for STT generation)
-                # Note: Audio may already be attached from _handle_response_created, but we ensure it's here too
                 item_id = getattr(event, "item_id", None)
                 user_audio = None
                 if item_id and item_id in self._user_audio_buffer:
                     user_audio = self._user_audio_buffer[item_id]
                     if user_audio:
-                        user_audio = trim_silence_edges(user_audio,sample_rate=24000, last_non_silent_removal_frames=2)
+                        user_audio = trim_silence_edges(
+                            user_audio,
+                            sample_rate=24000,
+                            last_non_silent_removal_frames=2,
+                        )
                         try:
-                            self._current_generation.add_attachment(
+                            self._logger.generation_add_attachment(
+                                self._current_generation_id,
                                 FileDataAttachment(
                                     data=pcm16_to_wav_bytes(user_audio),
                                     tags={"attach-to": "input"},
                                     name="User Audio Input",
                                     timestamp=int(time.time()),
-                                )
+                                ),
                             )
                         except Exception as e:
                             scribe().warning(
                                 f"[MaximSDK][MaximOpenAIRealtimeConnection] Error adding user audio attachment to STT generation: {str(e)}"
                             )
 
-                self._current_generation.end()
-                self._current_generation = None
+                # End the STT generation before creating the assistant generation
+                self._logger.generation_end(self._current_generation_id)
 
                 # Create new generation for the assistant response with the correct transcript
                 generation_id = str(uuid4())
-                self._current_generation = self._current_trace.generation(
-                    GenerationConfigDict(
-                        id=generation_id,
-                        provider="openai",
-                        model=self._session_model or "unknown",
-                        name=self._generation_name,
-                        model_parameters=model_parameters,
-                        messages=[
-                            GenerationRequestMessage(
-                                role="user",
-                                content=event.transcript,
-                            )
-                        ],
-                    )
-                )
-                
+                gen_config: GenerationConfigDict = {
+                    "id": generation_id,
+                    "provider": "openai",
+                    "model": self._session_model or "unknown",
+                    "name": self._generation_name,
+                    "model_parameters": model_parameters,
+                    "messages": [
+                        GenerationRequestMessage(
+                            role="user",
+                            content=event.transcript,
+                        )
+                    ],
+                }
+                self._current_trace_container.add_generation(gen_config)
+                self._current_generation_id = generation_id
+
                 # Attach user audio to the assistant generation as well
                 if user_audio:
                     try:
-                        self._current_generation.add_attachment(
+                        self._logger.generation_add_attachment(
+                            self._current_generation_id,
                             FileDataAttachment(
                                 data=pcm16_to_wav_bytes(user_audio),
                                 tags={"attach-to": "input"},
+                                name="User Audio Input",
+                                timestamp=int(time.time()),
+                            ),
+                        )
+                    except Exception as e:
+                        scribe().warning(
+                            f"[MaximSDK][MaximOpenAIRealtimeConnection] Error adding user audio attachment to assistant generation: {str(e)}"
+                        )
+
+                    # Also attach user audio at the trace level for voice chat visibility
+                    try:
+                        self._current_trace_container.add_attachment(
+                            FileDataAttachment(
+                                data=pcm16_to_wav_bytes(user_audio),
+                                tags={"attach-to": "input", "type": "voice-chat"},
                                 name="User Audio Input",
                                 timestamp=int(time.time()),
                             )
                         )
                     except Exception as e:
                         scribe().warning(
-                            f"[MaximSDK][MaximOpenAIRealtimeConnection] Error adding user audio attachment to assistant generation: {str(e)}"
+                            f"[MaximSDK][MaximOpenAIRealtimeConnection] Error adding user audio attachment to trace: {str(e)}"
                         )
+
                     # Clean up after attaching to both generations
                     if item_id and item_id in self._user_audio_buffer:
                         del self._user_audio_buffer[item_id]
@@ -357,7 +458,9 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                 if len(item.content) > 0 and item.content[0].type == "input_audio":
                     # Associate pending audio with this item_id
                     item_id = item.id
-                    self._current_item_id = item_id  # Track current item_id for audio association
+                    self._current_item_id = (
+                        item_id  # Track current item_id for audio association
+                    )
                     if self._pending_user_audio:
                         self._user_audio_buffer[item_id] = self._pending_user_audio
                         self._pending_user_audio = bytes()
@@ -399,43 +502,29 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
         try:
             response = event.response
 
-            # Ensure session exists
-            if self._session is None:
-                try:
-                    self._session = self._logger.session(
-                        {"id": self._session_id, "name": "OpenAI Realtime Session"}
-                    )
-                except Exception as e:
-                    scribe().warning(
-                        f"[MaximSDK][MaximOpenAIRealtimeConnection] Error creating session: {str(e)}"
-                    )
-                    return
+            # Ensure session container exists
+            self._get_or_create_session_container()
 
             # If we have a pending trace with tool calls, we will continue using it instead of creating a new one
-            if self._current_trace is not None and self._has_pending_tool_calls:
+            if (
+                self._current_trace_container is not None
+                and self._has_pending_tool_calls
+            ):
                 self._has_pending_tool_calls = False
                 self._is_continuing_trace = True
             else:
-                # End previous trace if exists (normal case - no tool calls)
-                if self._current_trace is not None:
+                # End previous trace container if exists (normal case - no tool calls)
+                if self._current_trace_container is not None:
                     try:
-                        self._current_trace.end()
+                        self._current_trace_container.end()
                     except Exception as e:
                         scribe().warning(
                             f"[MaximSDK][MaximOpenAIRealtimeConnection] Error ending previous trace: {str(e)}"
                         )
 
-                # Create new trace for this interaction
+                # Create new trace container for this interaction
                 trace_id = str(uuid4())
-                try:
-                    self._current_trace = self._session.trace(
-                        {"id": trace_id, "name": "Realtime Interaction"}
-                    )
-                except Exception as e:
-                    scribe().warning(
-                        f"[MaximSDK][MaximOpenAIRealtimeConnection] Error creating trace: {str(e)}"
-                    )
-                    return
+                self._current_trace_container = self._create_trace_container(trace_id)
                 self._is_continuing_trace = False
 
                 # Clear pending audio buffer when starting a new trace
@@ -453,6 +542,8 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                     for k, v in self._session_config.items()
                     if k not in ["model", "instructions", "modalities"]
                 }
+
+            self._current_model_parameters = model_parameters
 
             # Create generation config
             gen_config: GenerationConfigDict = {
@@ -478,9 +569,12 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                 )
 
                 # Only set trace input if this is a new trace (not continuing after tool calls)
-                if self._current_trace is not None and not self._is_continuing_trace:
+                if (
+                    self._current_trace_container is not None
+                    and not self._is_continuing_trace
+                ):
                     try:
-                        self._current_trace.set_input(self._last_user_message)
+                        self._current_trace_container.set_input(self._last_user_message)
                     except Exception as e:
                         scribe().warning(
                             f"[MaximSDK][MaximOpenAIRealtimeConnection] Error setting trace input: {str(e)}"
@@ -501,7 +595,8 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                 self._tool_call_outputs.clear()
 
             try:
-                self._current_generation = self._current_trace.generation(gen_config)
+                self._current_trace_container.add_generation(gen_config)
+                self._current_generation_id = generation_id
                 self._is_continuing_trace = False
             except Exception as e:
                 scribe().warning(
@@ -573,15 +668,17 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                 else:
                     function_name = f"function_{call_id[:8]}"
 
-            # Create tool call in the current trace
-            if self._current_trace is not None:
+            # Create tool call in the current trace container
+            if self._current_trace_container is not None:
                 try:
                     tool_call_config = {
                         "id": call_id,
                         "name": function_name,
                         "args": final_arguments,
                     }
-                    tool_call = self._current_trace.tool_call(tool_call_config)
+                    tool_call = self._current_trace_container.add_tool_call(
+                        tool_call_config
+                    )
                     # Store the tool call object so we can set its result later
                     self._tool_calls[call_id] = tool_call
                 except Exception as e:
@@ -674,7 +771,7 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": response_text if not tool_calls else None,
+                            "content": response_text,
                             "tool_calls": tool_calls if tool_calls else None,
                         },
                         "finish_reason": "stop" if not tool_calls else "tool_calls",
@@ -686,19 +783,43 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                 result["usage"] = usage_dict
 
             # Log result
-            if self._current_generation is not None:
+            if self._current_generation_id is not None:
                 try:
-                    self._current_generation.result(result)
+                    self._logger.generation_result(self._current_generation_id, result)
 
                     if self._output_audio is not None:
-                        self._current_generation.add_attachment(
+                        output_audio_wav = pcm16_to_wav_bytes(self._output_audio)
+
+                        # Attach to generation
+                        self._logger.generation_add_attachment(
+                            self._current_generation_id,
                             FileDataAttachment(
-                                data=pcm16_to_wav_bytes(self._output_audio),
+                                data=output_audio_wav,
                                 tags={"attach-to": "output"},
                                 name="Assistant Audio Response",
                                 timestamp=int(time.time()),
-                            )
+                            ),
                         )
+
+                        # Also attach assistant audio at the trace level for voice chat visibility
+                        if self._current_trace_container is not None:
+                            try:
+                                self._current_trace_container.add_attachment(
+                                    FileDataAttachment(
+                                        data=output_audio_wav,
+                                        tags={
+                                            "attach-to": "output",
+                                            "type": "voice-chat",
+                                        },
+                                        name="Assistant Audio Response",
+                                        timestamp=int(time.time()),
+                                    )
+                                )
+                            except Exception as e:
+                                scribe().warning(
+                                    f"[MaximSDK][MaximOpenAIRealtimeConnection] Error adding assistant audio attachment to trace: {str(e)}"
+                                )
+
                         self._output_audio = None
                 except Exception as e:
                     scribe().warning(
@@ -715,17 +836,19 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                 # Don't end trace or clean up - keep it open for the next response
             else:
                 # No tool calls - this is the final response, end the trace
-                if self._current_trace is not None:
+                if self._current_trace_container is not None:
                     try:
-                        self._current_trace.end()
+                        self._current_trace_container.end()
+                        if self._session_container is not None:
+                            self._session_container.end()
                     except Exception as e:
                         scribe().warning(
                             f"[MaximSDK][MaximOpenAIRealtimeConnection] Error ending trace: {str(e)}"
                         )
 
                 # Clean up
-                self._current_generation = None
-                self._current_trace = None
+                self._current_generation_id = None
+                self._current_trace_container = None
                 self._has_pending_tool_calls = False
                 self._is_continuing_trace = False
                 self._tool_calls.clear()
@@ -734,6 +857,7 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
                 self._last_user_message = None
 
             # Always clear function calls tracking
+            self._function_calls.clear()
             self._function_call_arguments.clear()
         except Exception as e:
             scribe().warning(
@@ -766,13 +890,14 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
             elif isinstance(error_obj, dict):
                 error_message = error_obj.get("message", str(error_obj))
 
-            if self._current_generation is not None:
+            if self._current_generation_id is not None:
                 try:
-                    self._current_generation.error(
+                    self._logger.generation_error(
+                        self._current_generation_id,
                         {
                             "message": error_message,
                             "type": getattr(type(error_obj), "__name__", None),
-                        }
+                        },
                     )
                 except Exception as e:
                     scribe().warning(
@@ -800,9 +925,9 @@ class MaximOpenAIRealtimeConnectionManager(RealtimeConnectionManager):
         wrapped_connection = MaximOpenAIRealtimeConnection(
             base_connection._connection,
             self._logger,
-            extra_headers=self._extra_headers
-            if hasattr(self, "_extra_headers")
-            else None,
+            extra_headers=(
+                self._extra_headers if hasattr(self, "_extra_headers") else None
+            ),
         )
         return wrapped_connection
 
@@ -831,7 +956,9 @@ class MaximOpenAIRealtime(Realtime):
             model=model,
             extra_query=extra_query if extra_query is not None else {},
             extra_headers=extra_headers if extra_headers is not None else {},
-            websocket_connection_options=websocket_connection_options
-            if websocket_connection_options is not None
-            else {},
+            websocket_connection_options=(
+                websocket_connection_options
+                if websocket_connection_options is not None
+                else {}
+            ),
         )

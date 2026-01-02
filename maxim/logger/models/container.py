@@ -9,9 +9,13 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from typing_extensions import override
 
+from typing import Union
+
 from ...scribe import scribe
 from ..__init__ import (
     ErrorConfig,
+    FileAttachment,
+    FileDataAttachment,
     Generation,
     GenerationConfigDict,
     Logger,
@@ -22,6 +26,7 @@ from ..__init__ import (
     ToolCall,
     ToolCallConfigDict,
     TraceConfigDict,
+    UrlAttachment,
 )
 
 
@@ -242,6 +247,16 @@ class Container(ABC):
         """
         pass
 
+    def add_attachment(
+        self, attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment]
+    ) -> None:
+        """
+        Adds an attachment to the container
+        Args:
+            attachment: The attachment to add
+        """
+        pass
+
     def end(self) -> None:
         """
         Ends the container
@@ -329,6 +344,12 @@ class TraceContainer(Container):
     @override
     def add_metadata(self, metadata: dict[str, str]) -> None:
         return self._logger.trace_add_metadata(self._id, metadata)
+
+    @override
+    def add_attachment(
+        self, attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment]
+    ) -> None:
+        return self._logger.trace_add_attachment(self._id, attachment)
 
     @override
     def end(self) -> None:
@@ -421,6 +442,97 @@ class SpanContainer(Container):
         Ends the container
         """
         self._logger.span_end(self._id)
+
+
+class SessionContainer(Container):
+    """
+    A session container in the logger.
+    Used for managing session-level operations in a unified container interface.
+    """
+
+    def __init__(
+        self,
+        logger: Logger,
+        session_id: str,
+        session_name: Optional[str] = None,
+        mark_created: bool = False,
+    ):
+        super().__init__(
+            logger=logger,
+            container_id=session_id,
+            container_type="session",
+            name=session_name,
+            parent=None,
+            mark_created=mark_created,
+        )
+
+    @override
+    def create(self, tags: Optional[dict[str, str]] = None) -> None:
+        from ..components.session import SessionConfigDict
+
+        config = SessionConfigDict(id=self._id, name=self._name, tags=tags)
+        _ = self._logger.session(config)
+        self._created = True
+
+    def add_trace(self, config: TraceConfigDict) -> "TraceContainer":
+        """
+        Adds a trace to the session and returns a TraceContainer.
+
+        Args:
+            config: The trace configuration.
+
+        Returns:
+            TraceContainer: A container wrapping the created trace.
+        """
+        config["session_id"] = self._id
+        _ = self._logger.trace(config)
+        return TraceContainer(
+            logger=self._logger,
+            trace_id=config["id"],
+            trace_name=config.get("name"),
+            parent=self._id,
+            mark_created=True,
+        )
+
+    @override
+    def add_generation(self, config: GenerationConfigDict) -> Generation:
+        raise NotImplementedError(
+            "[MaximSDK] Cannot add generation directly to session. Add a trace first."
+        )
+
+    @override
+    def add_retrieval(self, config: RetrievalConfigDict) -> Retrieval:
+        raise NotImplementedError(
+            "[MaximSDK] Cannot add retrieval directly to session. Add a trace first."
+        )
+
+    @override
+    def add_span(self, config: SpanConfigDict) -> Span:
+        raise NotImplementedError(
+            "[MaximSDK] Cannot add span directly to session. Add a trace first."
+        )
+
+    @override
+    def add_tool_call(self, config: ToolCallConfigDict) -> ToolCall:
+        raise NotImplementedError(
+            "[MaximSDK] Cannot add tool call directly to session. Add a trace first."
+        )
+
+    @override
+    def add_tags(self, tags: dict[str, str]) -> None:
+        for key, value in tags.items():
+            self._logger.session_add_tag(self._id, key, value)
+
+    @override
+    def add_attachment(self, attachment: Union[FileAttachment, FileDataAttachment, UrlAttachment]) -> None:
+        return self._logger.session_add_attachment(self._id, attachment)
+
+    @override
+    def end(self) -> None:
+        """
+        Ends the session.
+        """
+        self._logger.session_end(self._id)
 
 
 class ContainerManager:
