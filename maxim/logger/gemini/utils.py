@@ -338,3 +338,30 @@ class GeminiUtils:
         generation_result["id"] = str(uuid4())
         generation_result["created"] = int(time.time())
         return generation_result
+
+    @staticmethod
+    def extract_tool_calls_from_response(
+        response: GenerateContentResponse,
+    ) -> List[Dict[str, Any]]:
+        """Extract tool calls from a Gemini GenerateContentResponse.
+
+        This reuses the standard parsing logic to return the list of
+        OpenAI-style tool_calls entries from the first choice, if any.
+        """
+        try:
+            parsed = GeminiUtils.parse_gemini_generation_content(response)
+        except Exception as e:
+            logging.debug(
+                f"[MaximSDK][Gemini] Error extracting tool calls from response: {e}",
+                exc_info=True,
+            )
+            return []
+
+        choices = parsed.get("choices") or []
+        if not choices:
+            return []
+        message = choices[0].get("message") or {}
+        tool_calls = message.get("tool_calls") or []
+        if not isinstance(tool_calls, list):
+            return []
+        return tool_calls

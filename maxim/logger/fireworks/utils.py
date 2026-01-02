@@ -8,13 +8,23 @@ and image attachment processing for multimodal support.
 
 import time
 import uuid
-from typing import Any, Dict, List, Optional 
+from typing import Any, Dict, List, Optional
 from collections.abc import Iterable
-from fireworks.client.api import ChatCompletionResponseChoice, ChatMessage, ChatCompletionResponse
-from fireworks.llm.LLM import ChatCompletionMessageParam
+from fireworks.client.api import (
+    ChatCompletionResponseChoice,
+    ChatMessage,
+    ChatCompletionResponse,
+)
+
+# Fireworks has changed its module layout across versions; support both.
+try:  # Newer layout (or vice versa, matching client.py)
+    from fireworks.llm.llm import ChatCompletionMessageParam  # type: ignore[attr-defined]
+except Exception:
+    from fireworks.llm.LLM import ChatCompletionMessageParam  # type: ignore[attr-defined]
 from ..logger import GenerationRequestMessage, Generation, Trace
 from ..components.attachment import UrlAttachment
 from ...scribe import scribe
+
 
 class FireworksUtils:
     """Utility class for Fireworks AI API integration with Maxim.
@@ -30,7 +40,9 @@ class FireworksUtils:
     """
 
     @staticmethod
-    def parse_message_param(messages: Iterable[ChatCompletionMessageParam]) -> List[GenerationRequestMessage]:
+    def parse_message_param(
+        messages: Iterable[ChatCompletionMessageParam],
+    ) -> List[GenerationRequestMessage]:
         """Parse Fireworks AI message parameters into Maxim format.
 
         This method converts Fireworks AI message dictionaries into Maxim's
@@ -69,7 +81,7 @@ class FireworksUtils:
                 )
 
         return parsed_messages
-    
+
     @staticmethod
     def get_model_params(**kwargs: Any) -> Dict[str, Any]:
         """Extract and normalize model parameters for Maxim logging.
@@ -124,19 +136,21 @@ class FireworksUtils:
         return model_params
 
     @staticmethod
-    def parse_chunks_to_response(content: str, usage_data: Any) -> ChatCompletionResponse:
+    def parse_chunks_to_response(
+        content: str, usage_data: Any
+    ) -> ChatCompletionResponse:
         """Create a response object from streaming chunks for parsing.
-        
+
         This method constructs a response object compatible with the parse_completion
         method from accumulated streaming content and usage data. It creates a
         structured response that mimics the Fireworks AI response format.
-        
+
         Args:
             content (str): The accumulated content from streaming chunks that
                 represents the complete response text.
             usage_data (Any): Usage information from the final chunk
                 containing token counts and other usage metrics.
-                
+
         Returns:
             Response: A structured response object that can be processed by
                 the parse_completion method for consistent logging.
@@ -144,11 +158,13 @@ class FireworksUtils:
         return ChatCompletionResponse(
             id=f"streaming-response-{uuid.uuid4()}",
             created=int(time.time()),
-            choices=[ChatCompletionResponseChoice(
-                index=0,
-                message=ChatMessage(role="assistant", content=content),
-                finish_reason="stop",
-            )],
+            choices=[
+                ChatCompletionResponseChoice(
+                    index=0,
+                    message=ChatMessage(role="assistant", content=content),
+                    finish_reason="stop",
+                )
+            ],
             usage=usage_data,
             model="",
             object="chat.completion",
@@ -173,36 +189,74 @@ class FireworksUtils:
                 data with consistent structure for logging. Includes choices,
                 usage information, and metadata when available.
         """
-        if hasattr(completion, 'choices') and hasattr(completion, 'id'):
+        if hasattr(completion, "choices") and hasattr(completion, "id"):
             # Handle structured ChatCompletion objects
-            parsed_response = {
+            parsed_response: Dict[str, Any] = {
                 "id": completion.id,
-                "created": getattr(completion, 'created', int(time.time())),
+                "created": getattr(completion, "created", int(time.time())),
                 "choices": [],
             }
 
             for choice in completion.choices:
-                choice_data = {
-                    "index": getattr(choice, 'index', 0),
-                    "message": {
-                        "role": getattr(choice.message, 'role', 'assistant'),
-                        "content": getattr(choice.message, 'content', ''),
-                    },
-                    "finish_reason": getattr(choice, 'finish_reason', "stop"),
+                # Base message fields
+                message_dict: Dict[str, Any] = {
+                    "role": getattr(choice.message, "role", "assistant"),
+                    "content": getattr(choice.message, "content", ""),
                 }
 
-                # Add tool calls if present
-                if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
-                    choice_data["message"]["tool_calls"] = choice.message.tool_calls
+                # Normalize tool_calls to plain dicts for downstream parsers
+                tool_calls = getattr(choice.message, "tool_calls", None)
+                if tool_calls:
+                    normalized_tool_calls: List[Dict[str, Any]] = []
+                    for tc in tool_calls:
+                        # If already a dict, keep as-is
+                        if isinstance(tc, dict):
+                            normalized_tool_calls.append(tc)
+                            continue
+
+                        tc_id = getattr(tc, "id", None)
+                        tc_type = getattr(tc, "type", "function")
+                        fn = getattr(tc, "function", None)
+                        fn_name = None
+                        fn_args = None
+                        if fn is not None:
+                            fn_name = getattr(fn, "name", None)
+                            fn_args = getattr(fn, "arguments", None)
+
+                        fn_dict: Dict[str, Any] = {}
+                        if fn_name is not None:
+                            fn_dict["name"] = fn_name
+                        if fn_args is not None:
+                            fn_dict["arguments"] = fn_args
+
+                        tc_dict: Dict[str, Any] = {}
+                        if tc_id is not None:
+                            tc_dict["id"] = tc_id
+                        tc_dict["type"] = tc_type
+                        if fn_dict:
+                            tc_dict["function"] = fn_dict
+
+                        normalized_tool_calls.append(tc_dict)
+
+                    if normalized_tool_calls:
+                        message_dict["tool_calls"] = normalized_tool_calls
+
+                choice_data: Dict[str, Any] = {
+                    "index": getattr(choice, "index", 0),
+                    "message": message_dict,
+                    "finish_reason": getattr(choice, "finish_reason", "stop"),
+                }
 
                 parsed_response["choices"].append(choice_data)
 
             # Add usage information if available
-            if hasattr(completion, 'usage') and completion.usage:
+            if hasattr(completion, "usage") and completion.usage:
                 parsed_response["usage"] = {
-                    "prompt_tokens": getattr(completion.usage, 'prompt_tokens', 0),
-                    "completion_tokens": getattr(completion.usage, 'completion_tokens', 0),
-                    "total_tokens": getattr(completion.usage, 'total_tokens', 0),
+                    "prompt_tokens": getattr(completion.usage, "prompt_tokens", 0),
+                    "completion_tokens": getattr(
+                        completion.usage, "completion_tokens", 0
+                    ),
+                    "total_tokens": getattr(completion.usage, "total_tokens", 0),
                 }
 
             return parsed_response
@@ -210,11 +264,13 @@ class FireworksUtils:
         # Fallback for dict-like responses
         if isinstance(completion, dict):
             return completion
-    
+
         return {}
-        
+
     @staticmethod
-    def add_image_attachments_from_messages(generation: Generation, messages: Iterable[ChatCompletionMessageParam]) -> None:
+    def add_image_attachments_from_messages(
+        generation: Generation, messages: Iterable[ChatCompletionMessageParam]
+    ) -> None:
         """Extract image URLs from messages and add them as attachments to the generation.
 
         This method scans through Fireworks AI messages to find image URLs in content
@@ -241,7 +297,7 @@ class FireworksUtils:
         """
         if generation is None or not messages:
             return
-            
+
         try:
             for message in messages:
                 if isinstance(message, dict) and message.get("role") == "user":
@@ -249,26 +305,31 @@ class FireworksUtils:
                     if isinstance(content, list):
                         # Process content blocks for multimodal messages
                         for content_item in content:
-                            if isinstance(content_item, dict) and content_item.get("type") == "image_url":
+                            if (
+                                isinstance(content_item, dict)
+                                and content_item.get("type") == "image_url"
+                            ):
                                 image_url_data = content_item.get("image_url", {})
                                 image_url = image_url_data.get("url", "")
                                 if image_url:
                                     # Add the image URL as an attachment to the generation
-                                    generation.add_attachment(UrlAttachment(
-                                        url=image_url,
-                                        name="User Image",
-                                    ))
+                                    generation.add_attachment(
+                                        UrlAttachment(
+                                            url=image_url,
+                                            name="User Image",
+                                        )
+                                    )
         except Exception as e:
             generation.error({"message": str(e)})
             scribe().warning(f"[MaximSDK] Error adding image attachments: {e}")
-            
+
     @staticmethod
     def apply_tags(
-        generation: Optional[Generation], 
-        trace: Optional[Trace], 
-        generation_tags: Optional[Dict[str, str]], 
-        trace_tags: Optional[Dict[str, str]]
-        ) -> None:
+        generation: Optional[Generation],
+        trace: Optional[Trace],
+        generation_tags: Optional[Dict[str, str]],
+        trace_tags: Optional[Dict[str, str]],
+    ) -> None:
         """
         Apply tags to the generation and trace objects.
         """
@@ -279,7 +340,7 @@ class FireworksUtils:
         if trace_tags is not None and trace is not None:
             for key, value in trace_tags.items():
                 trace.add_tag(key, value)
-    
+
     @staticmethod
     def map_fireworks_model_name(model: str) -> str:
         """Get the Fireworks model name from the model string.
@@ -289,7 +350,7 @@ class FireworksUtils:
         Returns:
             str: The mapped Fireworks model name.
         """
-        
+
         model_name_mapping = {
             "alpha": "accounts/fireworks/models/alpha",
             "deepseek-r1": "accounts/fireworks/models/deepseek-r1",

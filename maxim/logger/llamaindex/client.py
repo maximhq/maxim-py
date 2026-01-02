@@ -1,7 +1,7 @@
 import functools
 from uuid import uuid4
 import contextvars
-from typing import Union 
+from typing import Union
 import json
 import ast
 import time
@@ -19,11 +19,14 @@ from llama_index.core.agent.workflow import (
 from llama_index.core.settings import Settings
 from llama_index.core.callbacks import TokenCountingHandler, CallbackManager
 
-from maxim.logger.components.generation import GenerationToolCall, GenerationToolCallFunction
+from maxim.logger.components.generation import (
+    GenerationToolCall,
+    GenerationToolCallFunction,
+)
 
 from .. import Logger
 from ...scribe import scribe
-from ..components import Trace, Span, Generation, GenerationConfigDict 
+from ..components import Trace, Span, Generation, GenerationConfigDict
 from .utils import LlamaIndexUtils
 
 _INSTRUMENTED = False
@@ -41,17 +44,18 @@ _current_generation: contextvars.ContextVar[Union[dict[str, Generation], None]] 
 _token_handler = TokenCountingHandler()
 Settings.callback_manager = CallbackManager([_token_handler])
 
+
 def instrument_llamaindex(logger: Logger, *, debug: bool = False):
     """
     Patches LlamaIndex's core workflow components to add comprehensive logging and tracing.
-    
+
     This wrapper enhances LlamaIndex with:
     - Detailed operation tracing for Agent Workflows
     - Tool execution monitoring
     - Agent state transitions
     - Input/Output tracking
     - Error handling and reporting
-    
+
     Args:
         logger (Logger): A Maxim Logger instance for handling the tracing and logging operations.
         debug (bool): If True, show INFO and DEBUG logs. If False, show only WARNING and ERROR logs.
@@ -86,12 +90,14 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
             # Using contextvars, no need for global statements
 
             current_agent = None
-            trace_tags = {}
+            trace_tags: dict[str, str] = {}
+            created_trace_here = False
 
-            # Create trace if not exists (for root workflow)
+            # Create a trace if not exists (this call becomes the root owner of the trace)
+            existing_trace = _global_maxim_trace.get()
             if (
                 isinstance(self, (AgentWorkflow, FunctionAgent, ReActAgent))
-                and _global_maxim_trace.get() is None
+                and existing_trace is None
             ):
                 trace_id = str(uuid4())
                 scribe().debug(f"[MaximSDK] Creating new trace with ID: {trace_id}")
@@ -103,20 +109,25 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                 elif isinstance(self, ReActAgent):
                     trace_tags["agent_type"] = "react_agent"
 
-                trace = logger.trace({
-                    "id": trace_id,
-                    "name": (
-                        "LlamaIndex Workflow"
-                        if isinstance(self, AgentWorkflow)
-                        else "LlamaIndex Agent"
-                    ),
-                    "tags": trace_tags,
-                })
+                trace = logger.trace(
+                    {
+                        "id": trace_id,
+                        "name": (
+                            "LlamaIndex Workflow"
+                            if isinstance(self, AgentWorkflow)
+                            else "LlamaIndex Agent"
+                        ),
+                        "tags": trace_tags,
+                    }
+                )
                 _global_maxim_trace.set(trace)
+                created_trace_here = True
 
             try:
                 # Call the original method
-                scribe().debug(f"[MaximSDK] Calling original method: {original_method.__name__}")
+                scribe().debug(
+                    f"[MaximSDK] Calling original method: {original_method.__name__}"
+                )
                 handler = original_method(self, *args, **kwargs)
 
                 # Set up event handling for workflow / agent
@@ -130,22 +141,24 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                         # Handle agent transitions
                         if hasattr(event, "current_agent_name"):
                             agent_name = event.current_agent_name
-                            if(current_agent is None or current_agent != agent_name):
+                            if current_agent is None or current_agent != agent_name:
                                 current_agent = agent_name
 
                             agent_spans = _agent_spans.get() or {}
                             if agent_name not in agent_spans:
                                 span_id = str(uuid4())
                                 agent_spans = agent_spans.copy()
-                                agent_spans[agent_name] = trace.span({
-                                    "id": span_id,
-                                    "name": f"Agent: {agent_name}",
-                                    "tags": {
-                                        "agent_type": (
-                                            trace_tags.get("agent_type", "unknown")
-                                        )
-                                    },
-                                })
+                                agent_spans[agent_name] = trace.span(
+                                    {
+                                        "id": span_id,
+                                        "name": f"Agent: {agent_name}",
+                                        "tags": {
+                                            "agent_type": (
+                                                trace_tags.get("agent_type", "unknown")
+                                            )
+                                        },
+                                    }
+                                )
                                 _agent_spans.set(agent_spans)
 
                         # Handle agent inputs
@@ -162,8 +175,10 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                             if input_agent is not None:
                                 model_used = input_agent.llm.metadata.model_name
                                 provider = input_agent.llm.__class__.__name__
-                                model_parameters = LlamaIndexUtils.parse_model_parameters(
-                                    input_agent.llm
+                                model_parameters = (
+                                    LlamaIndexUtils.parse_model_parameters(
+                                        input_agent.llm
+                                    )
                                 )
 
                                 if provider is not None:
@@ -182,11 +197,15 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                                         "provider": provider,
                                         "model": model_used,
                                         "messages": agent_input_messages,
-                                        "model_parameters": model_parameters
+                                        "model_parameters": model_parameters,
                                     }
-                                    current_generations = _current_generation.get() or {}
+                                    current_generations = (
+                                        _current_generation.get() or {}
+                                    )
                                     current_generations = current_generations.copy()
-                                    current_generations[event.current_agent_name] = current_span.generation(gen_config)
+                                    current_generations[event.current_agent_name] = (
+                                        current_span.generation(gen_config)
+                                    )
                                     _current_generation.set(current_generations)
                                 except Exception as e:
                                     scribe().error(
@@ -199,7 +218,9 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                         # Handle agent outputs
                         elif isinstance(event, AgentOutput):
                             current_generations = _current_generation.get() or {}
-                            current_gen = current_generations.get(event.current_agent_name)
+                            current_gen = current_generations.get(
+                                event.current_agent_name
+                            )
                             if current_gen:
                                 if event.response.content:
                                     token_usage = {
@@ -209,34 +230,42 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                                     }
 
                                     raw_response = event.raw or {}
-                                    current_gen.result({
-                                        "id": raw_response.get("id", str(uuid4())),
-                                        "usage": token_usage,
-                                        "choices": [
-                                            {
-                                                "index": 0,
-                                                "message": {
-                                                    "role": "assistant",
-                                                    "content": event.response.content,
-                                                },
-                                                "finish_reason": raw_response.get(
-                                                    "finish_reason", "stop"
-                                                ),
-                                            }
-                                        ],
-                                        "created": raw_response.get("created", int(time.time())),
-                                    })
+                                    current_gen.result(
+                                        {
+                                            "id": raw_response.get("id", str(uuid4())),
+                                            "usage": token_usage,
+                                            "choices": [
+                                                {
+                                                    "index": 0,
+                                                    "message": {
+                                                        "role": "assistant",
+                                                        "content": event.response.content,
+                                                    },
+                                                    "finish_reason": raw_response.get(
+                                                        "finish_reason", "stop"
+                                                    ),
+                                                }
+                                            ],
+                                            "created": raw_response.get(
+                                                "created", int(time.time())
+                                            ),
+                                        }
+                                    )
                                 elif event.tool_calls:
                                     tool_calls = []
                                     for tool_call in event.tool_calls:
-                                        tool_calls.append(GenerationToolCall(
-                                            id=tool_call.tool_id,
-                                            type="function",
-                                            function=GenerationToolCallFunction(
-                                                name=tool_call.tool_name,
-                                                arguments=json.dumps(tool_call.tool_kwargs)
+                                        tool_calls.append(
+                                            GenerationToolCall(
+                                                id=tool_call.tool_id,
+                                                type="function",
+                                                function=GenerationToolCallFunction(
+                                                    name=tool_call.tool_name,
+                                                    arguments=json.dumps(
+                                                        tool_call.tool_kwargs
+                                                    ),
+                                                ),
                                             )
-                                        ))
+                                        )
 
                                     token_usage = {
                                         "prompt_tokens": _token_handler.prompt_llm_token_count,
@@ -244,21 +273,23 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                                         "total_tokens": _token_handler.total_llm_token_count,
                                     }
 
-                                    current_gen.result({
-                                        "id": str(uuid4()),
-                                        "usage": token_usage,
-                                        "choices": [
-                                            {
-                                                "index": 0,
-                                                "message": {
-                                                    "role": "assistant",
-                                                    "tool_calls": tool_calls
-                                                },
-                                                "finish_reason": "tool_calls",
-                                            }
-                                        ],
-                                        "created": int(time.time()),
-                                    })
+                                    current_gen.result(
+                                        {
+                                            "id": str(uuid4()),
+                                            "usage": token_usage,
+                                            "choices": [
+                                                {
+                                                    "index": 0,
+                                                    "message": {
+                                                        "role": "assistant",
+                                                        "tool_calls": tool_calls,
+                                                    },
+                                                    "finish_reason": "tool_calls",
+                                                }
+                                            ],
+                                            "created": int(time.time()),
+                                        }
+                                    )
 
                                 current_gen.end()
                                 current_generations = _current_generation.get() or {}
@@ -267,7 +298,9 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                                 _current_generation.set(current_generations)
                                 # Reset token handler for next agent
                                 _token_handler.reset_counts()
-                                scribe().debug("[MaximSDK] Generation completed and cleaned up")
+                                scribe().debug(
+                                    "[MaximSDK] Generation completed and cleaned up"
+                                )
 
                         # Handle tool calls
                         elif isinstance(event, ToolCall):
@@ -284,39 +317,51 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                                             "total_tokens": _token_handler.total_llm_token_count,
                                         }
 
-                                        current_gen.result({
-                                            "id": event.raw.get("id", str(uuid4())),
-                                            "usage": token_usage,
-                                            "choices": [
-                                                {
-                                                    "index": 0,
-                                                    "message": {
-                                                        "role": "assistant",
-                                                        "tool_calls": [
-                                                            {
-                                                                "id": event.tool_id,
-                                                                "type": "function",
-                                                                "function": {
-                                                                    "name": event.tool_name,
-                                                                    "arguments": json.dumps(event.tool_kwargs)
-                                                                },
-                                                            }
-                                                        ]
-                                                    },
-                                                    "finish_reason": event.raw.get("finish_reason", "stop"),
-                                                }
-                                            ],
-                                            "created": event.raw.get("created", int(time.time())),
-                                        })
+                                        current_gen.result(
+                                            {
+                                                "id": event.raw.get("id", str(uuid4())),
+                                                "usage": token_usage,
+                                                "choices": [
+                                                    {
+                                                        "index": 0,
+                                                        "message": {
+                                                            "role": "assistant",
+                                                            "tool_calls": [
+                                                                {
+                                                                    "id": event.tool_id,
+                                                                    "type": "function",
+                                                                    "function": {
+                                                                        "name": event.tool_name,
+                                                                        "arguments": json.dumps(
+                                                                            event.tool_kwargs
+                                                                        ),
+                                                                    },
+                                                                }
+                                                            ],
+                                                        },
+                                                        "finish_reason": event.raw.get(
+                                                            "finish_reason", "stop"
+                                                        ),
+                                                    }
+                                                ],
+                                                "created": event.raw.get(
+                                                    "created", int(time.time())
+                                                ),
+                                            }
+                                        )
                                     current_gen.end()
                                     if current_agent is not None:
-                                        current_generations = _current_generation.get() or {}
+                                        current_generations = (
+                                            _current_generation.get() or {}
+                                        )
                                         current_generations = current_generations.copy()
                                         current_generations.pop(current_agent, None)
                                         _current_generation.set(current_generations)
                                     # Reset token handler for next agent
                                     _token_handler.reset_counts()
-                                    scribe().debug("[MaximSDK] Generation completed and cleaned up")
+                                    scribe().debug(
+                                        "[MaximSDK] Generation completed and cleaned up"
+                                    )
 
                         # Handle tool results
                         elif isinstance(event, ToolCallResult):
@@ -325,11 +370,13 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                                 current_span = agent_spans.get(current_agent)
                                 if current_span:
                                     tool_id = event.tool_id or str(uuid4())
-                                    tool_call = current_span.tool_call({
-                                        "id": tool_id,
-                                        "name": event.tool_name,
-                                        "args": json.dumps(event.tool_kwargs)
-                                    })
+                                    tool_call = current_span.tool_call(
+                                        {
+                                            "id": tool_id,
+                                            "name": event.tool_name,
+                                            "args": json.dumps(event.tool_kwargs),
+                                        }
+                                    )
                                     # For simple string outputs, wrap them in a result object
                                     if isinstance(event.tool_output.content, str):
                                         tool_call.result(event.tool_output.content)
@@ -353,7 +400,11 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                                             # If parsing fails, wrap in result object
                                             tool_call.result(
                                                 json.dumps(
-                                                    {"result": str(event.tool_output.content)},
+                                                    {
+                                                        "result": str(
+                                                            event.tool_output.content
+                                                        )
+                                                    },
                                                     indent=2,
                                                 )
                                             )
@@ -392,7 +443,42 @@ def instrument_llamaindex(logger: Logger, *, debug: bool = False):
                 raise
 
             finally:
-                scribe().debug(f"――― End: {base_op_name} ―――")
+                try:
+                    if created_trace_here:
+                        # End any generations that are still open
+                        current_generations = _current_generation.get() or {}
+                        for gen in current_generations.values():
+                            try:
+                                gen.end()
+                            except Exception as e:
+                                scribe().error(
+                                    f"[MaximSDK] Error ending generation during LlamaIndex cleanup: {e!s}"
+                                )
+                        _current_generation.set({})
+
+                        # End any agent spans that are still open
+                        agent_spans = _agent_spans.get() or {}
+                        for span in agent_spans.values():
+                            try:
+                                span.end()
+                            except Exception as e:
+                                scribe().error(
+                                    f"[MaximSDK] Error ending span during LlamaIndex cleanup: {e!s}"
+                                )
+                        _agent_spans.set({})
+
+                        # Finally, end the trace and clear the context
+                        trace = _global_maxim_trace.get()
+                        if trace is not None:
+                            try:
+                                trace.end()
+                            except Exception as e:
+                                scribe().error(
+                                    f"[MaximSDK] Error ending trace during LlamaIndex cleanup: {e!s}"
+                                )
+                            _global_maxim_trace.set(None)
+                finally:
+                    scribe().debug(f"――― End: {base_op_name} ―――")
 
         return maxim_wrapper
 

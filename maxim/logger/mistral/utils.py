@@ -101,9 +101,15 @@ class MistralUtils:
                 for choice in completion.choices
             ],
             "usage": {
-                "prompt_tokens": completion.usage.prompt_tokens if completion.usage else 0,
-                "completion_tokens": completion.usage.completion_tokens if completion.usage else 0,
-                "total_tokens": completion.usage.total_tokens if completion.usage else 0,
+                "prompt_tokens": (
+                    completion.usage.prompt_tokens if completion.usage else 0
+                ),
+                "completion_tokens": (
+                    completion.usage.completion_tokens if completion.usage else 0
+                ),
+                "total_tokens": (
+                    completion.usage.total_tokens if completion.usage else 0
+                ),
             },
         }
 
@@ -145,7 +151,9 @@ class MistralUtils:
                 {
                     "index": last_chunk.get("choices", [{}])[0].get("index", 0),
                     "message": {"role": "assistant", "content": text},
-                    "finish_reason": last_chunk.get("choices", [{}])[0].get("finish_reason"),
+                    "finish_reason": last_chunk.get("choices", [{}])[0].get(
+                        "finish_reason"
+                    ),
                 }
             ],
         }

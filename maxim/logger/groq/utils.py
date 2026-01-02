@@ -39,7 +39,7 @@ class GroqUtils:
     instantiation. The class follows the same patterns as other provider
     integrations in the Maxim SDK.
     """
-    
+
     @staticmethod
     def parse_message(
         message: ChatCompletionMessage,
@@ -120,7 +120,7 @@ class GroqUtils:
         param_keys = [
             "temperature",
             "top_p",
-            "max_tokens", # deprecated
+            "max_tokens",  # deprecated
             "max_completion_tokens",
             "frequency_penalty",
             "presence_penalty",
@@ -189,33 +189,33 @@ class GroqUtils:
             ChatCompletionMessageToolCall(
                 id=tool_call.id,
                 type=tool_call.type,
-                function=Function(  
+                function=Function(
                     name=tool_call.function.name,
                     arguments=tool_call.function.arguments,
-                )
+                ),
             )
             for tool_call in flattened_tool_calls
         ]
 
     @staticmethod
     def parse_chunks_to_response(
-        content: str, 
-        usage_data: Optional[CompletionUsage], 
+        content: str,
+        usage_data: Optional[CompletionUsage],
         tool_calls: Optional[List[List[ChoiceDeltaToolCall]]],
     ) -> ChatCompletion:
         """Create a response object from streaming chunks for parsing.
-        
+
         This method constructs a response object compatible with the parse_completion
         method from accumulated streaming content and usage data. It creates a
         structured response that mimics the Groq response format.
-        
+
         Args:
             content (str): The accumulated content from streaming chunks that
                 represents the complete response text.
             usage_data (Optional[CompletionUsage]): Usage information from the final chunk
                 containing token counts and other usage metrics.
             tool_calls (Optional[List[ChoiceDeltaToolCall]]): List of tool calls from the chunks.
-            
+
         Returns:
             Response: Response object with proper attributes that can be processed
                 by parse_completion() method. Contains choices, usage, and
@@ -226,15 +226,17 @@ class GroqUtils:
         return ChatCompletion(
             id=f"streaming-response-{uuid.uuid4()}",
             created=int(time.time()),
-            choices=[Choice(
-                index=0,
-                message=ChatCompletionMessage(
-                    role="assistant",
-                    content=content,
-                    tool_calls=converted_tool_calls,
-                ),
-                finish_reason="stop",
-            )],
+            choices=[
+                Choice(
+                    index=0,
+                    message=ChatCompletionMessage(
+                        role="assistant",
+                        content=content,
+                        tool_calls=converted_tool_calls,
+                    ),
+                    finish_reason="stop",
+                )
+            ],
             usage=usage_data,
             model="",
             object="chat.completion",
@@ -262,35 +264,37 @@ class GroqUtils:
                 - usage: Token usage statistics (prompt, completion, total)
         """
         # Handle Groq ChatCompletion format
-        if hasattr(completion, 'choices') and hasattr(completion, 'id'):
+        if hasattr(completion, "choices") and hasattr(completion, "id"):
             parsed_response = {
                 "id": completion.id,
-                "created": getattr(completion, 'created', int(time.time())),
+                "created": getattr(completion, "created", int(time.time())),
                 "choices": [],
             }
 
             for choice in completion.choices:
                 choice_data = {
-                    "index": getattr(choice, 'index', 0),
+                    "index": getattr(choice, "index", 0),
                     "message": {
-                        "role": getattr(choice.message, 'role', 'assistant'),
-                        "content": getattr(choice.message, 'content', ''),
+                        "role": getattr(choice.message, "role", "assistant"),
+                        "content": getattr(choice.message, "content", ""),
                     },
-                    "finish_reason": getattr(choice, 'finish_reason', "stop"),
+                    "finish_reason": getattr(choice, "finish_reason", "stop"),
                 }
 
                 # Add tool calls if present
-                if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
+                if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
                     choice_data["message"]["tool_calls"] = choice.message.tool_calls
 
                 parsed_response["choices"].append(choice_data)
 
             # Add usage information if available
-            if hasattr(completion, 'usage') and completion.usage:
+            if hasattr(completion, "usage") and completion.usage:
                 parsed_response["usage"] = {
-                    "prompt_tokens": getattr(completion.usage, 'prompt_tokens', 0),
-                    "completion_tokens": getattr(completion.usage, 'completion_tokens', 0),
-                    "total_tokens": getattr(completion.usage, 'total_tokens', 0),
+                    "prompt_tokens": getattr(completion.usage, "prompt_tokens", 0),
+                    "completion_tokens": getattr(
+                        completion.usage, "completion_tokens", 0
+                    ),
+                    "total_tokens": getattr(completion.usage, "total_tokens", 0),
                 }
 
             return parsed_response
@@ -301,10 +305,46 @@ class GroqUtils:
         return {}
 
     @staticmethod
+    def extract_tool_calls_from_completion(
+        completion: Union[ChatCompletion, Dict[str, Any]],
+    ) -> List[Any]:
+        """Extract tool calls from a Groq ChatCompletion or parsed dict.
+
+        This helper returns the raw tool_call entries so that callers can
+        create Maxim ToolCall entities with id/name/arguments.
+        """
+        try:
+            # If it's already a parsed dict, read from choices[0].message.tool_calls
+            if isinstance(completion, dict):
+                choices = completion.get("choices") or []
+                if not choices:
+                    return []
+                message = choices[0].get("message") or {}
+                tool_calls = message.get("tool_calls") or []
+                return tool_calls if isinstance(tool_calls, list) else []
+
+            # Otherwise, use the native Groq types
+            if not hasattr(completion, "choices"):
+                return []
+
+            all_tool_calls: List[Any] = []
+            for choice in getattr(completion, "choices", []) or []:
+                msg = getattr(choice, "message", None)
+                if msg is not None and hasattr(msg, "tool_calls") and msg.tool_calls:
+                    tc_list = msg.tool_calls
+                    if isinstance(tc_list, list):
+                        all_tool_calls.extend(tc_list)
+            return all_tool_calls
+        except Exception as e:
+            scribe().debug(
+                f"[MaximSDK][GroqUtils] Error extracting tool calls from completion: {e}"
+            )
+            return []
+
+    @staticmethod
     def add_image_attachments_from_messages(
-            generation: Generation, 
-            messages: Iterable[ChatCompletionMessageParam]
-        ) -> None:
+        generation: Generation, messages: Iterable[ChatCompletionMessageParam]
+    ) -> None:
         """Extract image URLs from messages and add them as attachments to the generation.
 
         This method scans through Groq messages to find image URLs in content
@@ -332,15 +372,20 @@ class GroqUtils:
                     content = message.get("content", [])
                     if isinstance(content, list):
                         for content_item in content:
-                            if isinstance(content_item, dict) and content_item.get("type") == "image_url":
+                            if (
+                                isinstance(content_item, dict)
+                                and content_item.get("type") == "image_url"
+                            ):
                                 image_url_data = content_item.get("image_url", {})
                                 image_url = image_url_data.get("url", "")
                                 if image_url:
-                                    generation.add_attachment(UrlAttachment(
-                                        url=image_url,
-                                        name="User Image",
-                                        mime_type="image",
-                                    ))
+                                    generation.add_attachment(
+                                        UrlAttachment(
+                                            url=image_url,
+                                            name="User Image",
+                                            mime_type="image",
+                                        )
+                                    )
         except Exception as e:
-            generation.error({ "message": str(e) })
+            generation.error({"message": str(e)})
             scribe().warning(f"[MaximSDK] Error adding image attachments: {e}")

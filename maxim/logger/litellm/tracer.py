@@ -1,5 +1,6 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
+import json
 
 from litellm.integrations.custom_logger import CustomLogger
 
@@ -8,6 +9,7 @@ from maxim.logger.components.generation import GenerationRequestMessage
 from ...scribe import scribe
 from ..logger import GenerationConfig, GenerationError, Logger
 from ..models import Container, SpanContainer, TraceContainer
+from .parser import parse_litellm_model_response
 
 
 class MaximLiteLLMTracer(CustomLogger):
@@ -26,6 +28,7 @@ class MaximLiteLLMTracer(CustomLogger):
         scribe().warning("[MaximSDK] Litellm support is in beta")
         self.logger = logger
         self.containers: Dict[str, Container] = {}
+        self._inflight_tool_calls: Dict[str, Any] = {}
 
     def __get_container_from_metadata(
         self, metadata: Optional[Dict[str, Any]]
@@ -101,6 +104,113 @@ class MaximLiteLLMTracer(CustomLogger):
                         return item.get("text", "")
         return None
 
+    def _extract_tool_calls_from_response(
+        self, response_obj: Any
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract tool_calls list from a LiteLLM ModelResponse or dict-shaped response.
+
+        We expect OpenAI-style responses where:
+        response["choices"][0]["message"]["tool_calls"] is a list of tool call dicts.
+        """
+        try:
+            # Normalize to dict
+            if isinstance(response_obj, dict):
+                data = response_obj
+            else:
+                # ModelResponse or similar
+                data = parse_litellm_model_response(response_obj)
+
+            choices = data.get("choices") or []
+            if not choices:
+                return []
+            message = choices[0].get("message") or {}
+            tool_calls = message.get("tool_calls") or []
+            if not isinstance(tool_calls, list):
+                return []
+            return tool_calls
+        except Exception as e:
+            scribe().debug(
+                "[MaximSDK] Error extracting tool calls from LiteLLM response: %s",
+                str(e),
+            )
+            return []
+
+    def _log_tool_calls_for_container(
+        self, container: Container, response_obj: Any
+    ) -> None:
+        """
+        Create Maxim ToolCall entities on the given container for any tool_calls
+        present in the LiteLLM response.
+        """
+        tool_calls = self._extract_tool_calls_from_response(response_obj)
+        if not tool_calls:
+            return
+
+        for tc in tool_calls:
+            fn = (tc.get("function") or {}) if isinstance(tc, dict) else {}
+            tool_call_id = tc.get("id") or str(uuid4())
+            tool_name = fn.get("name", "unknown")
+            tool_args = fn.get("arguments", "")
+
+            try:
+                tool_call = container.add_tool_call(
+                    {
+                        "id": tool_call_id,
+                        "name": tool_name,
+                        "description": "LiteLLM tool call",
+                        "args": tool_args,
+                    }
+                )
+                self._inflight_tool_calls[tool_call_id] = tool_call
+            except Exception as e:
+                scribe().warning(
+                    "[MaximSDK] Error creating tool_call for LiteLLM: %s", str(e)
+                )
+
+    def _complete_tool_results_from_messages(self, messages: Any) -> None:
+        """
+        Complete Maxim ToolCall entities using OpenAI-style tool messages.
+
+        We look for messages of the form:
+        {"role": "tool", "tool_call_id": "...", "content": ...}
+        and call tool_call.result(...) with the concrete tool output.
+        """
+        if messages is None:
+            return
+        if not isinstance(messages, list):
+            return
+
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("role") != "tool":
+                continue
+            tool_call_id = msg.get("tool_call_id")
+            if not isinstance(tool_call_id, str) or not tool_call_id:
+                continue
+            raw_content = msg.get("content")
+            if raw_content is None:
+                result_str = ""
+            elif isinstance(raw_content, str):
+                result_str = raw_content
+            else:
+                try:
+                    result_str = json.dumps(raw_content)
+                except Exception:
+                    result_str = str(raw_content)
+
+            tool_call = self._inflight_tool_calls.get(tool_call_id)
+            if tool_call is None:
+                continue
+            try:
+                tool_call.result(result_str)
+                self._inflight_tool_calls.pop(tool_call_id, None)
+            except Exception as e:
+                scribe().warning(
+                    "[MaximSDK] Error setting tool_call result for LiteLLM: %s", str(e)
+                )
+
     def log_pre_api_call(self, model, messages, kwargs):
         """
         Runs when a LLM call starts.
@@ -108,11 +218,16 @@ class MaximLiteLLMTracer(CustomLogger):
         try:
             if kwargs.get("call_type") == "embedding":
                 return
+            self._complete_tool_results_from_messages(messages)
             metadata: Optional[Dict[str, Any]] = None
             generation_name = None
             tags = {}
 
-            litellm_metadata = kwargs.get("litellm_params", {}).get("metadata") or {}
+            litellm_metadata = (
+                kwargs.get("litellm_params", {}).get("metadata")
+                or kwargs.get("metadata")
+                or {}
+            )
             if litellm_metadata:
                 metadata = litellm_metadata.get("maxim")
                 if metadata is not None:
@@ -174,6 +289,8 @@ class MaximLiteLLMTracer(CustomLogger):
                 )
                 return
             self.logger.generation_result(call_id, result=response_obj)
+            # Log tool calls, if any, on the same container (trace or span).
+            self._log_tool_calls_for_container(container, response_obj)
             container.end()
         except Exception as e:
             scribe().error(
@@ -227,11 +344,17 @@ class MaximLiteLLMTracer(CustomLogger):
         try:
             if kwargs.get("call_type") == "embedding":
                 return
+            # If this request includes tool role messages, complete prior tool calls.
+            self._complete_tool_results_from_messages(messages)
             metadata: Optional[Dict[str, Any]] = None
             generation_name = None
             tags = {}
 
-            litellm_metadata = kwargs.get("litellm_params", {}).get("metadata") or {}
+            litellm_metadata = (
+                kwargs.get("litellm_params", {}).get("metadata")
+                or kwargs.get("metadata")
+                or {}
+            )
             if litellm_metadata:
                 metadata = litellm_metadata.get("maxim")
                 if metadata is not None:
@@ -293,6 +416,8 @@ class MaximLiteLLMTracer(CustomLogger):
                 )
                 return
             self.logger.generation_result(call_id, result=response_obj)
+            # Log tool calls, if any, on the same container (trace or span).
+            self._log_tool_calls_for_container(container, response_obj)
             container.end()
         except Exception as e:
             scribe().error(
