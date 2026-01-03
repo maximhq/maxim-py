@@ -7,10 +7,16 @@ content and usage data to provide complete logging information.
 """
 
 from collections.abc import Iterator, AsyncGenerator, Generator
-from fireworks.llm.LLM import ChatCompletionChunk
+
+try:  # Prefer the layout used in newer Fireworks versions
+    from fireworks.llm.llm import ChatCompletionChunk
+except Exception:
+    from fireworks.llm.LLM import ChatCompletionChunk
+
 from ..logger import Generation, Trace
 from ...scribe import scribe
 from .utils import FireworksUtils
+
 
 class FireworksHelpers:
     """Helper class for Fireworks AI SDK streaming operations.
@@ -69,27 +75,29 @@ class FireworksHelpers:
         """
         accumulated_content = ""
         final_usage = None
-        
+
         try:
             for chunk in stream:
                 # Accumulate content from chunks
-                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                if hasattr(chunk, "choices") and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
+                    if hasattr(delta, "content") and delta.content:
                         accumulated_content += delta.content
-                
+
                 # Collect usage data from chunks
-                if hasattr(chunk, 'usage') and chunk.usage:
+                if hasattr(chunk, "usage") and chunk.usage:
                     final_usage = chunk.usage
-                
+
                 yield chunk
 
             # After stream is complete, log the accumulated result
             if generation is not None:
                 # Create a complete response object from accumulated data
-                response_to_parse = FireworksUtils.parse_chunks_to_response(accumulated_content, final_usage)
+                response_to_parse = FireworksUtils.parse_chunks_to_response(
+                    accumulated_content, final_usage
+                )
                 generation.result(FireworksUtils.parse_completion(response_to_parse))
-            
+
             if is_local_trace and trace is not None:
                 trace.set_output(accumulated_content)
                 trace.end()
@@ -99,7 +107,7 @@ class FireworksHelpers:
             scribe().warning(
                 f"[MaximSDK][FireworksInstrumentation] Error in logging generation: {e}",
             )
-    
+
     @staticmethod
     async def async_stream_helper(
         stream: AsyncGenerator[ChatCompletionChunk, None],
@@ -141,17 +149,17 @@ class FireworksHelpers:
         """
         accumulated_content = ""
         final_usage = None
-        
+
         try:
             async for chunk in stream:
                 # Accumulate content from chunks
-                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                if hasattr(chunk, "choices") and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
+                    if hasattr(delta, "content") and delta.content:
                         accumulated_content += delta.content
 
                 # Collect usage data from chunks
-                if hasattr(chunk, 'usage') and chunk.usage:
+                if hasattr(chunk, "usage") and chunk.usage:
                     final_usage = chunk.usage
 
                 yield chunk
@@ -159,7 +167,9 @@ class FireworksHelpers:
             # After async stream is complete, log the accumulated result
             if generation is not None:
                 # Create a complete response object from accumulated data
-                response_to_parse = FireworksUtils.parse_chunks_to_response(accumulated_content, final_usage)
+                response_to_parse = FireworksUtils.parse_chunks_to_response(
+                    accumulated_content, final_usage
+                )
                 generation.result(FireworksUtils.parse_completion(response_to_parse))
 
             if is_local_trace and trace is not None:

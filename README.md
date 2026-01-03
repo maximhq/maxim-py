@@ -182,6 +182,11 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.5
+
+- fix: Fixed integrations handling of tool calls.
+- fix: Added missing trace ends and session_id in metadata
+
 ### 3.14.4
 
 - fix: Fixed pydantic_ai Agents session and traces implementation

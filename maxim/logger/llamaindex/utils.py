@@ -9,6 +9,7 @@ from llama_index.core.llms import ChatMessage, MessageRole, LLM
 from ..logger import GenerationRequestMessage
 from ...scribe import scribe
 
+
 class LlamaIndexUtils:
     """
     Utility functions for parsing LlamaIndex messages and model parameters.
@@ -16,7 +17,7 @@ class LlamaIndexUtils:
 
     @staticmethod
     def parse_messages_to_generation_request(
-        messages: list[ChatMessage]
+        messages: list[ChatMessage],
     ) -> list[GenerationRequestMessage]:
         """
         Parse a list of LlamaIndex chat messages to a list of GenerationRequestMessage objects.
@@ -31,32 +32,30 @@ class LlamaIndexUtils:
         return parsed_messages
 
     @staticmethod
-    def parse_individual_chat_message(message: ChatMessage) -> Optional[GenerationRequestMessage]:
+    def parse_individual_chat_message(
+        message: ChatMessage,
+    ) -> Optional[GenerationRequestMessage]:
         """
         Parse an individual LlamaIndex chat message to a GenerationRequestMessage object.
         """
         if message.role == MessageRole.USER:
             return GenerationRequestMessage(
-                role="user",
-                content=parse_message_content(message.blocks)
+                role="user", content=parse_message_content(message.blocks)
             )
 
         if message.role == MessageRole.ASSISTANT:
             return GenerationRequestMessage(
-                role="assistant",
-                content=parse_message_content(message.blocks)
+                role="assistant", content=parse_message_content(message.blocks)
             )
 
         if message.role == MessageRole.SYSTEM:
             return GenerationRequestMessage(
-                role="system",
-                content=parse_message_content(message.blocks)
+                role="system", content=parse_message_content(message.blocks)
             )
 
         if message.role == MessageRole.TOOL:
             return GenerationRequestMessage(
-                role="tool",
-                content=parse_message_content(message.blocks)
+                role="tool", content=parse_message_content(message.blocks)
             )
 
         scribe().warning(f"Unsupported message role: {message.role}")
@@ -75,13 +74,18 @@ class LlamaIndexUtils:
         if hasattr(llm, "top_p"):
             model_parameters["top_p"] = getattr(llm, "top_p", None)
         if hasattr(llm, "frequency_penalty"):
-            model_parameters["frequency_penalty"] = getattr(llm, "frequency_penalty", None)
+            model_parameters["frequency_penalty"] = getattr(
+                llm, "frequency_penalty", None
+            )
         if hasattr(llm, "presence_penalty"):
-            model_parameters["presence_penalty"] = getattr(llm, "presence_penalty", None)
+            model_parameters["presence_penalty"] = getattr(
+                llm, "presence_penalty", None
+            )
         if hasattr(llm, "stop"):
             model_parameters["stop"] = getattr(llm, "stop", None)
 
         return {k: v for k, v in model_parameters.items() if v is not None}
+
 
 def parse_message_content(blocks: list[ContentBlock]) -> str:
     """
@@ -97,6 +101,31 @@ def parse_message_content(blocks: list[ContentBlock]) -> str:
                 text_content.append(f"[Image: {image_url}]")
             else:
                 raise ValueError(f"Image block has no URL: {block}")
+        elif block.block_type == "tool_call":
+            # Newer versions of LlamaIndex can include tool call blocks in messages.
+            try:
+                tool_name = getattr(block, "tool_name", None) or getattr(
+                    block, "name", None
+                )
+                tool_args = getattr(block, "tool_kwargs", None) or getattr(
+                    block, "args", None
+                )
+
+                if tool_name is not None or tool_args is not None:
+                    text_content.append(
+                        f"[Tool call: {tool_name or 'unknown'}("
+                        f"{tool_args if isinstance(tool_args, str) else repr(tool_args)})]"
+                    )
+                else:
+                    text_content.append(f"[Tool call block: {repr(block)}]")
+            except Exception as e:  # defensive logging
+                scribe().warning(
+                    f"Error while parsing tool_call block ({type(block)}): {e!s}"
+                )
+                text_content.append("[Tool call]")
         else:
-            raise ValueError(f"Unsupported block type: {block.block_type}")
+            scribe().warning(
+                f"Unsupported block type in LlamaIndex message: {block.block_type}"
+            )
+            text_content.append(f"[Unsupported block type: {block.block_type}]")
     return " ".join(text_content)

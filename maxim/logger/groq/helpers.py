@@ -15,6 +15,8 @@ from groq.types.chat import ChatCompletionChunk
 from .utils import GroqUtils
 from ..logger import Generation, Trace
 from ...scribe import scribe
+from uuid import uuid4
+
 
 class GroqHelpers:
     """Helper class for Groq SDK streaming operations.
@@ -80,32 +82,86 @@ class GroqHelpers:
                 yield chunk
 
             for chunk in collected_chunks:
-                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                if hasattr(chunk, "choices") and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
+                    if hasattr(delta, "content") and delta.content:
                         accumulated_content += delta.content
 
                 # Collect usage data from chunks
                 if (
-                    hasattr(chunk, 'x_groq') and chunk.x_groq and
-                    hasattr(chunk.x_groq, 'usage') and chunk.x_groq.usage
+                    hasattr(chunk, "x_groq")
+                    and chunk.x_groq
+                    and hasattr(chunk.x_groq, "usage")
+                    and chunk.x_groq.usage
                 ):
                     final_usage = chunk.x_groq.usage
-                elif hasattr(chunk, 'usage') and chunk.usage:
+                elif hasattr(chunk, "usage") and chunk.usage:
                     final_usage = chunk.usage
 
-                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                if hasattr(chunk, "choices") and len(chunk.choices) > 0:
                     if chunk.choices[0].delta.tool_calls:
                         tool_calls.append(chunk.choices[0].delta.tool_calls)
 
             # After stream is complete, log the accumulated result
-            response_to_parse = GroqUtils.parse_chunks_to_response(accumulated_content, final_usage, tool_calls)
-            generation.result(GroqUtils.parse_completion(response_to_parse))
-            
+            response_to_parse = GroqUtils.parse_chunks_to_response(
+                accumulated_content, final_usage, tool_calls
+            )
+            parsed = GroqUtils.parse_completion(response_to_parse)
+            generation.result(parsed)
+
+            # Create ToolCall entities on the trace when tools are used.
+            try:
+                if trace is not None:
+                    tool_calls_flat = GroqUtils.extract_tool_calls_from_completion(
+                        response_to_parse
+                    )
+                    for tc in tool_calls_flat:
+                        fn = (
+                            getattr(tc, "function", None)
+                            if hasattr(tc, "function")
+                            else (tc.get("function") if isinstance(tc, dict) else None)
+                        )
+                        tool_call_id = (
+                            getattr(tc, "id", None)
+                            if hasattr(tc, "id")
+                            else (tc.get("id") if isinstance(tc, dict) else None)
+                        )
+                        if not isinstance(tool_call_id, str) or not tool_call_id:
+                            tool_call_id = str(uuid4())
+                        tool_name = (
+                            getattr(fn, "name", "unknown")
+                            if fn is not None and hasattr(fn, "name")
+                            else (
+                                fn.get("name", "unknown")
+                                if isinstance(fn, dict)
+                                else "unknown"
+                            )
+                        )
+                        tool_args = (
+                            getattr(fn, "arguments", "")
+                            if fn is not None and hasattr(fn, "arguments")
+                            else (
+                                fn.get("arguments", "") if isinstance(fn, dict) else ""
+                            )
+                        )
+
+                        _ = trace.tool_call(
+                            {
+                                "id": tool_call_id,
+                                "name": tool_name,
+                                "description": "Groq tool call",
+                                "args": tool_args,
+                            }
+                        )
+            except Exception as e:
+                scribe().warning(
+                    f"[MaximSDK][GroqInstrumentation] Error creating tool_call entities from stream: {e}"
+                )
+
             if is_local_trace and trace is not None:
                 trace.set_output(accumulated_content)
                 trace.end()
-                
+
         except Exception as e:
             generation.error({"message": str(e)})
             scribe().warning(
@@ -147,34 +203,36 @@ class GroqHelpers:
             AsyncGenerator[ChatCompletionChunk, None]: An async generator that yields
                 the same chunks as the input stream while providing logging.
         """
-    
+
         accumulated_content = ""
         final_usage = None
         collected_chunks: list[ChatCompletionChunk] = []
         tool_calls = []
-    
+
         try:
             async for chunk in stream:
                 # Accumulate content from chunks
                 collected_chunks.append(chunk)
                 yield chunk
-                
+
             for chunk in collected_chunks:
                 if hasattr(chunk, "choices") and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
                     if hasattr(delta, "content") and delta.content:
                         accumulated_content += delta.content
-                
+
                 # Collect usage data from chunks
                 if (
-                    hasattr(chunk, 'x_groq') and chunk.x_groq and
-                    hasattr(chunk.x_groq, 'usage') and chunk.x_groq.usage
+                    hasattr(chunk, "x_groq")
+                    and chunk.x_groq
+                    and hasattr(chunk.x_groq, "usage")
+                    and chunk.x_groq.usage
                 ):
                     final_usage = chunk.x_groq.usage
                 elif hasattr(chunk, "usage") and chunk.usage:
                     final_usage = chunk.usage
 
-                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                if hasattr(chunk, "choices") and len(chunk.choices) > 0:
                     if chunk.choices[0].delta.tool_calls:
                         tool_calls.append(chunk.choices[0].delta.tool_calls)
 
@@ -184,12 +242,62 @@ class GroqHelpers:
                 final_usage,
                 tool_calls,
             )
-            generation.result(GroqUtils.parse_completion(response_to_parse))
-            
+            parsed = GroqUtils.parse_completion(response_to_parse)
+            generation.result(parsed)
+
+            # Create ToolCall entities on the trace when tools are used.
+            try:
+                if trace is not None:
+                    tool_calls_flat = GroqUtils.extract_tool_calls_from_completion(
+                        response_to_parse
+                    )
+                    for tc in tool_calls_flat:
+                        fn = (
+                            getattr(tc, "function", None)
+                            if hasattr(tc, "function")
+                            else (tc.get("function") if isinstance(tc, dict) else None)
+                        )
+                        tool_call_id = (
+                            getattr(tc, "id", None)
+                            if hasattr(tc, "id")
+                            else (tc.get("id") if isinstance(tc, dict) else None)
+                        )
+                        if not isinstance(tool_call_id, str) or not tool_call_id:
+                            tool_call_id = str(uuid4())
+                        tool_name = (
+                            getattr(fn, "name", "unknown")
+                            if fn is not None and hasattr(fn, "name")
+                            else (
+                                fn.get("name", "unknown")
+                                if isinstance(fn, dict)
+                                else "unknown"
+                            )
+                        )
+                        tool_args = (
+                            getattr(fn, "arguments", "")
+                            if fn is not None and hasattr(fn, "arguments")
+                            else (
+                                fn.get("arguments", "") if isinstance(fn, dict) else ""
+                            )
+                        )
+
+                        _ = trace.tool_call(
+                            {
+                                "id": tool_call_id,
+                                "name": tool_name,
+                                "description": "Groq tool call",
+                                "args": tool_args,
+                            }
+                        )
+            except Exception as e:
+                scribe().warning(
+                    f"[MaximSDK][GroqInstrumentation] Error creating tool_call entities from async stream: {e}"
+                )
+
             if is_local_trace and trace is not None:
                 trace.set_output(accumulated_content)
                 trace.end()
-                
+
         except Exception as e:
             generation.error({"message": str(e)})
             scribe().warning(

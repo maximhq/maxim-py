@@ -114,6 +114,30 @@ class MaximGeminiChatSession(Chat):
         try:
             if generation is not None:
                 generation.result(response)
+
+            # Create tool_call entities on the trace if Gemini used tools.
+            try:
+                tool_calls = GeminiUtils.extract_tool_calls_from_response(response)
+                if tool_calls and self._trace_id is not None:
+                    for tc in tool_calls:
+                        fn = (tc.get("function") or {}) if isinstance(tc, dict) else {}
+                        tool_call_id = tc.get("id") or str(uuid4())
+                        tool_name = fn.get("name", "unknown")
+                        tool_args = fn.get("arguments", "")
+                        self._logger.trace_add_tool_call(
+                            self._trace_id,
+                            {
+                                "id": tool_call_id,
+                                "name": tool_name,
+                                "description": "Gemini tool call",
+                                "args": tool_args,
+                            },
+                        )
+            except Exception as e:
+                logging.warning(
+                    f"[MaximSDK][Gemini] Error creating tool_call entries: {str(e)}"
+                )
+
             if response is not None:
                 self._logger.trace_set_output(self._trace_id, response.text or "")
             if self._is_local_trace:
@@ -194,7 +218,7 @@ class MaximGeminiChatSession(Chat):
         Returns:
             Any: The attribute.
         """
-        return getattr(self._chat, name)        
+        return getattr(self._chat, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Set an attribute on the chat session.
@@ -482,6 +506,29 @@ class MaximGeminiModels(Models):
         try:
             if generation is not None:
                 generation.result(response)
+
+            # Create tool_call entities on the trace if Gemini used tools.
+            try:
+                tool_calls = GeminiUtils.extract_tool_calls_from_response(response)
+                if tool_calls and trace is not None:
+                    for tc in tool_calls:
+                        fn = (tc.get("function") or {}) if isinstance(tc, dict) else {}
+                        tool_call_id = tc.get("id") or str(uuid4())
+                        tool_name = fn.get("name", "unknown")
+                        tool_args = fn.get("arguments", "")
+                        trace.tool_call(
+                            {
+                                "id": tool_call_id,
+                                "name": tool_name,
+                                "description": "Gemini tool call",
+                                "args": tool_args,
+                            }
+                        )
+            except Exception as e:
+                logging.warning(
+                    f"[MaximSDK][Gemini] Error creating tool_call entries: {str(e)}"
+                )
+
             if is_local_trace:
                 if trace is not None:
                     trace.set_output(response.text or "")
