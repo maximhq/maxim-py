@@ -118,8 +118,9 @@ def handle_stt_result(self: STT, result):
 
 def pre_hook(self: STT, hook_name, args, kwargs):
     """Pre-hook for STT methods"""
+    scribe().debug(f"[Internal][STT] Pre-hook called: {hook_name}, args={args}, kwargs={kwargs}")
     try:
-        if hook_name in ["transcribe", "arecognize", "recognize"]:
+        if hook_name in ["_recognize_impl"]:
             # Handle audio input for transcription
             audio_frames = args[0] if args else None
             get_thread_pool_executor().submit(
@@ -137,6 +138,7 @@ def pre_hook(self: STT, hook_name, args, kwargs):
 
 def post_hook(self: STT, result, hook_name):
     """Post-hook for STT methods"""
+    scribe().debug(f"[Internal][STT] Post-hook called: {hook_name}, result={result}")
     try:
         if hook_name in ["transcribe", "arecognize", "recognize"]:
             # Handle transcription result

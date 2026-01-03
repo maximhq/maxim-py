@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, List, Optional, Union
+import json
+from typing import Any, Dict, Iterable, List, Optional, Union
 from uuid import uuid4
 
 import httpx
@@ -9,21 +10,26 @@ from anthropic._types import NOT_GIVEN, Body, Headers, NotGiven, Query
 from anthropic.resources.messages import Messages
 from anthropic.types.message_param import MessageParam
 from anthropic.types.metadata_param import MetadataParam
-from anthropic.types.model_param import ModelParam
 from anthropic.types.text_block_param import TextBlockParam
-from anthropic.types.tool_choice_param import ToolChoiceParam
 from anthropic.types.tool_param import ToolParam
 
 from ...scribe import scribe
-from ..logger import (
-    Generation,
-    GenerationConfig,
-    Logger,
-    Trace,
-    TraceConfig,
-)
+from ..logger import Generation, GenerationConfig, Logger, Trace, TraceConfig
 from .stream_manager import StreamWrapper
 from .utils import AnthropicUtils
+
+
+def _tool_descriptions_by_name(tools: Any) -> Dict[str, str]:
+    """Build a name->description lookup from Anthropic tool schema list (if provided)."""
+    out: Dict[str, str] = {}
+    if isinstance(tools, list):
+        for t in tools:
+            if isinstance(t, dict):
+                name = t.get("name")
+                if isinstance(name, str) and name:
+                    desc = t.get("description")
+                    out[name] = desc if isinstance(desc, str) else ""
+    return out
 
 
 class MaximAnthropicMessages(Messages):
@@ -50,6 +56,118 @@ class MaximAnthropicMessages(Messages):
         """
         super().__init__(client)
         self._logger = logger
+        # Per-client map of in-flight tool calls keyed by Anthropic tool_use_id.
+        self._inflight_tool_calls: Dict[str, Any] = {}
+
+    def _register_tool_use_blocks(
+        self,
+        trace: Optional[Trace],
+        response: Any,
+        tool_desc_by_name: Dict[str, str],
+    ) -> None:
+        """Create Maxim ToolCall entities for Anthropic tool_use blocks on the current trace."""
+        if trace is None:
+            return
+        content = getattr(response, "content", None)
+        if not isinstance(content, list):
+            return
+
+        for block in content:
+            block_type = (
+                getattr(block, "type", None) if hasattr(block, "type") else None
+            )
+            if block_type == "tool_use":
+                tool_use_id = getattr(block, "id", None)
+                tool_name = getattr(block, "name", None)
+                tool_input = getattr(block, "input", None)
+            elif isinstance(block, dict) and block.get("type") == "tool_use":
+                tool_use_id = block.get("id")
+                tool_name = block.get("name")
+                tool_input = block.get("input")
+            else:
+                continue
+
+            if not isinstance(tool_use_id, str) or not tool_use_id:
+                tool_use_id = str(uuid4())
+            if not isinstance(tool_name, str) or not tool_name:
+                tool_name = "unknown"
+
+            desc = tool_desc_by_name.get(tool_name) or ""
+            if not desc:
+                desc = f"Tool call: {tool_name}"
+
+            args_str = ""
+            if tool_input is not None:
+                try:
+                    args_str = json.dumps(tool_input)
+                except Exception:
+                    args_str = str(tool_input)
+
+            tags: Optional[Dict[str, str]] = None
+            if isinstance(tool_input, dict):
+                try:
+                    tags = {str(k): str(v) for k, v in tool_input.items()}
+                except Exception:
+                    tags = None
+
+            try:
+                tool_call = trace.tool_call(
+                    {
+                        "id": tool_use_id,
+                        "name": tool_name,
+                        "description": desc,
+                        "args": args_str,
+                        "tags": tags,
+                    }
+                )
+                self._inflight_tool_calls[tool_use_id] = tool_call
+                scribe().debug(
+                    f"[MaximSDK][AnthropicClient] Created tool_call on trace={trace.id} tool_use_id={tool_use_id} name={tool_name}"
+                )
+            except Exception as e:
+                scribe().warning(
+                    f"[MaximSDK][AnthropicClient] Failed to create tool_call for tool_use_id={tool_use_id}: {e}"
+                )
+
+    def _complete_tool_results_from_messages(self, messages: Any) -> None:
+        """Complete Maxim ToolCall entities using Anthropic tool_result blocks in request messages."""
+        if messages is None:
+            return
+        if not isinstance(messages, Iterable):
+            return
+
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") != "tool_result":
+                    continue
+                tool_use_id = block.get("tool_use_id")
+                if not isinstance(tool_use_id, str) or not tool_use_id:
+                    continue
+                result_val = block.get("content")
+                result_str = str(result_val) if result_val is not None else ""
+
+                tool_call = self._inflight_tool_calls.get(tool_use_id)
+                if tool_call is None:
+                    continue
+
+                try:
+                    tool_call.result(result_str)
+                    scribe().debug(
+                        f"[MaximSDK][AnthropicClient] Completed tool_call tool_use_id={tool_use_id} result_len={len(result_str)}"
+                    )
+                    # tool call is now ended; remove from inflight map
+                    self._inflight_tool_calls.pop(tool_use_id, None)
+                except Exception as e:
+                    scribe().warning(
+                        f"[MaximSDK][AnthropicClient] Failed to set tool_call result for tool_use_id={tool_use_id}: {e}"
+                    )
 
     def create_non_stream(self, *args, **kwargs) -> Any:
         """Create a non-streaming message with Maxim logging.
@@ -82,6 +200,7 @@ class MaximAnthropicMessages(Messages):
         final_trace_id = trace_id or str(uuid4())
         generation: Optional[Generation] = None
         trace: Optional[Trace] = None
+        tool_desc_by_name = _tool_descriptions_by_name(kwargs.get("tools"))
 
         try:
             openai_style_messages = None
@@ -93,6 +212,8 @@ class MaximAnthropicMessages(Messages):
                     messages
                 )
             trace = self._logger.trace(TraceConfig(id=final_trace_id))
+            # If this request includes tool_result blocks, complete prior tool calls before we run the next model step.
+            self._complete_tool_results_from_messages(messages)
             gen_config = GenerationConfig(
                 id=str(uuid4()),
                 model=model,
@@ -120,12 +241,17 @@ class MaximAnthropicMessages(Messages):
         response = super().create(*args, **kwargs)
 
         try:
+            # If model requested tool use, create ToolCall entities on the current trace.
+            self._register_tool_use_blocks(trace, response, tool_desc_by_name)
             if generation is not None:
                 generation.result(response)
             if is_local_trace and trace is not None:
-                if response is not None:
-                    trace.set_output(str(response.content)) # type: ignore
-                trace.end()
+                # If tool_use, keep the trace open (caller will send tool_result and continue).
+                stop_reason = getattr(response, "stop_reason", None)
+                if stop_reason != "tool_use":
+                    if response is not None:
+                        trace.set_output(str(getattr(response, "content", response)))  # type: ignore
+                    trace.end()
         except Exception as e:
             scribe().warning(
                 f"[MaximSDK][AnthropicClient] Error in logging generation: {str(e)}"
@@ -165,6 +291,7 @@ class MaximAnthropicMessages(Messages):
         final_trace_id = trace_id or str(uuid4())
         generation: Optional[Generation] = None
         trace: Optional[Trace] = None
+        tool_desc_by_name = _tool_descriptions_by_name(kwargs.get("tools"))
 
         try:
             openai_style_messages = None
@@ -176,6 +303,8 @@ class MaximAnthropicMessages(Messages):
                     messages
                 )
             trace = self._logger.trace(TraceConfig(id=final_trace_id))
+            # If this request includes tool_result blocks, complete prior tool calls before we run the next model step.
+            self._complete_tool_results_from_messages(messages)
             gen_config = GenerationConfig(
                 id=str(uuid4()),
                 model=model,
@@ -216,9 +345,14 @@ class MaximAnthropicMessages(Messages):
                     scribe().info(f"final_chunk: {message}")
                     if generation is not None and message is not None:
                         scribe().info(f"final_chunk: {message}")
+                        self._register_tool_use_blocks(
+                            trace, message, tool_desc_by_name
+                        )
                         generation.result(message)
                         if is_local_trace and trace is not None:
-                            trace.end()
+                            stop_reason = getattr(message, "stop_reason", None)
+                            if stop_reason != "tool_use":
+                                trace.end()
             except Exception as e:
                 scribe().warning(
                     f"[MaximSDK][AnthropicClient] Error in background stream listener: {str(e)}"

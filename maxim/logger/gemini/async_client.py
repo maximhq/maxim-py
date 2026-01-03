@@ -119,6 +119,30 @@ class MaximGeminiAsyncChatSession(AsyncChat):
         try:
             if generation is not None:
                 generation.result(response)
+
+            # Create tool_call entities on the trace if Gemini used tools.
+            try:
+                tool_calls = GeminiUtils.extract_tool_calls_from_response(response)
+                if tool_calls and self._trace_id is not None:
+                    for tc in tool_calls:
+                        fn = (tc.get("function") or {}) if isinstance(tc, dict) else {}
+                        tool_call_id = tc.get("id") or str(uuid4())
+                        tool_name = fn.get("name", "unknown")
+                        tool_args = fn.get("arguments", "")
+                        self._logger.trace_add_tool_call(
+                            self._trace_id,
+                            {
+                                "id": tool_call_id,
+                                "name": tool_name,
+                                "description": "Gemini tool call",
+                                "args": tool_args,
+                            },
+                        )
+            except Exception as e:
+                logging.warning(
+                    f"[MaximSDK][GeminiAsyncChatSession] Error creating tool_call entries: {str(e)}"
+                )
+
             if self._is_local_trace:
                 self._logger.trace_end(self._trace_id)
         except Exception as e:

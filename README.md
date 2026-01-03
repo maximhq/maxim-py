@@ -182,6 +182,19 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.7
+- feat: Adds `with_logger` function to accept a parent trace / span for automatic logging on test run
+
+### 3.14.6
+- fix: Adds special handling for Vertex media files in Langchain
+
+### 3.14.5
+
+- fix: Fixed integrations handling of tool calls.
+- fix: Added missing trace ends and session_id in metadata
+- fix: Fixed OpenAI Realtime tracing by shifting to container's method for creating and managing tracing
+- fix: Fixed multiple issues in Livekit with ordering, empty traces, incorrectly attached audios and tool calls
+
 ### 3.14.4
 
 - fix: Fixed pydantic_ai Agents session and traces implementation

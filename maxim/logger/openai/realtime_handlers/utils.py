@@ -79,13 +79,3 @@ def handle_conversation_item_message(
         message_text = content
 
     return message_text
-
-
-# TODO: Might not be needed
-def handle_conversation_item_function_call(
-    item: RealtimeConversationItemFunctionCall,
-) -> dict[str, str]:
-    return {
-        "name": item.name,
-        "arguments": item.arguments,
-    }

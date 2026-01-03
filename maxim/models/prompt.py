@@ -180,6 +180,7 @@ class PromptResponse:
     model_params: Dict[str, Union[str, int, bool, Dict, None]] = field(
         default_factory=dict
     )
+    resolved_messages: Optional[List["ChatCompletionMessage"]] = None
 
     @staticmethod
     def from_dict(obj: Dict[str, Any]):
@@ -202,6 +203,7 @@ class PromptResponse:
             latency=usage_dict.get("latency", 0.0),
         )
         model_params = obj.get("modelParams", {})
+        resolved_messages = obj.get("resolvedMessages", None)
         return PromptResponse(
             id=id,
             provider=provider,
@@ -209,6 +211,7 @@ class PromptResponse:
             choices=choices,
             usage=usage,
             model_params=model_params,
+            resolved_messages=resolved_messages,
         )
 
 

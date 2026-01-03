@@ -402,7 +402,7 @@ class Generation(BaseContainer):
             name: The name of the metric.
             value: The value of the metric.
         """
-        self._commit("update", {"metrics": {"name": name, "value": value}})
+        self._commit("update", {"metrics": {name: value}})
 
     @staticmethod
     def add_metric_(writer: LogWriter, id: str, name: str, value: float):
@@ -414,7 +414,7 @@ class Generation(BaseContainer):
             Entity.GENERATION,
             id,
             "update",
-            {"metrics": {"name": name, "value": value}},
+            {"metrics": {name: value}},
         )
 
     def add_cost(self, cost: GenerationCost) -> None:

@@ -376,7 +376,7 @@ class LogWriter:
                     os.remove(os.path.join(self.logs_dir, file))
                 except Exception as e:
                     scribe().warning(
-                        f"[MaximSDK] Failed to access filesystem. Error: {e}"
+                        f"[MaximSDK] Failed to push logs from file. Error: {e}"
                     )
                     if self.raise_exceptions:
                         raise Exception(e)

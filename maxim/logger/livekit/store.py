@@ -22,10 +22,19 @@ class SessionState(Enum):
     GREETING = 1
     STARTED = 2
 
+
 class LLMUsage(TypedDict):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+
+
+class AudioUsage(TypedDict):
+    audio_duration: float
+    provider: str
+    model: str
+    model_parameters: Optional[dict[str, Any]]
+
 
 @dataclass
 class Turn:
@@ -39,6 +48,14 @@ class Turn:
     turn_output_audio_buffer: BytesIO
     trace_id: Optional[str] = None
     usage: Optional[LLMUsage] = None
+    stt_usage: Optional[AudioUsage] = None
+    tts_usage: Optional[AudioUsage] = None
+    metrics: Optional[dict[str, float]] = None
+    stt_metrics: Optional[dict[str, float]] = None
+    tts_metrics: Optional[dict[str, float]] = None
+    current_model: Optional[str] = None
+    current_provider: Optional[str] = None
+
 
 @dataclass
 class SessionStoreEntry:
@@ -59,6 +76,7 @@ class SessionStoreEntry:
     mx_session_id: Optional[str] = None
     mx_current_trace_id: Optional[str] = None
     rt_session_info: Optional[dict] = None
+    started_new_turn: bool = False
 
 
 MaximLiveKitCallback = Callable[[str, dict], None]
@@ -222,36 +240,40 @@ def get_session_store():
     """Get the global session store instance."""
     return _session_store
 
+
 class TTSStore:
-    """ 
+    """
     Adding an additional store for TTS audio data.
     This is done as TTS does not have a session reference.
     """
+
     def __init__(self):
         self.tts_store: dict[int, list[AudioFrame]] = {}
         self._lock = Lock()
 
     def add_tts_audio_data(self, tts_id: int, tts_data: list[AudioFrame]):
-        """ Add TTS audio data to the store. """
+        """Add TTS audio data to the store."""
         with self._lock:
             if tts_id not in self.tts_store:
                 self.tts_store[tts_id] = []
             self.tts_store[tts_id].extend(tts_data)
 
     def get_tts_audio_data(self, tts_id: int) -> Optional[list[AudioFrame]]:
-        """ Get TTS audio data from the store. """
+        """Get TTS audio data from the store."""
         with self._lock:
             if tts_id in self.tts_store:
                 return self.tts_store[tts_id]
 
     def clear_tts_audio_data(self, tts_id: int):
-        """ Clear TTS audio data from the store. """
+        """Clear TTS audio data from the store."""
         with self._lock:
             if tts_id in self.tts_store:
                 del self.tts_store[tts_id]
 
+
 _tts_store = TTSStore()
 
+
 def get_tts_store():
-    """ Get the global TTS store instance. """
+    """Get the global TTS store instance."""
     return _tts_store

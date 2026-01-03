@@ -57,7 +57,7 @@ def get_tool_call_config_dict(
             name=config.name,
             description=config.description,
             args=config.args,
-            tags=config.tags,            
+            tags=config.tags,
         )
         if isinstance(config, ToolCallConfig)
         else config

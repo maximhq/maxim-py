@@ -1,3 +1,17 @@
-from .container import Container, Metadata, SpanContainer, TraceContainer
+from .container import (
+    Container,
+    ContainerManager,
+    Metadata,
+    SessionContainer,
+    SpanContainer,
+    TraceContainer,
+)
 
-__all__ = ["Container", "Metadata", "TraceContainer", "SpanContainer"]
+__all__ = [
+    "Container",
+    "ContainerManager",
+    "Metadata",
+    "SessionContainer",
+    "SpanContainer",
+    "TraceContainer",
+]
