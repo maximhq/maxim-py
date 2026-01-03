@@ -561,6 +561,16 @@ class Logger:
         """
         Generation.set_provider_(self.writer, generation_id, provider)
 
+    def generation_set_name(self, generation_id: str, name: str):
+        """
+        Sets the name for the generation.
+
+        Args:
+            generation_id (str): The ID of the generation.
+            name (str): The name for the generation.
+        """
+        Generation.set_name_(self.writer, generation_id, name)
+
     def generation_add_message(
         self, generation_id: str, message: GenerationRequestMessage
     ):

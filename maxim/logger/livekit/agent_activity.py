@@ -280,7 +280,7 @@ def handle_final_transcript(self: AgentActivity, event):
                                 turn.turn_input_audio_buffer.getvalue()
                             ),
                             tags={"attach-to": "input"},
-                            name="User Audio Input 2",
+                            name="User Audio Input",
                             timestamp=int(time.time()),
                         ),
                     )
@@ -292,7 +292,7 @@ def handle_final_transcript(self: AgentActivity, event):
                                 turn.turn_input_audio_buffer.getvalue()
                             ),
                             tags={"attach-to": "input"},
-                            name="User Audio Input 2",
+                            name="User Audio Input",
                             timestamp=int(time.time()),
                         ),
                     )

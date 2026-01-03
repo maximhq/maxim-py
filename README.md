@@ -186,6 +186,8 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 - fix: Fixed integrations handling of tool calls.
 - fix: Added missing trace ends and session_id in metadata
+- fix: Fixed OpenAI Realtime tracing by shifting to container's method for creating and managing tracing
+- fix: Fixed multiple issues in Livekit with ordering, empty traces, incorrectly attached audios and tool calls
 
 ### 3.14.4
 
