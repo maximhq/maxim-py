@@ -122,8 +122,13 @@ def start_new_turn(session_info: SessionStoreEntry):
         tags["Room name"] = session_info.room_name
     if session_info.agent_session_id is not None:
         tags["maxim_session_id"] = session_info.mx_session_id
+
+    new_turn_id = str(uuid4())
+    scribe().debug(
+        f"[Internal] Old turn id: {turn.turn_id if turn is not None else None}, New turn id: {new_turn_id}"
+    )
     current_turn = Turn(
-        turn_id=str(uuid4()),
+        turn_id=new_turn_id,
         turn_sequence=next_turn_sequence,
         turn_timestamp=datetime.now(timezone.utc),
         turn_input_audio_buffer=BytesIO(),
@@ -227,13 +232,19 @@ def get_active_llm(llm: Optional[LLM]) -> Optional[LLM]:
 
     return llm
 
-def extract_llm_model_and_provider(modelProvider: Optional[str], provider: Optional[str]) -> Optional[tuple[str, str]]:
+
+def extract_llm_model_and_provider(
+    modelProvider: Optional[str], provider: Optional[str]
+) -> Optional[tuple[str, str]]:
     """
     Extract the model and provider from the LLM object.
     """
-    if modelProvider is None:
+    if modelProvider is None and provider is None:
         return None
-    
+
+    if provider is not None and "." in provider:
+        _, provider, _ = provider.split(".")
+
     if "/" in modelProvider:
         provider, model = modelProvider.split("/")
     else:

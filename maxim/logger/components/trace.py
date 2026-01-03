@@ -156,7 +156,7 @@ class Trace(EventEmittingBaseContainer):
         """
         Add a metric to this trace.
         """
-        self._commit("update", {"metrics": {"name": name, "value": value}})
+        self._commit("update", {"metrics": {name: value}})
 
     @staticmethod
     def add_metric_(writer: LogWriter, trace_id: str, name: str, value: float):
@@ -168,7 +168,7 @@ class Trace(EventEmittingBaseContainer):
             Entity.TRACE,
             trace_id,
             "update",
-            {"metrics": {"name": name, "value": value}},
+            {"metrics": {name: value}},
         )
 
     def set_output(self, output: str):
