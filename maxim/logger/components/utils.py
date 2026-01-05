@@ -52,6 +52,7 @@ def parse_attachments_from_messages(
             if isinstance(item, str):
                 continue
             image_types = {"image", "input_image", "image_url"}
+            media_types = {"media", "file"}
             if isinstance(item, dict) and (
                 item.get("type") in image_types
             ):
@@ -63,7 +64,7 @@ def parse_attachments_from_messages(
                     url = image_url.get("url", "")
                 elif image_url is not None and isinstance(image_url, str):
                     url = image_url
-                if url is not None and url != "":
+                if url:
                     # Check if its base64 encoded data uri
                     if url.startswith("data:image"):
                         # Extract base64 data from data URI
@@ -88,9 +89,23 @@ def parse_attachments_from_messages(
                             )
                             attachments.append(attachment)
                     else:
-                        attachment = UrlAttachment(url=url, tags={"attach-to": "input"})
+                        attachment = UrlAttachment(url=url, mime_type="image/png", tags={"attach-to": "input"})
                         attachments.append(attachment)
-                    if role != "tool": # removing image data for ToolMessage breaks downstream flow
-                        content.pop(i)
+                elif item.get("data") is not None:
+                    attachment = FileDataAttachment(
+                        data=item.get("data", ""),
+                        mime_type=item.get("mime_type", ""),
+                        tags={"attach-to": "input"},
+                    )
+                    attachments.append(attachment)
+            elif isinstance(item, dict) and (
+                item.get("type") in media_types
+            ):
+                attachment = FileDataAttachment(
+                    data=item.get("data", ""),
+                    mime_type=item.get("mime_type", ""),
+                    tags={"attach-to": "input"},
+                )
+                attachments.append(attachment)
 
     return messages, attachments
