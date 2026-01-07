@@ -85,7 +85,7 @@ class MaximOpenAIRealtimeConnection(RealtimeConnection):
         self._last_user_message: Optional[str] = None
         self._session_model: Optional[str] = None
         self._session_config: Optional[Dict[str, Any]] = None
-        self._system_instructions: str | None = None
+        self._system_instructions: Optional[str] = None
         self._function_calls: Dict[str, Dict[str, Any]] = (
             {}
         )  # call_id -> function call data

@@ -2,10 +2,11 @@
 # This file uses langchain 0.3.x
 ###########################################
 
-import json
+import base64
 import logging
 import os
 import unittest
+from pathlib import Path
 from time import sleep
 from uuid import uuid4
 
@@ -18,12 +19,13 @@ from langchain.prompts.chat import (
     HumanMessagePromptTemplate,
     SystemMessagePromptTemplate,
 )
-from langchain.schema.output_parser import StrOutputParser
-from langchain.schema.runnable import RunnableLambda, RunnableSequence
+from langchain.schema.runnable import RunnableLambda
 from langchain_anthropic import AnthropicLLM, ChatAnthropic
 from langchain_community.llms.openai import AzureOpenAI, OpenAI
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from langchain_google_vertexai import ChatVertexAI
 
 from maxim.logger.components.generation import GenerationConfig
 from maxim.logger.components.span import SpanConfig
@@ -65,7 +67,9 @@ def subtraction_tool(a, b):
 
 class TestLoggingUsingLangchain(unittest.TestCase):
     def setUp(self):
-        self.maxim = Maxim({"api_key": apiKey, "base_url": baseUrl})
+        if hasattr(Maxim, "_instance"):
+            delattr(Maxim, "_instance")
+        self.maxim = Maxim({"api_key": apiKey, "base_url": baseUrl, "debug": True})
 
     def test_generation_chat_prompt(self):
         logger = self.maxim.logger(LoggerConfig(id=repoId))
@@ -719,7 +723,11 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         print(result)
 
     def test_langchain_generation_with_azure_multi_prompt_chain(self):
-        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
         llm = AzureChatOpenAI(
             api_key=azureOpenAIKey,
             model="gpt-35-turbo-16k",
@@ -871,6 +879,174 @@ class TestLoggingUsingLangchain(unittest.TestCase):
 
         print(result)
 
+    def test_vertexai_with_media_type_content(self):
+        """Test LangChain ChatVertexAI with multimodal media content.
+
+        This test demonstrates using VertexAI's ChatVertexAI model with media type content
+        including images via GCS URLs and inline media data.
+
+        Supported media formats for VertexAI:
+        1. GCS URL: {"type": "image_url", "image_url": {"url": "gs://bucket/path"}}
+        2. File URI with mime_type: {"type": "media", "file_uri": "gs://...", "mime_type": "..."}
+        3. Inline base64: {"type": "media", "data": base64_string, "mime_type": "..."}
+        """
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Use a public GCS image URL from Google's sample data
+        gcs_image_url = (
+            "gs://cloud-samples-data/generative-ai/image/320px-Felis_catus-cat_on_snow.jpg"
+        )
+
+        # Create a multimodal message with text and image using GCS URL
+        message_with_image = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "What do you see in this image? Describe it briefly in one sentence.",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": gcs_image_url},
+                },
+            ]
+        )
+
+        model = ChatVertexAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            model_name="gemini-2.0-flash",
+        )
+
+        result = model.invoke([message_with_image])
+        print(f"Result with VertexAI image (GCS URL): {result}")
+
+        logger.flush()
+
+    def test_vertexai_with_media_file_uri(self):
+        """Test LangChain ChatVertexAI with media content using file_uri format.
+
+        This test uses the media type with file_uri and mime_type for multimedia content.
+        """
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Use a public GCS video file from Google's sample data
+        gcs_video_uri = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+
+        # Create a multimodal message with text and video using file_uri format
+        message_with_video = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "What is shown in this video? Describe it briefly in one sentence.",
+                },
+                {
+                    "type": "media",
+                    "file_uri": gcs_video_uri,
+                    "mime_type": "video/mp4",
+                },
+            ]
+        )
+
+        model = ChatVertexAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            model_name="gemini-2.0-flash",
+        )
+
+        result = model.invoke([message_with_video])
+        print(f"Result with VertexAI video (file_uri): {result}")
+
+        logger.flush()
+
+    def test_vertexai_with_inline_image_media(self):
+        """Test LangChain ChatVertexAI with inline image media using raw bytes.
+
+        This test demonstrates sending local image files to VertexAI as inline media.
+        """
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Get the path to the test image file
+        test_files_dir = Path(__file__).parent / "files"
+        image_path = test_files_dir / "png_image.png"
+
+        # Read the file as raw bytes
+        file_bytes = image_path.read_bytes()
+
+        # Create a multimodal message with text and image using inline media
+        message_with_image = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "What do you see in this image? Describe it briefly in one sentence.",
+                },
+                {
+                    "type": "media",
+                    "mime_type": "image/png",
+                    "data": file_bytes,
+                },
+            ]
+        )
+
+        model = ChatVertexAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            model_name="gemini-2.0-flash",
+        )
+
+        result = model.invoke([message_with_image])
+        print(f"Result with VertexAI inline image: {result}")
+
+        logger.flush()
+
+    def test_vertexai_with_inline_file_media(self):
+        """Test LangChain ChatVertexAI with inline audio media using raw bytes.
+
+        This test demonstrates sending local audio files to VertexAI as inline media.
+        """
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Get the path to the test image file
+        audio_bytes = open("maxim/tests/files/wav_audio.wav", "rb").read()
+        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+        # Create a multimodal message with text and audio using inline media
+        message_with_audio = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "What do you hear in this audio? Describe it briefly in one sentence.",
+                },
+                {
+                    "type": "file",
+                    "mime_type": "audio/wav",
+                    "base64": audio_base64,
+                },
+            ]
+        )
+
+        model = ChatVertexAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            model_name="gemini-2.0-flash",
+        )
+
+        result = model.invoke([message_with_audio])
+        print(f"Result with VertexAI inline audio: {result}")
+
+        logger.flush()
+
     def test_generation_result_callback(self):
         """Test that generation.result callback is called with correct values"""
         logger = self.maxim.logger(LoggerConfigDict(id=repoId))
@@ -968,6 +1144,185 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         self.assertGreater(len(event_data["generation_id"]), 0)
 
         # Flush logs to ensure they're sent to Maxim
+        logger.flush()
+
+    def test_human_message_with_image_file_attachment(self):
+        """Test LangChain chat model with image file attached in human message using raw bytes.
+
+        This test demonstrates LangChain's support for raw bytes using the 'media' content type.
+        No base64 encoding is required - just read the file as bytes and pass directly.
+        """
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Get the path to the test image file
+        test_files_dir = Path(__file__).parent / "files"
+        image_path = test_files_dir / "png_image.png"
+
+        # Read the file as raw bytes - no base64 encoding needed!
+        file_bytes = image_path.read_bytes()
+
+        # Create a multimodal message with text and image using raw bytes
+        message_with_image = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "What do you see in this image? Describe it briefly.",
+                },
+                {
+                    "type": "media",
+                    "mime_type": "image/png",
+                    "data": file_bytes,  # Raw bytes for LangChain
+                },
+                {
+                    "type": "image",
+                    "mime_type": "image/png",
+                    "data": file_bytes,  # Raw bytes for LangChain
+                },
+            ]
+        )
+
+        model = ChatOpenAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            api_key=openAIKey,
+            model="gpt-4o-mini",
+        )
+
+        result = model.invoke([message_with_image])
+        print(f"Result with image attachment: {result}")
+
+        logger.flush()
+
+    def test_human_message_with_image_url_attachment(self):
+        """Test LangChain chat model with image URL attached in human message"""
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Use a public image URL
+        image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/300px-PNG_transparency_demonstration_1.png"
+
+        # Create a multimodal message with text and image URL
+        message_with_image = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "What do you see in this image? Describe it briefly.",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_url},
+                },
+            ]
+        )
+
+        model = ChatOpenAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            api_key=openAIKey,
+            model="gpt-4o-mini",
+        )
+
+        result = model.invoke([message_with_image])
+        print(f"Result with image URL attachment: {result}")
+
+        logger.flush()
+
+    def test_human_message_with_multiple_image_attachments(self):
+        """Test LangChain chat model with multiple images attached in human message.
+
+        This test demonstrates mixing raw bytes (local file) with URL-based images.
+        """
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Get the path to the test image file
+        test_files_dir = Path(__file__).parent / "files"
+        image_path = test_files_dir / "png_image.png"
+
+        # Read the file as raw bytes
+        file_bytes = image_path.read_bytes()
+
+        # Use a public image URL as second image
+        image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/300px-PNG_transparency_demonstration_1.png"
+
+        # Create a multimodal message with text and multiple images
+        # Mix raw bytes (local file) with URL-based image
+        message_with_images = HumanMessage(
+            content=[
+                {
+                    "type": "media",
+                    "mime_type": "image/png",
+                    "data": file_bytes,  # Raw bytes for local file
+                },
+            ]
+        )
+
+        model = ChatOpenAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            api_key=openAIKey,
+            model="gpt-4o-mini",
+        )
+
+        result = model.invoke([message_with_images])
+        print(f"Result with multiple image attachments: {result}")
+
+        logger.flush()
+
+    def test_human_message_with_audio_file_attachment(self):
+        """Test LangChain chat model with audio file attached in human message using raw bytes.
+
+        This test demonstrates attaching audio files using the 'media' content type.
+        Supported formats for media in LangChain:
+        1. URL: {"type": "image_url", "image_url": {"url": "https://..."}}
+        2. Raw bytes: {"type": "media", "mime_type": "audio/wav", "data": bytes}
+        3. Base64 data URL: {"type": "image_url", "image_url": {"url": "data:audio/wav;base64,..."}}
+        """
+        logger = self.maxim.logger(
+            {
+                "id": repoId,
+            }
+        )
+
+        # Get the path to the test audio file
+        test_files_dir = Path(__file__).parent / "files"
+        audio_path = test_files_dir / "wav_audio.wav"
+
+        # Read the file as raw bytes
+        file_bytes = audio_path.read_bytes()
+
+        # Create a multimodal message with text and audio using raw bytes
+        message_with_audio = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "What do you hear in this audio? Describe it briefly.",
+                },
+                {
+                    "type": "media",
+                    "mime_type": "audio/wav",
+                    "data": file_bytes,  # Raw bytes for LangChain
+                },
+            ]
+        )
+
+        # Use gpt-4o-audio-preview for audio input support
+        model = ChatOpenAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            api_key=openAIKey,
+            model="gpt-4o-audio-preview",
+        )
+
+        result = model.invoke([message_with_audio])
+        print(f"Result with audio attachment: {result}")
+
         logger.flush()
 
     def tearDown(self) -> None:

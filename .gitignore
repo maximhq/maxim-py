@@ -57,3 +57,5 @@ logs/
 maxim/tests/testConfig.json
 .pypirc
 docs
+
+config.json

@@ -273,7 +273,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
             model, model_parameters = parse_langchain_model_parameters(**kwargs)
             provider = parse_langchain_provider(serialized)
             model, provider = parse_langchain_model_and_provider(model, provider)
-            maxim_messages = parse_langchain_messages(prompts)
+            maxim_messages, attachments = parse_langchain_messages(prompts)
             last_input_message = ""
             for message in maxim_messages:
                 if "role" in message and message["role"] == "user":
@@ -316,6 +316,9 @@ class MaximLangchainTracer(BaseCallbackHandler):
             self.generation_container_store.set(
                 str(run_id), generation_container, DEFAULT_TIMEOUT
             )
+            if len(attachments) > 0:
+                for attachment in attachments:
+                    generation_container.add_attachment(attachment)
             # checking if we need to attach evaluator
             if (
                 metadata is not None
@@ -362,7 +365,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
             model, model_parameters = parse_langchain_model_parameters(**kwargs)
             provider = parse_langchain_provider(serialized)
             model, provider = parse_langchain_model_and_provider(model, provider)
-            maxim_messages = parse_langchain_messages(messages)
+            maxim_messages, attachments = parse_langchain_messages(messages)
             # get user message
             last_input_message = ""
             if maxim_messages is not None:
@@ -401,6 +404,9 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 if isinstance(container, TraceContainer):
                     self.container_manager.set_root_trace(str(run_id), container)
             generation_container = container.add_generation(generation_config)
+            if len(attachments) > 0:
+                for attachment in attachments:
+                    generation_container.add_attachment(attachment)
             # Store generation container for callback
             self.generation_container_store.set(
                 str(run_id), generation_container, DEFAULT_TIMEOUT

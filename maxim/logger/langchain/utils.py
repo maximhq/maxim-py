@@ -10,6 +10,8 @@ from langchain_core.outputs import ChatResult, LLMResult
 from langchain_core.outputs.chat_generation import ChatGeneration, ChatGenerationChunk
 from langchain_core.outputs.generation import Generation, GenerationChunk
 
+from maxim.logger.components.attachment import Attachment, FileDataAttachment, UrlAttachment
+
 from ...scribe import scribe
 from ..components.types import GenerationError
 
@@ -620,6 +622,7 @@ def parse_langchain_messages(
             "Tool": "tool",
         }
         messages = []
+        attachments: List[Attachment] = []
         # checking if input is List[str] or List[List]
         if isinstance(input[0], list):
             for message_list in input or []:
@@ -633,9 +636,100 @@ def parse_langchain_messages(
                             {"role": "system", "content": message.content or ""}
                         )
                     elif message_type.endswith("HumanMessage"):
-                        messages.append(
-                            {"role": "user", "content": message.content or ""}
-                        )
+                        if message.content is not None and isinstance(message.content, list):
+                            for content in message.content:
+                                if isinstance(content, dict):
+                                    content_type = content.get("type", "")
+                                    if content_type == "media":
+                                        # Handle inline media (raw bytes or base64)
+                                        if content.get("data") is not None:
+                                            attachments.append(
+                                                FileDataAttachment(
+                                                    id=str(uuid4()),
+                                                    data=content.get("data"),
+                                                    mime_type=content.get("mime_type"),
+                                                    name="User Media",
+                                                    tags={"attach-to": "input"},
+                                                )
+                                            )
+                                        elif content.get("file_uri") is not None:
+                                            attachments.append(
+                                                UrlAttachment(
+                                                    id=str(uuid4()),
+                                                    url=content.get("file_uri"),
+                                                    name="User Media",
+                                                    mime_type=content.get("mime_type"),
+                                                    tags={"attach-to": "input"},
+                                                )
+                                            )
+                                        elif content.get("image_url") is not None:
+                                            attachments.append(
+                                                UrlAttachment(
+                                                    id=str(uuid4()),
+                                                    url=content.get("image_url"),
+                                                    name="User Media",
+                                                    mime_type=content.get("mime_type"),
+                                                    tags={"attach-to": "input"},
+                                                )
+                                            )
+                                        elif content.get("file") is not None:
+                                            attachments.append(
+                                                FileDataAttachment(
+                                                    id=str(uuid4()),
+                                                    data=content.get("base64"),
+                                                    mime_type=content.get("mime_type"),
+                                                    name="User Media",
+                                                    tags={"attach-to": "input"},
+                                                )
+                                            )
+                                    elif content_type == "text":
+                                        # Handle text content type
+                                        text_content = content.get("text", "")
+                                        if text_content:
+                                            messages.append(
+                                                {"role": "user", "content": text_content}
+                                            )
+                                    elif content_type == "image_url":
+                                        # Handle image URL (e.g., GCS URLs, HTTP URLs)
+                                        attachments.append(
+                                            UrlAttachment(
+                                                id=str(uuid4()),
+                                                url=content.get("image_url"),
+                                                name="User Image",
+                                                mime_type=content.get("mime_type"),
+                                                tags={"attach-to": "input"},
+                                            )
+                                        )
+                                    elif content_type == "image":
+                                        # Handle image content with raw bytes
+                                        attachments.append(
+                                            FileDataAttachment(
+                                                id=str(uuid4()),
+                                                data=content.get("data"),
+                                                mime_type=content.get("mime_type", "image/png"),
+                                                name="User Image",
+                                                tags={"attach-to": "input"},
+                                            )
+                                        )
+                                    else:
+                                        # Unknown dict content type - try to extract meaningful text
+                                        messages.append(
+                                            {"role": "user", "content": str(content)}
+                                        )
+                                elif isinstance(content, str):
+                                    # Plain string content
+                                    messages.append(
+                                        {"role": "user", "content": content}
+                                    )
+                                else:
+                                    # Fallback for other types
+                                    messages.append(
+                                        {"role": "user", "content": str(content)}
+                                    )
+                        else:
+                            messages.append(
+                                {"role": "user", "content": message.content or ""}
+                            )
                     elif message_type.endswith("AIMessage"):
                         messages.append(
                             {"role": "assistant", "content": message.content or ""}
@@ -699,7 +793,7 @@ def parse_langchain_messages(
                                     "content": "",
                                 }
                             )
-        return messages
+        return messages, attachments
     except Exception as e:
         logger.error(f"Error parsing messages: {e}")
         raise Exception(f"Error parsing messages: {e}")
