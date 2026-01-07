@@ -182,6 +182,9 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.6
+- fix: Adds special handling for Vertex media files in Langchain
+
 ### 3.14.5
 
 - fix: Fixed integrations handling of tool calls.
