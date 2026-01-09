@@ -182,6 +182,9 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.7
+- fix: Fixes concurrency issue while running test runs using `with_concurrency`
+
 ### 3.14.6
 - fix: Adds special handling for Vertex media files in Langchain
 
