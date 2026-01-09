@@ -671,6 +671,8 @@ class TestRunBuilder(Generic[T]):
                     f"Error while running data entry at index [{index}]: {str(e)}"
                 )
                 on_entry_failed(index)
+            finally:
+                semaphore.release()
 
         def process_all_entries() -> None:
             threads = []
@@ -682,6 +684,7 @@ class TestRunBuilder(Generic[T]):
                     row = get_row(index)
                     if row is None:
                         on_dataset_finished()
+                        semaphore.release()
                         break
                     # sanitizing data
                     try:
@@ -695,6 +698,9 @@ class TestRunBuilder(Generic[T]):
                             f"Invalid data entry at index [{index}]: {str(e)}"
                         )
                         on_entry_failed(index)
+                        # Release semaphore since we're not starting a thread for this entry
+                        semaphore.release()
+                        index += 1
                         continue
                     index += 1
                     thread = threading.Thread(
@@ -712,7 +718,6 @@ class TestRunBuilder(Generic[T]):
                         f"Error while running data entry at index [{index}]: {str(e)}",
                     )
                     on_entry_failed(index)
-                finally:
                     semaphore.release()
 
         thread = threading.Thread(target=process_all_entries, args=())
@@ -845,6 +850,9 @@ class TestRunBuilder(Generic[T]):
                 )
                 on_entry_failed(index)
                 raise e
+            finally:
+                # The work is complete, so we can release the semaphore
+                semaphore.release()
 
         def process_all_dataset_entries(dataset_id: str) -> None:
             threads = []
@@ -856,6 +864,7 @@ class TestRunBuilder(Generic[T]):
                     # getting the entry
                     row = self._maxim_apis.get_dataset_row(dataset_id, index)
                     if row is None:
+                        semaphore.release()
                         break
                     thread = threading.Thread(
                         target=process_dataset_entry,
@@ -873,8 +882,7 @@ class TestRunBuilder(Generic[T]):
                         f"Error while running data entry at index [{index}]: {str(e)}"
                     )
                     on_entry_failed(index)
-                finally:
-                    semaphore.release()
+                    semaphore.release() # Releasing semaphore here since thread won't be started
             on_dataset_finished()
 
             for thread in threads:

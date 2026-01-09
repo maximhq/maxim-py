@@ -3,6 +3,7 @@ import logging
 import os
 import unittest
 from typing import Dict, Optional
+import time
 
 from maxim import Config, Maxim
 from maxim.evaluators import BaseEvaluator
@@ -70,6 +71,8 @@ class TestTestRuns(unittest.TestCase):
 
     def test_run_with_multiple_evaluators(self):
         def processor(data) -> YieldedOutput:
+            time.sleep(4)
+            print(f"Processor called with data: {data}")
             return YieldedOutput(data="test")
 
         class Logger(TestRunLogger):
