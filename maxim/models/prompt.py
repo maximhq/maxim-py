@@ -180,9 +180,13 @@ class PromptResponse:
     model_params: Dict[str, Union[str, int, bool, Dict, None]] = field(
         default_factory=dict
     )
+    resolved_messages: Optional[List[Dict[str, Any]]] = field(default_factory=list)
 
     @staticmethod
-    def from_dict(obj: Dict[str, Any]):
+    def from_dict(
+        obj: Dict[str, Any],
+        resolved_messages: Optional[List[Dict[str, Any]]] = None,
+    ):
         id = obj["id"]
         provider = obj["provider"]
         model = obj["model"]
@@ -209,6 +213,7 @@ class PromptResponse:
             choices=choices,
             usage=usage,
             model_params=model_params,
+            resolved_messages=resolved_messages or [],
         )
 
 
