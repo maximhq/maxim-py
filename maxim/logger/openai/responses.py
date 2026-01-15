@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
@@ -86,10 +87,12 @@ class MaximOpenAIResponses(Responses):
         trace_id = None
         generation_name = None
         session_id = None
+        trace_tags = None
         if extra_headers is not None:
             trace_id = extra_headers.get("x-maxim-trace-id", None)
             generation_name = extra_headers.get("x-maxim-generation-name", None)
             session_id = extra_headers.get("x-maxim-session-id", None)
+            trace_tags = extra_headers.get("x-maxim-trace-tags", None)
         is_local_trace = trace_id is None
         final_trace_id = trace_id or str(uuid4())
 
@@ -97,6 +100,15 @@ class MaximOpenAIResponses(Responses):
         generation: Optional[Generation] = None
         try:
             trace = self._logger.trace({"id": final_trace_id, "session_id": session_id})
+            if trace_tags is not None and not isinstance(trace_tags, str):
+                scribe().warning(f"[MaximSDK][MaximOpenAIResponses] Trace tags must be a dictionary, got {type(trace_tags)}")
+            if trace_tags is not None and isinstance(trace_tags, str):
+                try:
+                    trace_tags = json.loads(trace_tags)
+                    for key, value in trace_tags.items():
+                        trace.add_tag(key, str(value))
+                except Exception as e:
+                    scribe().warning(f"[MaximSDK][MaximOpenAIResponses] Error in parsing trace tags: {str(e)}")
             gen_config: GenerationConfigDict = {
                 "id": str(uuid4()),
                 "model": str(model),

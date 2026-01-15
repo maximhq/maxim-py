@@ -193,9 +193,18 @@ class MaximAnthropicMessages(Messages):
         extra_headers = kwargs.get("extra_headers", None)
         trace_id = None
         generation_name = None
+        trace_tags = None
         if extra_headers is not None:
             trace_id = extra_headers.get("x-maxim-trace-id", None)
             generation_name = extra_headers.get("x-maxim-generation-name", None)
+            trace_tags = extra_headers.get("x-maxim-trace-tags", None)
+            # Remove Maxim-specific headers so they don't get sent to Anthropic API
+            maxim_headers = ["x-maxim-trace-id", "x-maxim-generation-name", "x-maxim-trace-tags"]
+            cleaned_headers = {k: v for k, v in extra_headers.items() if k not in maxim_headers}
+            if cleaned_headers:
+                kwargs["extra_headers"] = cleaned_headers
+            else:
+                kwargs.pop("extra_headers", None)
         is_local_trace = trace_id is None
         final_trace_id = trace_id or str(uuid4())
         generation: Optional[Generation] = None
@@ -212,6 +221,15 @@ class MaximAnthropicMessages(Messages):
                     messages
                 )
             trace = self._logger.trace(TraceConfig(id=final_trace_id))
+            if trace_tags is not None and not isinstance(trace_tags, str):
+                scribe().warning(f"[MaximSDK][AnthropicClient] Trace tags must be a JSON parseable string, got {type(trace_tags)}")
+            if trace_tags is not None and isinstance(trace_tags, str):
+                try:
+                    trace_tags = json.loads(trace_tags)
+                    for key, value in trace_tags.items():
+                        trace.add_tag(key, str(value))
+                except Exception as e:
+                    scribe().warning(f"[MaximSDK][AnthropicClient] Error in parsing trace tags: {str(e)}")
             # If this request includes tool_result blocks, complete prior tool calls before we run the next model step.
             self._complete_tool_results_from_messages(messages)
             gen_config = GenerationConfig(
@@ -284,9 +302,18 @@ class MaximAnthropicMessages(Messages):
         extra_headers = kwargs.get("extra_headers", None)
         trace_id = None
         generation_name = None
+        trace_tags = None
         if extra_headers is not None:
             trace_id = extra_headers.get("x-maxim-trace-id", None)
             generation_name = extra_headers.get("x-maxim-generation-name", None)
+            trace_tags = extra_headers.get("x-maxim-trace-tags", None)
+            # Remove Maxim-specific headers so they don't get sent to Anthropic API
+            maxim_headers = ["x-maxim-trace-id", "x-maxim-generation-name", "x-maxim-trace-tags"]
+            cleaned_headers = {k: v for k, v in extra_headers.items() if k not in maxim_headers}
+            if cleaned_headers:
+                kwargs["extra_headers"] = cleaned_headers
+            else:
+                kwargs.pop("extra_headers", None)
         is_local_trace = trace_id is None
         final_trace_id = trace_id or str(uuid4())
         generation: Optional[Generation] = None
@@ -303,6 +330,15 @@ class MaximAnthropicMessages(Messages):
                     messages
                 )
             trace = self._logger.trace(TraceConfig(id=final_trace_id))
+            if trace_tags is not None and not isinstance(trace_tags, str):
+                scribe().warning(f"[MaximSDK][AnthropicClient] Trace tags must be a JSON parseable string, got {type(trace_tags)}")
+            if trace_tags is not None and isinstance(trace_tags, str):
+                try:
+                    trace_tags = json.loads(trace_tags)
+                    for key, value in trace_tags.items():
+                        trace.add_tag(key, str(value))
+                except Exception as e:
+                    scribe().warning(f"[MaximSDK][AnthropicClient] Error in parsing trace tags: {str(e)}")
             # If this request includes tool_result blocks, complete prior tool calls before we run the next model step.
             self._complete_tool_results_from_messages(messages)
             gen_config = GenerationConfig(

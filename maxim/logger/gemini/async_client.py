@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from typing import Any, AsyncIterator, Awaitable, List, Optional, Union
 from uuid import uuid4
@@ -15,6 +16,8 @@ from google.genai.types import (
     PartUnionDict,
 )
 from typing_extensions import override
+
+from maxim.scribe import scribe
 
 from ..logger import (
     Generation,
@@ -89,6 +92,19 @@ class MaximGeminiAsyncChatSession(AsyncChat):
                                 config.system_instruction, "system"
                             )
                         )
+                    if config.http_options is not None:
+                        if config.http_options.headers is not None:
+                            if "x-maxim-trace-tags" in config.http_options.headers:
+                                trace_tags = config.http_options.headers["x-maxim-trace-tags"]
+                                if trace_tags is not None and not isinstance(trace_tags, str):
+                                    scribe().warning(f"[MaximSDK][GeminiAsyncChatSession] Trace tags must be a JSON parseable string, got {type(trace_tags)}")
+                                elif trace_tags is not None and isinstance(trace_tags, str):
+                                    try:
+                                        parsed_tags = json.loads(trace_tags)
+                                        for key, value in parsed_tags.items():
+                                            self._logger.trace_add_tag(self._trace_id, key, value)
+                                    except json.JSONDecodeError as e:
+                                        scribe().warning(f"[MaximSDK][GeminiAsyncChatSession] Malformed trace tags JSON: {trace_tags}, error: {str(e)}")
                 elif isinstance(config, dict):
                     if (
                         instruction := config.get("system_instruction", None)
@@ -96,6 +112,23 @@ class MaximGeminiAsyncChatSession(AsyncChat):
                         messages.append(
                             GeminiUtils.parse_content(instruction, "system")
                         )
+                    if config.get("http_options", None) is not None:
+                        http_options = config.get("http_options", None)
+                        if http_options is not None:
+                            if http_options.get("headers", None) is not None:
+                                headers = http_options.get("headers", None)
+                                if headers is not None:
+                                    if "x-maxim-trace-tags" in headers:
+                                        trace_tags = headers["x-maxim-trace-tags"]
+                                        if trace_tags is not None and not isinstance(trace_tags, str):
+                                            scribe().warning(f"[MaximSDK][GeminiAsyncChatSession] Trace tags must be a JSON parseable string, got {type(trace_tags)}")
+                                        elif trace_tags is not None and isinstance(trace_tags, str):
+                                            try:
+                                                parsed_tags = json.loads(trace_tags)
+                                                for key, value in parsed_tags.items():
+                                                    self._logger.trace_add_tag(self._trace_id, key, value)
+                                            except json.JSONDecodeError as e:
+                                                scribe().warning(f"[MaximSDK][GeminiAsyncChatSession] Malformed trace tags JSON: {trace_tags}, error: {str(e)}")
             messages.extend(GeminiUtils.parse_chat_message("user", message))
             gen_config = GenerationConfig(
                 id=str(uuid4()),

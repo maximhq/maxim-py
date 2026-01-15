@@ -1,3 +1,4 @@
+import json
 from typing import AsyncIterator, List, Optional
 from uuid import uuid4
 
@@ -80,14 +81,23 @@ class MaximAsyncOpenAIChatCompletions(AsyncCompletions):
     @override
     async def create(self, *args, **kwargs):
         metadata = kwargs.get("metadata", None)
+        extra_headers = kwargs.get("extra_headers", None)
         trace_id = None
         generation_name = None
         maxim_metadata = None
+        trace_tags = None
+        session_id = None
         if metadata is not None:
             maxim_metadata = metadata.get("maxim", None)
             if maxim_metadata is not None:
                 trace_id = maxim_metadata.get("trace_id", None)
                 generation_name = maxim_metadata.get("generation_name", None)
+                trace_tags = maxim_metadata.get("trace_tags", None)
+        if extra_headers is not None:
+            trace_id = extra_headers.get("x-maxim-trace-id", trace_id)
+            generation_name = extra_headers.get("x-maxim-generation-name", generation_name)
+            trace_tags = extra_headers.get("x-maxim-trace-tags", trace_tags)
+            session_id = extra_headers.get("x-maxim-session-id", session_id)
         is_local_trace = trace_id is None
         model = kwargs.get("model", None)
         final_trace_id = trace_id or str(uuid4())
@@ -103,7 +113,19 @@ class MaximAsyncOpenAIChatCompletions(AsyncCompletions):
             kwargs["stream_options"]["include_usage"] = True
 
         try:
-            trace = self._logger.trace({"id": final_trace_id})
+            if session_id is not None:
+                trace = self._logger.trace({"id": final_trace_id, "session_id": session_id})
+            else:
+                trace = self._logger.trace({"id": final_trace_id})
+            if trace_tags is not None and not isinstance(trace_tags, str):
+                scribe().warning(f"[MaximSDK][MaximAsyncOpenAIChatCompletions] Trace tags must be a JSON parseable string, got {type(trace_tags)}")
+            if trace_tags is not None and isinstance(trace_tags, str):
+                try:
+                    trace_tags = json.loads(trace_tags)
+                    for key, value in trace_tags.items():
+                        trace.add_tag(key, str(value))
+                except Exception as e:
+                    scribe().warning(f"[MaximSDK][MaximAsyncOpenAIChatCompletions] Error in parsing trace tags: {str(e)}")
             gen_config = {
                 "id": str(uuid4()),
                 "model": model,

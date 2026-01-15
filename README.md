@@ -185,6 +185,7 @@ On `generation.result` events, the callback is invoked with a payload containing
 ### 3.14.8
 
 - feat: Adds `with_logger` function to accept a parent trace / span for automatic logging on prompt run.
+- fix: Adds and syncs missing metadata keys for `trace-tags` and `trace-id`
 
 ### 3.14.7
 
