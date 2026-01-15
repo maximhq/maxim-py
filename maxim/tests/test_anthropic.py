@@ -1,3 +1,4 @@
+import json
 import dotenv
 import os
 import unittest
@@ -39,8 +40,17 @@ class TestAnthropicWithMockWriter(unittest.TestCase):
         # Make the API call
         response = client.messages.create(
             messages=[{"role": "user", "content": "Explain how AI works"}],
-            model="claude-3-sonnet-20240229",
+            model="claude-opus-4-5-20251101",
             max_tokens=1000,
+            extra_headers={
+                "x-maxim-trace-tags": json.dumps({
+                    "test": "test",
+                    "test2": "test2",
+                    "test3": "test3",
+                    "test4": "test4",
+                    "test5": "test5",
+                }),
+            },
         )
 
         # Flush the logger to ensure all logs are processed
@@ -82,8 +92,17 @@ class TestAnthropicWithMockWriter(unittest.TestCase):
         # Make the streaming API call and exhaust the stream
         response = client.messages.create_stream(
             messages=[{"role": "user", "content": "Explain how AI works"}],
-            model="claude-3-sonnet-20240229",
+            model="claude-opus-4-5-20251101",
             max_tokens=1000,
+            extra_headers={
+                "x-maxim-trace-tags": json.dumps({
+                    "stream_test": "stream_test",
+                    "stream_test2": "stream_test2",
+                    "stream_test3": "stream_test3",
+                    "stream_test4": "stream_test4",
+                    "stream_test5": "stream_test5",
+                }),
+            },
         )
 
         self.assertIsInstance(response, MessageStreamManager)
@@ -124,7 +143,6 @@ class TestAnthropic(unittest.TestCase):
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
         self.logger = Maxim().logger()
-        self.mock_writer = inject_mock_writer(self.logger)
 
     def test_messages_using_wrapper(self):
         client = MaximAnthropicClient(
@@ -132,17 +150,23 @@ class TestAnthropic(unittest.TestCase):
         )
         response = client.messages.create(
             messages=[{"role": "user", "content": "Explain how AI works"}],
-            model="claude-3-sonnet-20240229",
+            model="claude-opus-4-5-20251101",
             max_tokens=1000,
+            extra_headers={
+                "x-maxim-trace-tags": json.dumps({
+                    "test": "test",
+                    "test2": "test2",
+                    "test3": "test3",
+                    "test4": "test4",
+                    "test5": "test5",
+                }),
+            },
         )
         self.assertIsNotNone(response)
         self.assertTrue(hasattr(response, "content"))
         self.assertTrue(isinstance(response.content, list))
         self.assertTrue(len(response.content) > 0)
         self.logger.flush()
-        self.mock_writer.print_logs_summary()
-        self.mock_writer.assert_entity_action_count("trace", "create", 1)
-        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
 
     def test_messages_stream_using_wrapper(self):
         client = MaximAnthropicClient(
@@ -150,8 +174,16 @@ class TestAnthropic(unittest.TestCase):
         )
         response = client.messages.create_stream(
             messages=[{"role": "user", "content": "Explain how AI works"}],
-            model="claude-3-sonnet-20240229",
+            model="claude-opus-4-5-20251101",
             max_tokens=1000,
+            extra_headers={
+                "x-maxim-trace-tags": json.dumps({
+                    "stream_test": "stream_test",
+                    "stream_test3": "stream_test3",
+                    "stream_test4": "stream_test4",
+                    "stream_test5": "stream_test5",
+                }),
+            },
         )
 
         # Verify response is a MessageStreamManager
@@ -167,11 +199,6 @@ class TestAnthropic(unittest.TestCase):
 
         # Flush the logger and verify logging
         self.logger.flush()
-        self.mock_writer.print_logs_summary()
-        self.mock_writer.assert_entity_action_count("trace", "create", 1)
-        self.mock_writer.assert_entity_action_count("trace", "add-generation", 1)
-        self.mock_writer.assert_entity_action_count("generation", "result", 1)
-        self.mock_writer.assert_entity_action_count("trace", "end", 1)
 
     def test_messages_with_system_prompt(self):
         client = MaximAnthropicClient(

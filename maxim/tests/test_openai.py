@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import unittest
@@ -23,7 +24,7 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
         # This is a hack to ensure that the Maxim instance is not cached
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
-        self.logger = Maxim({"base_url": baseUrl}).logger()
+        self.logger = Maxim({"api_key": apiKey, "base_url": baseUrl}).logger()
 
     async def test_async_chat_completions(self):
         client = MaximOpenAIClient(OpenAI(api_key=openaiApiKey), logger=self.logger).aio
@@ -31,6 +32,20 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
             messages=[{"role": "user", "content": "Explain how ML works"}],
             model="gpt-4o",
             max_tokens=1000,
+            extra_headers={
+                "x-maxim-trace-tags": json.dumps({
+                    "test": "test",
+                    "test2": "test2",
+                    "test3": "test3",
+                    "test4": "test4",
+                    "test5": "test5",
+                    "test6": "test6",
+                    "test7": "test7",
+                    "test8": "test8",
+                    "test9": "test9",
+                    "test10": "test10",
+                }),
+            },
         )
         print(response)
 
@@ -44,6 +59,17 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
             model="gpt-4o",
             max_tokens=1000,
             stream=True,
+            extra_headers={
+                "x-maxim-trace-tags": json.dumps({
+                    "stream_test": "stream_test",
+                    "stream_test2": "stream_test2",
+                    "stream_test3": "stream_test3",
+                    "stream_test4": "stream_test4",
+                    "stream_test5": "stream_test5",
+                }),
+                "x-maxim-generation-name": "test_async_chat_completions_stream",
+                "x-maxim-trace-id": "8e9b88ca-10ba-4206-b287-8d4aea73719f",
+            },
         )
 
         # Collect all chunks
@@ -116,6 +142,11 @@ class TestAsyncOpenAI(unittest.IsolatedAsyncioTestCase):
             messages=messages,
             model="gpt-4o",
             max_tokens=1000,
+            extra_headers={
+                "x-maxim-trace-tags": {
+                    "test": "test",
+                },
+            },
         )
         print("Response: ", response)
         self.logger.flush()
@@ -219,6 +250,16 @@ class TestOpenAI(unittest.TestCase):
             messages=[{"role": "user", "content": "Explain how AI works"}],
             model="gpt-4o",
             max_tokens=1000,
+            extra_headers={
+                "x-maxim-trace-tags": json.dumps({
+                    "sync_test": "sync_test",
+                    "sync_test3": "sync_test3",
+                    "sync_test4": "sync_test4",
+                    "sync_test5": "sync_test5",
+                }),
+                "x-maxim-trace-id": "8e9b88ca-10ba-4206-b287-8d4aea73719r",
+                "x-maxim-generation-name": "test_chat_completions_using_wrapper",
+            },
         )
         print(response)
 
@@ -232,6 +273,16 @@ class TestOpenAI(unittest.TestCase):
             model="gpt-4o",
             max_tokens=1000,
             stream=True,
+            extra_headers={
+                "x-maxim-trace-tags": json.dumps({
+                    "sync_stream_test": "sync_stream_test",
+                    "sync_stream_test3": "sync_stream_test3",
+                    "sync_stream_test4": "sync_stream_test4",
+                    "sync_stream_test5": "sync_stream_test5",
+                }),
+                "x-maxim-trace-id": "8e9b88ca-10ba-4206-b287-8d4aea7371rr",
+                "x-maxim-generation-name": "test_chat_completions_stream_using_wrapper",
+            },
         )
         for event in response:
             print(event)

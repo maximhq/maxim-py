@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 from uuid import uuid4
@@ -31,6 +32,20 @@ class TestAsyncGemini(unittest.IsolatedAsyncioTestCase):
             config={
                 "system_instruction": "You are a helpful assisatant",
                 "temperature": 0.8,
+                "http_options": {
+                    "headers": {
+                        "x-maxim-trace-tags": json.dumps({
+                            "test": "test",
+                            "test2": "test2",
+                            "test3": "test3",
+                            "test4": "test4",
+                            "test5": "test5",
+                            "test6": "test6",
+                            "test7": "test7",
+                        }),
+                        "x-maxim-trace-id": "8e9b88ca-10ba-4206-b287-8d4aear3719r",
+                    }
+                }
             },
         )
         print(response)
@@ -72,6 +87,19 @@ class TestGemini(unittest.TestCase):
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents="Explain how AI works",
+            config={
+                "http_options": {
+                    "headers": {
+                        "x-maxim-trace-tags": json.dumps({
+                            "sync_test": "sync_test",
+                            "sync_test3": "sync_test3",
+                            "sync_test4": "sync_test4",
+                            "sync_test5": "sync_test5",
+                        }),
+                        "x-maxim-trace-id": "8e9b88ca-10ba-4206-b287-8d4aear3719r",
+                    }
+                }
+            },
         )
         print(response)
 
