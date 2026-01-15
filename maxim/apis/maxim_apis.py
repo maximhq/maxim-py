@@ -497,7 +497,8 @@ class MaximAPI:
             json_response = json.loads(res.decode())
             if "error" in json_response:
                 raise Exception(json_response["error"]["message"])
-            return PromptResponse.from_dict(json_response["data"])
+            resolved_messages = json_response.get("resolvedMessages", [])
+            return PromptResponse.from_dict(json_response["data"], resolved_messages)
         except httpx.HTTPStatusError as e:
             if e.response is not None:
                 try:
@@ -555,7 +556,8 @@ class MaximAPI:
             json_response = json.loads(res.decode())
             if "error" in json_response:
                 raise Exception(json_response["error"]["message"])
-            return PromptResponse.from_dict(json_response["data"])
+            resolved_messages = json_response.get("resolvedMessages", [])
+            return PromptResponse.from_dict(json_response["data"], resolved_messages)
         except httpx.HTTPStatusError as e:
             if e.response is not None:
                 try:
