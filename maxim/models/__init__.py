@@ -14,7 +14,13 @@ from .evaluator import (
     LocalEvaluatorResultParameter,
     LocalEvaluatorReturn,
     PassFailCriteria,
+    PlatformEvaluator,
+    VariableMapping,
+    VariableMappingFunction,
+    VariableMappingInput,
+    VersionInfo,
 )
+
 from .folder import Folder, FolderEncoder
 from .prompt import (
     ChatCompletionMessage,
@@ -157,4 +163,10 @@ __all__ = [
     "RunResult",
     "AgentResponse",
     "DatasetAttachmentUploadURL",
+    "PlatformEvaluator",
+    "VariableMapping",
+    "VariableMappingFunction",
+    "VariableMappingInput",
+    "VersionInfo",
 ]
+

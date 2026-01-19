@@ -1,12 +1,13 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, final
+from typing import Any, Callable, Dict, Optional, final
 
 from ..models.dataset import LocalData
 from ..models.evaluator import (
     LocalEvaluatorResultParameter,
     LocalEvaluatorReturn,
     PassFailCriteria,
+    VariableMapping,
 )
 from .utils import sanitize_pass_fail_criteria
 
@@ -15,14 +16,21 @@ class BaseEvaluator(ABC):
     """Base class for all evaluators."""
     _evaluator_names: list[str]
     _pass_fail_criteria: dict[str, PassFailCriteria]
+    _variable_mapping: Optional[VariableMapping]
 
-    def __init__(self, pass_fail_criteria: dict[str, PassFailCriteria]):
+    def __init__(
+        self,
+        pass_fail_criteria: dict[str, PassFailCriteria],
+        variable_mapping: Optional[VariableMapping] = None,
+    ):
         self._evaluator_names = []
         """Initialize the evaluator."""
         for name, pfc in pass_fail_criteria.items():
             sanitize_pass_fail_criteria(name, pfc)
             self._evaluator_names.append(name)
         self._pass_fail_criteria = pass_fail_criteria
+        self._variable_mapping = variable_mapping
+
 
     @property
     def names(self) -> list[str]:
@@ -33,6 +41,12 @@ class BaseEvaluator(ABC):
     def pass_fail_criteria(self):
         """Get the pass fail criteria for the evaluators."""
         return self._pass_fail_criteria
+
+    @property
+    def variable_mapping(self) -> Optional[VariableMapping]:
+        """Get the variable mapping functions for the evaluators."""
+        return self._variable_mapping
+
 
     @abstractmethod
     def evaluate(

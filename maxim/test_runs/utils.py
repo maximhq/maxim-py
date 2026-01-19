@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 from maxim.evaluators.base_evaluator import BaseEvaluator
 
@@ -7,6 +7,7 @@ from ..models.evaluator import (
     Evaluator,
     EvaluatorType,
     PassFailCriteria,
+    PlatformEvaluator,
 )
 from ..utils.utils import create_cuid_generator
 
@@ -18,24 +19,28 @@ class EvaluatorNameToIdAndPassFailCriteria:
     """
 
     id: str
-    pass_fail_criteria: PassFailCriteria
+    pass_fail_criteria: Optional[PassFailCriteria]
 
-    def __init__(self, id: str, pass_fail_criteria: PassFailCriteria):
+    def __init__(self, id: str, pass_fail_criteria: Optional[PassFailCriteria]):
         self.id = id
         self.pass_fail_criteria = pass_fail_criteria
 
 
 def get_local_evaluator_name_to_id_and_pass_fail_criteria_map(
-    evaluators: List[Union[BaseEvaluator, str]],
+    evaluators: List[Union[BaseEvaluator, PlatformEvaluator, str]],
 ) -> Dict[str, EvaluatorNameToIdAndPassFailCriteria]:
     """
     This function returns a map of evaluator names to their corresponding ids and pass fail criteria.
+    Note: PlatformEvaluator instances are not included here - they get their IDs from the API.
     """
     all_eval_names: List[str] = []
     for evaluator in evaluators:
         if isinstance(evaluator, str):
             pass
-        else:
+        elif isinstance(evaluator, PlatformEvaluator):
+            # PlatformEvaluators get their IDs from the API, not generated here
+            pass
+        elif isinstance(evaluator, BaseEvaluator):
             all_eval_names.extend(evaluator.names)
 
     all_pass_fail_criteria: Dict[str, PassFailCriteria] = {}
@@ -56,6 +61,7 @@ def get_local_evaluator_name_to_id_and_pass_fail_criteria_map(
         )
 
     return name_to_id_and_pass_fail_criteria_map
+
 
 
 def get_evaluator_config_from_evaluator_name_and_pass_fail_criteria(

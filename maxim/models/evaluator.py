@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, Callable, TypeVar
 
 
 class EvaluatorType(str, Enum):
@@ -483,3 +483,141 @@ class LocalEvaluationResultWithId(LocalEvaluationResult):
             pass_fail_criteria=PassFailCriteria.dict_to_class(data["passFailCriteria"]),
             id=data["id"],
         )
+
+
+# =============================================================================
+# Variable Mapping Types
+# =============================================================================
+
+
+class VersionInfo(Dict[str, Any]):
+    """
+    TypedDict-like class representing version information passed to variable mapping functions.
+    
+    Contains:
+        - id: Optional version ID (workflow, prompt, or prompt chain)
+        - type: The type of version ("workflow", "prompt", or "promptChain")
+    """
+    pass
+
+
+@dataclass
+class VariableMappingInput:
+    """
+    The output object passed to variableMapping functions.
+    This matches the YieldedOutput type from testRun but is defined here to avoid circular imports.
+    
+    Attributes:
+        data: The main output string from the run
+        retrieved_context_to_evaluate: Optional context retrieved during the run
+        messages: Optional list of messages from the run
+        meta: Optional metadata including usage and cost information
+    """
+    data: str
+    retrieved_context_to_evaluate: Optional[Union[str, List[str]]] = None
+    messages: Optional[List[Any]] = None
+    meta: Optional[Dict[str, Any]] = None
+    extra: Optional[Dict[str, Any]] = None
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a value by key, checking standard fields first, then extra."""
+        if key == "data":
+            return self.data
+        elif key == "retrieved_context_to_evaluate" or key == "retrieval":
+            return self.retrieved_context_to_evaluate
+        elif key == "messages":
+            return self.messages
+        elif key == "meta":
+            return self.meta
+        elif key == "output":
+            return self.data
+        elif self.extra and key in self.extra:
+            return self.extra[key]
+        return default
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary representation."""
+        result: Dict[str, Any] = {"data": self.data}
+        if self.retrieved_context_to_evaluate is not None:
+            result["retrieved_context_to_evaluate"] = self.retrieved_context_to_evaluate
+        if self.messages is not None:
+            result["messages"] = self.messages
+        if self.meta is not None:
+            result["meta"] = self.meta
+        if self.extra is not None:
+            result.update(self.extra)
+        return result
+
+    @classmethod
+    def from_yielded_output(cls, output: Any, input_value: Optional[str] = None, 
+                            context_to_evaluate: Optional[Union[str, List[str]]] = None) -> "VariableMappingInput":
+        """Create a VariableMappingInput from a YieldedOutput-like object."""
+        data = getattr(output, "data", "") if output else ""
+        retrieved_context = getattr(output, "retrieved_context_to_evaluate", None) or context_to_evaluate
+        
+        meta_obj = getattr(output, "meta", None)
+        meta: Optional[Dict[str, Any]] = None
+        if meta_obj:
+            usage_obj = getattr(meta_obj, "usage", None)
+            cost_obj = getattr(meta_obj, "cost", None)
+            meta = {}
+            if usage_obj:
+                meta["usage"] = usage_obj.to_dict() if hasattr(usage_obj, "to_dict") else usage_obj
+            if cost_obj:
+                meta["cost"] = cost_obj.to_dict() if hasattr(cost_obj, "to_dict") else cost_obj
+        
+        extra: Dict[str, Any] = {}
+        if input_value is not None:
+            extra["input"] = input_value
+        if context_to_evaluate is not None:
+            extra["retrieval"] = context_to_evaluate
+        
+        return cls(
+            data=data,
+            retrieved_context_to_evaluate=retrieved_context,
+            messages=None,
+            meta=meta,
+            extra=extra if extra else None,
+        )
+
+
+
+# Forward reference types to avoid circular imports
+LocalDataType = Dict[str, Any]
+
+VariableMappingFunction = Callable[
+    [VariableMappingInput, LocalDataType, Optional[VersionInfo]],
+    Optional[str]
+]
+
+# Type alias for variable mapping dictionary
+VariableMapping = Dict[str, VariableMappingFunction]
+
+
+@dataclass
+class PlatformEvaluator:
+    """
+    A platform evaluator (identified by name) with an optional variable mapping.
+    Use this when you need to transform the output for a platform evaluator.
+    
+    Example:
+        ```python
+        from maxim.evaluators import PlatformEvaluator
+        
+        maxim.create_test_run("Test", workspace_id).with_evaluators(
+            "Bias",  # Simple platform evaluator
+            PlatformEvaluator(
+                name="Bias",
+                variable_mapping={
+                    "output": lambda run, dataset, version: run.data.upper()
+                }
+            ),  # Platform evaluator with mapping
+        )
+        ```
+    
+    Attributes:
+        name: The name of the platform evaluator
+        variable_mapping: Optional dictionary of variable mapping functions
+    """
+    name: str
+    variable_mapping: Optional[VariableMapping] = None

@@ -182,6 +182,10 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.9
+
+- feat: Adds support for `variable_mapping` field for test runs and a new class (PlatformEvaluator) to send variable mapping on platform evaluators.
+
 ### 3.14.8
 
 - feat: Adds `with_logger` function to accept a parent trace / span for automatic logging on prompt run.

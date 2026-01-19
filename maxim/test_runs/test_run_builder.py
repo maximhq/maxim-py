@@ -31,6 +31,9 @@ from ..models.dataset import Data, LocalData
 from ..models.evaluator import (
     LocalEvaluationResultWithId,
     LocalEvaluatorResultParameter,
+    PlatformEvaluator,
+    VariableMappingInput,
+    VersionInfo,
 )
 from ..models.test_run import (
     PromptChainVersionConfig,
@@ -115,7 +118,7 @@ class TestRunBuilder(Generic[T]):
         api_key: str,
         name: str,
         workspace_id: str,
-        evaluators: List[Union[str, BaseEvaluator]],
+        evaluators: List[Union[str, BaseEvaluator, PlatformEvaluator]],
     ):
         """
         Constructor
@@ -128,6 +131,68 @@ class TestRunBuilder(Generic[T]):
             in_workspace_id=workspace_id,
         )
         self._maxim_apis = MaximAPI(base_url, api_key)
+
+    def _compute_sdk_variables_for_platform_evaluators(
+        self,
+        yielded_output: YieldedOutput,
+        row: LocalData,
+        input_value: Optional[str],
+        context_to_evaluate: Optional[Union[str, List[str]]],
+        evaluator_name_to_id_map: Dict[str, EvaluatorNameToIdAndPassFailCriteria],
+        logger: TestRunLogger,
+    ) -> Optional[Dict[str, Dict[str, str]]]:
+        """
+        Compute sdk_variables for platform evaluators that have variable_mapping.
+        
+        Args:
+            yielded_output: The output from prompt/workflow execution
+            row: The dataset row
+            input_value: The input string
+            context_to_evaluate: Context for evaluation
+            evaluator_name_to_id_map: Map of evaluator names to their IDs
+            logger: Logger instance
+            
+        Returns:
+            Dict mapping evaluator IDs to their variable mappings, or None if empty
+        """
+        sdk_variables: Dict[str, Dict[str, str]] = {}
+        
+        # Build VariableMappingInput from yielded_output
+        variable_mapping_input = VariableMappingInput.from_yielded_output(
+            output=yielded_output,
+            input_value=input_value,
+            context_to_evaluate=context_to_evaluate,
+        )
+        
+        # Determine version info based on execution type
+        version_info: Optional[VersionInfo] = None
+        if self._config.workflow is not None:
+            version_info = VersionInfo({"id": self._config.workflow.id, "type": "workflow"})
+        elif self._config.prompt_version is not None:
+            version_info = VersionInfo({"id": self._config.prompt_version.id, "type": "prompt"})
+        elif self._config.prompt_chain_version is not None:
+            version_info = VersionInfo({"id": self._config.prompt_chain_version.id, "type": "promptChain"})
+        
+        # Process platform evaluators with variable_mapping
+        for evaluator in self._config.evaluators:
+            if isinstance(evaluator, PlatformEvaluator) and evaluator.variable_mapping:
+                evaluator_info = evaluator_name_to_id_map.get(evaluator.name)
+                if evaluator_info:
+                    evaluator_id = evaluator_info.id
+                    mapping_result: Dict[str, str] = {}
+                    
+                    for var_name, mapping_fn in evaluator.variable_mapping.items():
+                        try:
+                            result = mapping_fn(variable_mapping_input, row, version_info)
+                            if result is not None:
+                                mapping_result[var_name] = result
+                        except Exception as e:
+                            logger.error(f"Error in variable mapping for key '{var_name}': {e}")
+                    
+                    if mapping_result:
+                        sdk_variables[evaluator_id] = mapping_result
+        
+        return sdk_variables if sdk_variables else None
 
     def __process_entry(
         self,
@@ -286,6 +351,52 @@ class TestRunBuilder(Generic[T]):
                 )
             )
 
+        sdk_variables: Dict[str, Dict[str, str]] = {}
+        
+        variable_mapping_input = VariableMappingInput.from_yielded_output(
+            output=yielded_output,
+            input_value=input,
+            context_to_evaluate=context_to_evaluate,
+        )
+        
+        version_info: Optional[VersionInfo] = None
+        if self._config.workflow is not None:
+            version_info = VersionInfo({"id": self._config.workflow.id, "type": "workflow"})
+        elif self._config.prompt_version is not None:
+            version_info = VersionInfo({"id": self._config.prompt_version.id, "type": "prompt"})
+        elif self._config.prompt_chain_version is not None:
+            version_info = VersionInfo({"id": self._config.prompt_chain_version.id, "type": "promptChain"})
+        
+        # Process all evaluators with variable_mapping
+        for evaluator in self._config.evaluators:
+            variable_mapping = None
+            evaluator_name = None
+            
+            if isinstance(evaluator, BaseEvaluator) and evaluator.variable_mapping:
+                variable_mapping = evaluator.variable_mapping
+                # BaseEvaluator can have multiple names, use first one for the mapping
+                evaluator_name = evaluator.names[0] if evaluator.names else None
+            elif isinstance(evaluator, PlatformEvaluator) and evaluator.variable_mapping:
+                variable_mapping = evaluator.variable_mapping
+                evaluator_name = evaluator.name
+            
+            if variable_mapping and evaluator_name:
+                evaluator_info = evaluator_name_to_id_and_pass_fail_criteria_map.get(evaluator_name)
+                if evaluator_info:
+                    evaluator_id = evaluator_info.id
+                    mapping_result: Dict[str, str] = {}
+                    
+                    for var_name, mapping_fn in variable_mapping.items():
+                        try:
+                            result = mapping_fn(variable_mapping_input, row, version_info)
+                            if result is not None:
+                                mapping_result[var_name] = result
+                        except Exception as e:
+                            logger.error(f"Error in variable mapping for key '{var_name}': {e}")
+                    
+                    if mapping_result:
+                        sdk_variables[evaluator_id] = mapping_result
+
         return ProcessedEntry(
             entry=TestRunEntry(
                 output=yielded_output.data if yielded_output is not None else None,
@@ -298,9 +409,11 @@ class TestRunBuilder(Generic[T]):
                     else {}
                 ),
                 local_evaluation_results=local_evaluation_results_with_ids,
+                sdk_variables=sdk_variables if sdk_variables else None,
             ),
             meta=yielded_output.meta if yielded_output is not None else None,
         )
+
 
     def with_data_structure(self, data: T) -> "TestRunBuilder[T]":
         """
@@ -332,23 +445,24 @@ class TestRunBuilder(Generic[T]):
         return self
 
     def with_evaluators(
-        self, *evaluators: Union[str, BaseEvaluator]
+        self, *evaluators: Union[str, BaseEvaluator, PlatformEvaluator]
     ) -> "TestRunBuilder[T]":
         """
         Add evaluators to the test run
 
         Args:
-            *evaluators (str): The evaluators to add
+            *evaluators (Union[str, BaseEvaluator, PlatformEvaluator]): The evaluators to add
 
         Returns:
             TestRunBuilder[T]: The current TestRunBuilder instance for method chaining
         """
-        evaluators_list: List[Union[BaseEvaluator, str]] = []
+        evaluators_list: List[Union[BaseEvaluator, PlatformEvaluator, str]] = []
         for evaluator in evaluators:
             evaluators_list.append(evaluator)
         sanitize_evaluators(evaluators_list)
         self._config.evaluators = evaluators_list
         return self
+
     
     def with_tags(self, tags: list[str]) -> "TestRunBuilder[T]":
         """
@@ -652,7 +766,125 @@ class TestRunBuilder(Generic[T]):
                         ),
                     )
                 else:
-                    # pushing directly
+                    # Check if we have platform evaluators with variable_mapping
+                    has_platform_evaluator_with_mapping = any(
+                        isinstance(e, PlatformEvaluator) and e.variable_mapping 
+                        for e in self._config.evaluators
+                    )
+                    
+                    sdk_variables: Optional[Dict[str, Dict[str, str]]] = None
+                    
+                    if has_platform_evaluator_with_mapping:
+                        # We need to execute the prompt/workflow to get output for variable mapping
+                        yielded_output: Optional[YieldedOutput] = None
+                        
+                        if self._config.prompt_version is not None:
+                            # Convert Variable dict to string dict for run_prompt_version
+                            variable_dict = (
+                                get_variables_from_row(row, self._config.data_structure)
+                                if self._config.data_structure
+                                else {}
+                            )
+                            # Convert Variable objects to strings
+                            variables_str = {
+                                k: v.payload if hasattr(v, 'payload') else str(v)
+                                for k, v in variable_dict.items()
+                            }
+                            
+                            prompt_response = self._maxim_apis.run_prompt_version(
+                                self._config.prompt_version.id,
+                                input if input is not None else "",
+                                None,  # image_urls
+                                variables_str,
+                            )
+                            
+                            if prompt_response is not None:
+                                # Extract output from the response
+                                output_text = ""
+                                if prompt_response.choices and len(prompt_response.choices) > 0:
+                                    content = prompt_response.choices[0].message.content
+                                    if isinstance(content, str):
+                                        output_text = content
+                                    elif isinstance(content, list):
+                                        # Multimodal content - extract text parts
+                                        output_text = " ".join(
+                                            item.get("text", "") for item in content 
+                                            if isinstance(item, dict) and item.get("type") == "text"
+                                        )
+                                
+                                yielded_output = YieldedOutput(
+                                    data=output_text,
+                                    retrieved_context_to_evaluate=self._config.prompt_version.context_to_evaluate,
+                                    meta=YieldedOutputMeta(
+                                        entity_type="PROMPT",
+                                        entity_id=self._config.prompt_version.id,
+                                        usage=YieldedOutputTokenUsage(
+                                            prompt_tokens=prompt_response.usage.prompt_tokens,
+                                            completion_tokens=prompt_response.usage.completion_tokens,
+                                            total_tokens=prompt_response.usage.total_tokens,
+                                            latency=prompt_response.usage.latency,
+                                        ),
+                                    ),
+                                )
+                        elif self._config.prompt_chain_version is not None:
+                            # Convert Variable dict to string dict
+                            variable_dict = (
+                                get_variables_from_row(row, self._config.data_structure)
+                                if self._config.data_structure
+                                else {}
+                            )
+                            variables_str = {
+                                k: v.payload if hasattr(v, 'payload') else str(v)
+                                for k, v in variable_dict.items()
+                            }
+                            
+                            agent_response = self._maxim_apis.run_prompt_chain_version(
+                                self._config.prompt_chain_version.id,
+                                input if input is not None else "",
+                                variables_str,
+                            )
+                            
+                            if agent_response is not None:
+                                yielded_output = YieldedOutput(
+                                    data=agent_response.output or "",
+                                    retrieved_context_to_evaluate=self._config.prompt_chain_version.context_to_evaluate,
+                                    meta=YieldedOutputMeta(
+                                        entity_type="PROMPT_CHAIN",
+                                        entity_id=self._config.prompt_chain_version.id,
+                                        usage=YieldedOutputTokenUsage(
+                                            prompt_tokens=agent_response.usage.prompt_tokens if agent_response.usage else 0,
+                                            completion_tokens=agent_response.usage.completion_tokens if agent_response.usage else 0,
+                                            total_tokens=agent_response.usage.total_tokens if agent_response.usage else 0,
+                                            latency=agent_response.usage.latency if agent_response.usage else 0,
+                                        ),
+                                    ),
+                                )
+                        elif self._config.workflow is not None:
+                            workflow_output = self._maxim_apis.execute_workflow_for_data(
+                                self._config.workflow.id, row, self._config.workflow.context_to_evaluate
+                            )
+                            yielded_output = YieldedOutput(
+                                data=workflow_output.output if workflow_output.output is not None else "",
+                                retrieved_context_to_evaluate=workflow_output.context_to_evaluate,
+                                meta=YieldedOutputMeta(
+                                    entity_type="WORKFLOW",
+                                    entity_id=self._config.workflow.id,
+                                    usage=YieldedOutputTokenUsage(
+                                        latency=workflow_output.latency,
+                                        completion_tokens=0,
+                                        prompt_tokens=0,
+                                        total_tokens=0,
+                                    ),
+                                ),
+                            )
+                        
+                        if yielded_output is not None:
+                            # Compute sdk_variables for platform evaluators with variable_mapping
+                            sdk_variables = self._compute_sdk_variables_for_platform_evaluators(
+                                yielded_output, row, input, context_to_evaluate, evaluator_name_to_id_and_pass_fail_criteria_map, self._config.logger
+                            )
+                    
+                    # Push the entry with sdk_variables if computed
                     self._maxim_apis.push_test_run_entry(
                         test_run=test_run,
                         entry=TestRunEntry(
@@ -664,6 +896,7 @@ class TestRunBuilder(Generic[T]):
                             input=input,
                             expected_output=expected_output,
                             context_to_evaluate=context_to_evaluate,
+                            sdk_variables=sdk_variables,
                         ),
                     )
             except Exception as e:
@@ -826,24 +1059,205 @@ class TestRunBuilder(Generic[T]):
                         ),
                     )
                 else:
-                    # pushing directly
-                    self._maxim_apis.push_test_run_entry(
-                        test_run=TestRunWithDatasetEntry(
-                            test_run=test_run,
-                            dataset_id=dataset_id,
-                            dataset_entry_id=row.id,
-                        ),
-                        entry=TestRunEntry(
-                            variables=(
+                    # Check if we have platform evaluators with variable_mapping
+                    has_platform_evaluator_with_mapping = any(
+                        isinstance(e, PlatformEvaluator) and e.variable_mapping 
+                        for e in self._config.evaluators
+                    )
+                    
+                    sdk_variables: Optional[Dict[str, Dict[str, str]]] = None
+                    
+                    if has_platform_evaluator_with_mapping:
+                        # We need to execute the prompt/workflow to get output for variable mapping
+                        yielded_output: Optional[YieldedOutput] = None
+                        
+                        if self._config.prompt_version is not None:
+                            # Convert Variable dict to string dict for run_prompt_version
+                            variable_dict = (
                                 get_variables_from_row(row_data, data_structure)
                                 if data_structure
                                 else {}
+                            )
+                            # Convert Variable objects to strings
+                            variables_str = {
+                                k: v.payload if hasattr(v, 'payload') else str(v)
+                                for k, v in variable_dict.items()
+                            }
+                            
+                            prompt_response = self._maxim_apis.run_prompt_version(
+                                self._config.prompt_version.id,
+                                input if input is not None else "",
+                                None,  # image_urls
+                                variables_str,
+                            )
+                            
+                            if prompt_response is not None:
+                                # Extract output from the response
+                                output_text = ""
+                                if prompt_response.choices and len(prompt_response.choices) > 0:
+                                    content = prompt_response.choices[0].message.content
+                                    if isinstance(content, str):
+                                        output_text = content
+                                    elif isinstance(content, list):
+                                        # Multimodal content - extract text parts
+                                        output_text = " ".join(
+                                            item.get("text", "") for item in content 
+                                            if isinstance(item, dict) and item.get("type") == "text"
+                                        )
+                                
+                                yielded_output = YieldedOutput(
+                                    data=output_text,
+                                    retrieved_context_to_evaluate=self._config.prompt_version.context_to_evaluate,
+                                    meta=YieldedOutputMeta(
+                                        entity_type="PROMPT",
+                                        entity_id=self._config.prompt_version.id,
+                                        usage=YieldedOutputTokenUsage(
+                                            prompt_tokens=prompt_response.usage.prompt_tokens,
+                                            completion_tokens=prompt_response.usage.completion_tokens,
+                                            total_tokens=prompt_response.usage.total_tokens,
+                                            latency=prompt_response.usage.latency,
+                                        ),
+                                    ),
+                                )
+                        elif self._config.prompt_chain_version is not None:
+                            # Convert Variable dict to string dict
+                            variable_dict = (
+                                get_variables_from_row(row_data, data_structure)
+                                if data_structure
+                                else {}
+                            )
+                            variables_str = {
+                                k: v.payload if hasattr(v, 'payload') else str(v)
+                                for k, v in variable_dict.items()
+                            }
+                            
+                            agent_response = self._maxim_apis.run_prompt_chain_version(
+                                self._config.prompt_chain_version.id,
+                                input if input is not None else "",
+                                variables_str,
+                            )
+                            
+                            if agent_response is not None:
+                                yielded_output = YieldedOutput(
+                                    data=agent_response.output or "",
+                                    retrieved_context_to_evaluate=self._config.prompt_chain_version.context_to_evaluate,
+                                    meta=YieldedOutputMeta(
+                                        entity_type="PROMPT_CHAIN",
+                                        entity_id=self._config.prompt_chain_version.id,
+                                        usage=YieldedOutputTokenUsage(
+                                            prompt_tokens=agent_response.usage.prompt_tokens if agent_response.usage else 0,
+                                            completion_tokens=agent_response.usage.completion_tokens if agent_response.usage else 0,
+                                            total_tokens=agent_response.usage.total_tokens if agent_response.usage else 0,
+                                            latency=agent_response.usage.latency if agent_response.usage else 0,
+                                        ),
+                                    ),
+                                )
+
+                        elif self._config.workflow is not None:
+                            workflow_output = self._maxim_apis.execute_workflow_for_data(
+                                self._config.workflow.id, row_data, self._config.workflow.context_to_evaluate
+                            )
+                            yielded_output = YieldedOutput(
+                                data=workflow_output.output if workflow_output.output is not None else "",
+                                retrieved_context_to_evaluate=workflow_output.context_to_evaluate,
+                                meta=YieldedOutputMeta(
+                                    entity_type="WORKFLOW",
+                                    entity_id=self._config.workflow.id,
+                                    usage=YieldedOutputTokenUsage(
+                                        latency=workflow_output.latency,
+                                        completion_tokens=0,
+                                        prompt_tokens=0,
+                                        total_tokens=0,
+                                    ),
+                                ),
+                            )
+                        
+                        if yielded_output is not None:
+                            # Compute sdk_variables
+                            sdk_variables = self._compute_sdk_variables_for_platform_evaluators(
+                                yielded_output=yielded_output,
+                                row=row_data,
+                                input_value=input,
+                                context_to_evaluate=context_to_evaluate,
+                                evaluator_name_to_id_map=evaluator_name_to_id_and_pass_fail_criteria_map,
+                                logger=self._config.logger,
+                            )
+                            
+                            # Push with output and sdk_variables
+                            self._maxim_apis.push_test_run_entry(
+                                test_run=TestRunWithDatasetEntry(
+                                    test_run=test_run,
+                                    dataset_id=dataset_id,
+                                    dataset_entry_id=row.id,
+                                ),
+                                entry=TestRunEntry(
+                                    variables=(
+                                        get_variables_from_row(row_data, data_structure)
+                                        if data_structure
+                                        else {}
+                                    ),
+                                    input=input,
+                                    expected_output=expected_output,
+                                    context_to_evaluate=context_to_evaluate,
+                                    output=yielded_output.data,
+                                    sdk_variables=sdk_variables,
+                                ),
+                                run_config=(
+                                    {
+                                        "cost": (
+                                            yielded_output.meta.cost.to_dict()
+                                            if yielded_output.meta and yielded_output.meta.cost is not None
+                                            else None
+                                        ),
+                                        "usage": (
+                                            yielded_output.meta.usage.to_dict()
+                                            if yielded_output.meta and yielded_output.meta.usage is not None
+                                            else None
+                                        ),
+                                    }
+                                    if yielded_output.meta is not None
+                                    else None
+                                ),
+                            )
+                        else:
+                            # No yielded output, push without sdk_variables
+                            self._maxim_apis.push_test_run_entry(
+                                test_run=TestRunWithDatasetEntry(
+                                    test_run=test_run,
+                                    dataset_id=dataset_id,
+                                    dataset_entry_id=row.id,
+                                ),
+                                entry=TestRunEntry(
+                                    variables=(
+                                        get_variables_from_row(row_data, data_structure)
+                                        if data_structure
+                                        else {}
+                                    ),
+                                    input=input,
+                                    expected_output=expected_output,
+                                    context_to_evaluate=context_to_evaluate,
+                                ),
+                            )
+                    else:
+                        # No platform evaluators with variable_mapping, push directly
+                        self._maxim_apis.push_test_run_entry(
+                            test_run=TestRunWithDatasetEntry(
+                                test_run=test_run,
+                                dataset_id=dataset_id,
+                                dataset_entry_id=row.id,
                             ),
-                            input=input,
-                            expected_output=expected_output,
-                            context_to_evaluate=context_to_evaluate,
-                        ),
-                    )
+                            entry=TestRunEntry(
+                                variables=(
+                                    get_variables_from_row(row_data, data_structure)
+                                    if data_structure
+                                    else {}
+                                ),
+                                input=input,
+                                expected_output=expected_output,
+                                context_to_evaluate=context_to_evaluate,
+                            ),
+                        )
+
             except Exception as e:
                 self._config.logger.error(
                     f"Error while running data entry at index [{index}]: {str(e)}",
@@ -952,7 +1366,27 @@ class TestRunBuilder(Generic[T]):
                         raise ValueError(
                             f"Failed to fetch evaluator {evaluator}"
                         ) from e
-                else:
+                elif isinstance(evaluator, PlatformEvaluator):
+                    # PlatformEvaluator - fetch from platform API like string evaluators
+                    try:
+                        self._config.logger.info(
+                            message=f"Verifying if {evaluator.name} is added to the workspace.."
+                        )
+                        evaluator_config = self._maxim_apis.fetch_platform_evaluator(
+                            name=evaluator.name, in_workspace_id=self._config.in_workspace_id
+                        )
+                        evaluator_configs.append(evaluator_config)
+                        # Add to the name->id map if not already present
+                        if evaluator.name not in evaluator_name_to_id_and_pass_fail_criteria_map:
+                            evaluator_name_to_id_and_pass_fail_criteria_map[evaluator.name] = EvaluatorNameToIdAndPassFailCriteria(
+                                id=evaluator_config.id,
+                                pass_fail_criteria=None
+                            )
+                    except Exception as e:
+                        raise ValueError(
+                            f"Failed to fetch evaluator {evaluator.name}"
+                        ) from e
+                elif isinstance(evaluator, BaseEvaluator):
                     for name in evaluator.names:
                         evaluator_config = get_evaluator_config_from_evaluator_name_and_pass_fail_criteria(
                             id=evaluator_name_to_id_and_pass_fail_criteria_map[name].id,
@@ -962,6 +1396,7 @@ class TestRunBuilder(Generic[T]):
                             ].pass_fail_criteria,
                         )
                         evaluator_configs.append(evaluator_config)
+
 
             if any(
                 evaluator.type.value == EvaluatorType.HUMAN.value
@@ -991,6 +1426,7 @@ class TestRunBuilder(Generic[T]):
                     or self._config.output_function is not None
                 ):
                     requires_local_run = True
+
                 test_run = self._maxim_apis.create_test_run(
                     name=name,
                     workspace_id=workspace_id,
