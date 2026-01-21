@@ -9,7 +9,9 @@ from ..models.dataset import Data, LocalData, T, Variable
 from .evaluator import (
     EvaluatorType,
     LocalEvaluationResultWithId,
+    PlatformEvaluator,
 )
+
 
 
 @dataclass
@@ -337,6 +339,7 @@ class TestRunEntry:
     expected_output: Optional[str] = None
     context_to_evaluate: Optional[Union[str, List[str]]] = None
     local_evaluation_results: Optional[List[LocalEvaluationResultWithId]] = None
+    sdk_variables: Optional[Dict[str, Dict[str, str]]] = None
 
     def to_dict(self):
         result = {}
@@ -361,12 +364,21 @@ class TestRunEntry:
             result["dataEntry"] = {
                 key: variable.to_json() for key, variable in self.variables.items()
             }
+        if self.sdk_variables is not None and len(self.sdk_variables) > 0:
+            sdk_vars_formatted = {}
+            for evaluator_id, var_mapping in self.sdk_variables.items():
+                sdk_vars_formatted[evaluator_id] = {
+                    "type": "json",
+                    "payload": json.dumps(var_mapping),
+                }
+            if "meta" not in result:
+                result["meta"] = {}
+            result["meta"]["sdkVariables"] = sdk_vars_formatted
 
-        # Keeping only non None entries in result
         return {key: value for key, value in result.items() if value is not None}
 
     def __json__(self):
-        return {
+        base_result = {
             key: value
             for key, value in {
                 "output": self.output,
@@ -392,6 +404,19 @@ class TestRunEntry:
             }.items()
             if value is not None
         }
+        
+        if self.sdk_variables is not None and len(self.sdk_variables) > 0:
+            sdk_vars_formatted = {}
+            for evaluator_id, var_mapping in self.sdk_variables.items():
+                sdk_vars_formatted[evaluator_id] = {
+                    "type": "json",
+                    "payload": json.dumps(var_mapping),
+                }
+            if "meta" not in base_result:
+                base_result["meta"] = {}
+            base_result["meta"]["sdkVariables"] = sdk_vars_formatted
+        
+        return base_result
 
     @classmethod
     def from_json(cls, json_str: str) -> "TestRunEntry":
@@ -407,6 +432,20 @@ class TestRunEntry:
             if value is not None:
                 variables[key] = Variable.from_json(value)
 
+        # Parse sdk_variables from meta.sdkVariables if present
+        sdk_variables = None
+        meta = data.get("meta")
+        if meta and "sdkVariables" in meta:
+            sdk_variables = {}
+            for evaluator_id, var_data in meta["sdkVariables"].items():
+                if isinstance(var_data, dict) and "payload" in var_data:
+                    try:
+                        sdk_variables[evaluator_id] = json.loads(var_data["payload"])
+                    except (json.JSONDecodeError, TypeError):
+                        sdk_variables[evaluator_id] = var_data.get("payload", {})
+                else:
+                    sdk_variables[evaluator_id] = var_data
+
         return cls(
             output=data.get("output", None),
             input=data.get("input", None),
@@ -421,7 +460,10 @@ class TestRunEntry:
                 if local_evaluation_results
                 else None
             ),
+            sdk_variables=sdk_variables,
         )
+
+
 
 
 @dataclass
@@ -886,7 +928,7 @@ class TestRunConfig(Generic[T]):
     api_key: str
     in_workspace_id: str
     name: str
-    evaluators: List[Union[str, BaseEvaluator]]
+    evaluators: List[Union[str, BaseEvaluator, PlatformEvaluator]]
     workflow: Optional[WorkflowConfig] = None
     prompt_version: Optional[PromptVersionConfig] = None
     prompt_chain_version: Optional[PromptChainVersionConfig] = None

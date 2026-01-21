@@ -3,6 +3,7 @@ from typing import List, Union
 
 from ..evaluators import BaseEvaluator
 from ..models.dataset import Data, DataStructure
+from ..models.evaluator import PlatformEvaluator
 
 
 def sanitize_data(
@@ -198,8 +199,28 @@ def sanitize_data(
             )
 
 
+def _get_evaluator_name(evaluator: Union[BaseEvaluator, PlatformEvaluator, str]) -> str:
+    """Get the name of an evaluator."""
+    if isinstance(evaluator, BaseEvaluator):
+        return evaluator.names[0] if evaluator.names else ""
+    elif isinstance(evaluator, PlatformEvaluator):
+        return evaluator.name
+    else:
+        return evaluator
+
+
+def _get_evaluator_names(evaluator: Union[BaseEvaluator, PlatformEvaluator, str]) -> List[str]:
+    """Get all names for an evaluator (BaseEvaluator can have multiple)."""
+    if isinstance(evaluator, BaseEvaluator):
+        return evaluator.names
+    elif isinstance(evaluator, PlatformEvaluator):
+        return [evaluator.name]
+    else:
+        return [evaluator]
+
+
 def sanitize_evaluators(
-    evaluators: List[Union[BaseEvaluator, str]],
+    evaluators: List[Union[BaseEvaluator, PlatformEvaluator, str]],
 ):
     names_encountered = set()
     all_evaluator_names = []
@@ -208,10 +229,7 @@ def sanitize_evaluators(
             for name in evaluator.names:
                 if name not in names_encountered:
                     for e in evaluators:
-                        if isinstance(e, BaseEvaluator):
-                            all_evaluator_names.extend(e.names)
-                        else:
-                            all_evaluator_names.append(e)
+                        all_evaluator_names.extend(_get_evaluator_names(e))
                     names_encountered.add(name)
                 else:
                     raise ValueError(
@@ -222,14 +240,26 @@ def sanitize_evaluators(
                             )
                         },
                     )
+        elif isinstance(evaluator, PlatformEvaluator):
+            name = evaluator.name
+            if name not in names_encountered:
+                for e in evaluators:
+                    all_evaluator_names.extend(_get_evaluator_names(e))
+                names_encountered.add(name)
+            else:
+                raise ValueError(
+                    f'Multiple evaluators with the same name "{name}" found',
+                    {
+                        "cause": json.dumps(
+                            {"allEvaluatorNames": all_evaluator_names}, indent=2
+                        )
+                    },
+                )
         else:
             name = evaluator
             if name not in names_encountered:
                 for e in evaluators:
-                    if isinstance(e, BaseEvaluator):
-                        all_evaluator_names.extend(e.names)
-                    else:
-                        all_evaluator_names.append(e)
+                    all_evaluator_names.extend(_get_evaluator_names(e))
                 names_encountered.add(name)
             else:
                 raise ValueError(
