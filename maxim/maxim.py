@@ -969,7 +969,7 @@ class Maxim:
             raise_exceptions=self.raise_exceptions,
         )
         self.__loggers[repo_id] = logger
-
+        self._check_if_repo_exists(logger)
         return logger
 
     def _check_if_repo_exists(self, logger: Logger):
