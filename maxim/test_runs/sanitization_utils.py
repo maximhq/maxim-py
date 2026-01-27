@@ -38,6 +38,26 @@ def sanitize_data(
                                         )
                                     },
                                 )
+                        elif against_data_structure[key] == "EXPECTED_STEPS":
+                            if not isinstance(value, str):
+                                raise ValueError(
+                                    f'Expected steps column "{key}" has a data entry which is not a string',
+                                    {
+                                        "cause": json.dumps(
+                                            {"dataEntry": {key: value}}, indent=2
+                                        )
+                                    },
+                                )
+                        elif against_data_structure[key] == "SCENARIO":
+                            if not isinstance(value, str):
+                                raise ValueError(
+                                    f'Scenario column "{key}" has a data entry which is not a string',
+                                    {
+                                        "cause": json.dumps(
+                                            {"dataEntry": {key: value}}, indent=2
+                                        )
+                                    },
+                                )
                         elif against_data_structure[key] == "CONTEXT_TO_EVALUATE":
                             if not (isinstance(value, str)) and (
                                 not (isinstance(value, list))
@@ -120,6 +140,26 @@ def sanitize_data(
                         if not isinstance(value, str):
                             raise ValueError(
                                 f'Expected output column "{key}" has a data entry which is not a string',
+                                {
+                                    "cause": json.dumps(
+                                        {"dataEntry": {key: value}}, indent=2
+                                    )
+                                },
+                            )
+                    elif against_data_structure[key] == "EXPECTED_STEPS":
+                        if not isinstance(value, str):
+                            raise ValueError(
+                                f'Expected steps column "{key}" has a data entry which is not a string',
+                                {
+                                    "cause": json.dumps(
+                                        {"dataEntry": {key: value}}, indent=2
+                                    )
+                                },
+                            )
+                    elif against_data_structure[key] == "SCENARIO":
+                        if not isinstance(value, str):
+                            raise ValueError(
+                                f'Scenario column "{key}" has a data entry which is not a string',
                                 {
                                     "cause": json.dumps(
                                         {"dataEntry": {key: value}}, indent=2

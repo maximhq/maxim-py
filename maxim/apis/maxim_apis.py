@@ -33,6 +33,7 @@ from ..models import (
     DatasetRow,
     Evaluator,
     ExecutePromptForDataResponse,
+    ExecuteSimulationStartResponse,
     ExecuteWorkflowForDataResponse,
     Folder,
     HumanEvaluationConfig,
@@ -40,6 +41,7 @@ from ..models import (
     PromptResponse,
     RunType,
     SignedURLResponse,
+    SimulationConfig,
     TestRun,
     TestRunEntry,
     TestRunResult,
@@ -1175,6 +1177,7 @@ class MaximAPI:
         requires_local_run: bool,
         tags: Optional[list[str]] = None,
         human_evaluation_config: Optional[HumanEvaluationConfig] = None,
+        simulation_config: Optional[SimulationConfig] = None,
     ) -> TestRun:
         """
         Create a new test run.
@@ -1189,6 +1192,7 @@ class MaximAPI:
             evaluator_config: List of evaluators to use
             requires_local_run: Whether the test run requires local execution
             human_evaluation_config: Optional human evaluation configuration
+            simulation_config: Optional simulation configuration
 
         Returns:
             TestRun: The created test run
@@ -1228,6 +1232,11 @@ class MaximAPI:
                             "humanEvaluationConfig": (
                                 human_evaluation_config.to_dict()
                                 if human_evaluation_config
+                                else None
+                            ),
+                            "simulationConfig": (
+                                simulation_config.to_dict()
+                                if simulation_config
                                 else None
                             ),
                         }.items()
@@ -1559,6 +1568,7 @@ class MaximAPI:
         input: str,
         variables: Dict[str, Variable],
         context_to_evaluate: Optional[str] = None,
+        simulation_config: Optional[SimulationConfig] = None,
     ) -> ExecutePromptForDataResponse:
         try:
             res = self.__make_network_call(
@@ -1573,6 +1583,11 @@ class MaximAPI:
                             for key, variable in variables.items()
                         },
                         "contextToEvaluate": context_to_evaluate,
+                        "simulationConfig": (
+                            simulation_config.to_dict()
+                            if simulation_config
+                            else None
+                        ),
                     }
                 ),
                 headers={
@@ -1633,6 +1648,247 @@ class MaximAPI:
             if "error" in json_response:
                 raise Exception(json_response["error"])
             return ExecutePromptForDataResponse.dict_to_class(json_response["data"])
+        except httpx.HTTPStatusError as e:
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
+            raise Exception(e) from e
+        except Exception as e:
+            raise Exception(e) from e
+
+    def _convert_data_entry_to_variable_format(
+        self,
+        data_entry: Dict[str, Union[str, List[str], None, Dict[str, Any]]],
+    ) -> Dict[str, Any]:
+        """Convert plain str/list/None values to { type, payload } format expected by simulation APIs.
+        Values already in variable format (dict with 'type' and 'payload') are passed through as-is."""
+        result: Dict[str, Any] = {}
+        for k, v in data_entry.items():
+            if isinstance(v, dict) and "type" in v and "payload" in v:
+                result[k] = v
+            elif v is None:
+                result[k] = {"type": "text", "payload": ""}
+            elif isinstance(v, str):
+                result[k] = {"type": "text", "payload": v}
+            elif isinstance(v, list):
+                files = []
+                for item in v:
+                    if isinstance(item, dict) and "url" in item:
+                        files.append({
+                            "id": item.get("id"),
+                            "url": item["url"],
+                            "name": item.get("name"),
+                            "type": item.get("type", "file"),
+                        })
+                    else:
+                        files.append({"url": str(item), "type": "file"})
+                result[k] = {"type": "file", "payload": {"files": files}}
+            else:
+                result[k] = {"type": "text", "payload": str(v)}
+        return result
+
+    def execute_simulation_prompt_start(
+        self,
+        test_run_id: str,
+        prompt_version_id: str,
+        workspace_id: str,
+        simulation_config: SimulationConfig,
+        dataset_entry_id: Optional[str] = None,
+        input: Optional[str] = None,
+        scenario: Optional[str] = None,
+        expected_steps: Optional[str] = None,
+        context_to_evaluate: Optional[Union[str, List[str]]] = None,
+        data_entry: Optional[Dict[str, Union[str, List[str], None, Dict[str, Any]]]] = None,
+    ) -> ExecuteSimulationStartResponse:
+        """Start a prompt simulation (POST). Returns workspaceId and testRunEntryId for polling via get_simulation_prompt_status."""
+        try:
+            payload = {
+                "testRunId": test_run_id,
+                "promptVersionId": prompt_version_id,
+                "workspaceId": workspace_id,
+                "simulationConfig": simulation_config.to_dict(),
+            }
+            if dataset_entry_id is not None:
+                payload["datasetEntryId"] = dataset_entry_id
+            entry = {}
+            if input is not None:
+                entry["input"] = input
+            if scenario is not None:
+                entry["scenario"] = scenario
+            if expected_steps is not None:
+                entry["expectedSteps"] = expected_steps
+            if context_to_evaluate is not None:
+                if isinstance(context_to_evaluate, str) and context_to_evaluate.strip():
+                    entry["contextToEvaluate"] = context_to_evaluate
+                elif isinstance(context_to_evaluate, list) and len(context_to_evaluate) > 0:
+                    entry["contextToEvaluate"] = context_to_evaluate
+            if data_entry is not None:
+                entry["dataEntry"] = self._convert_data_entry_to_variable_format(data_entry)
+            if entry:
+                payload["entry"] = entry
+
+            res = self.__make_network_call(
+                method="POST",
+                endpoint="/api/sdk/v2/test-run/execute/simulation/prompt",
+                body=json.dumps(payload),
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+            json_response = json.loads(res.decode())
+            if "error" in json_response:
+                raise Exception(json_response["error"])
+            return ExecuteSimulationStartResponse.dict_to_class(json_response["data"])
+        except httpx.HTTPStatusError as e:
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
+            raise Exception(e) from e
+        except Exception as e:
+            raise Exception(e) from e
+
+    def get_simulation_prompt_status(
+        self,
+        workspace_id: str,
+        test_run_entry_id: str,
+    ) -> Dict[str, Any]:
+        """Poll simulation prompt status (GET). Returns dict with 'status' and optionally 'outputs' etc. when complete."""
+        try:
+            endpoint = (
+                f"/api/sdk/v2/test-run/execute/simulation/prompt"
+                f"?workspaceId={workspace_id}&testRunEntryId={test_run_entry_id}"
+            )
+            res = self.__make_network_call(method="GET", endpoint=endpoint)
+            json_response = json.loads(res.decode())
+            if "error" in json_response:
+                raise Exception(json_response["error"])
+            return json_response.get("data", json_response)
+        except httpx.HTTPStatusError as e:
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
+            raise Exception(e) from e
+        except Exception as e:
+            raise Exception(e) from e
+
+    def execute_simulation_workflow_start(
+        self,
+        test_run_id: str,
+        workflow_id: str,
+        workspace_id: str,
+        simulation_config: SimulationConfig,
+        dataset_entry_id: Optional[str] = None,
+        input: Optional[str] = None,
+        scenario: Optional[str] = None,
+        expected_steps: Optional[str] = None,
+        context_to_evaluate: Optional[Union[str, List[str]]] = None,
+        data_entry: Optional[Dict[str, Union[str, List[str], None, Dict[str, Any]]]] = None,
+    ) -> ExecuteSimulationStartResponse:
+        """Start a workflow simulation (POST). Returns workspaceId and testRunEntryId for polling via get_simulation_workflow_status."""
+        try:
+            payload = {
+                "testRunId": test_run_id,
+                "workflowId": workflow_id,
+                "workspaceId": workspace_id,
+                "simulationConfig": simulation_config.to_dict(),
+            }
+            if dataset_entry_id is not None:
+                payload["datasetEntryId"] = dataset_entry_id
+            entry = {}
+            if input is not None:
+                entry["input"] = input
+            if scenario is not None:
+                entry["scenario"] = scenario
+            if expected_steps is not None:
+                entry["expectedSteps"] = expected_steps
+            if context_to_evaluate is not None:
+                if isinstance(context_to_evaluate, str) and context_to_evaluate.strip():
+                    entry["contextToEvaluate"] = context_to_evaluate
+                elif isinstance(context_to_evaluate, list) and len(context_to_evaluate) > 0:
+                    entry["contextToEvaluate"] = context_to_evaluate
+            if data_entry is not None:
+                entry["dataEntry"] = self._convert_data_entry_to_variable_format(data_entry)
+            if entry:
+                payload["entry"] = entry
+
+            res = self.__make_network_call(
+                method="POST",
+                endpoint="/api/sdk/v2/test-run/execute/simulation/workflow",
+                body=json.dumps(payload),
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+            json_response = json.loads(res.decode())
+            if "error" in json_response:
+                raise Exception(json_response["error"])
+            return ExecuteSimulationStartResponse.dict_to_class(json_response["data"])
+        except httpx.HTTPStatusError as e:
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
+            raise Exception(e) from e
+        except Exception as e:
+            raise Exception(e) from e
+
+    def get_simulation_workflow_status(
+        self,
+        workspace_id: str,
+        test_run_entry_id: str,
+    ) -> Dict[str, Any]:
+        """Poll simulation workflow status (GET). Returns dict with 'status' and optionally 'outputs' etc. when complete."""
+        try:
+            endpoint = (
+                f"/api/sdk/v2/test-run/execute/simulation/workflow"
+                f"?workspaceId={workspace_id}&testRunEntryId={test_run_entry_id}"
+            )
+            res = self.__make_network_call(method="GET", endpoint=endpoint)
+            json_response = json.loads(res.decode())
+            if "error" in json_response:
+                raise Exception(json_response["error"])
+            return json_response.get("data", json_response)
         except httpx.HTTPStatusError as e:
             if e.response is not None:
                 try:
