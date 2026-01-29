@@ -1,4 +1,5 @@
 import asyncio
+import json
 import math
 import re
 import threading
@@ -36,8 +37,12 @@ from ..models.evaluator import (
     VersionInfo,
 )
 from ..models.test_run import (
+    ExecuteSimulationPromptForDataResponse,
+    ExecuteSimulationWorkflowForDataResponse,
     PromptChainVersionConfig,
     PromptVersionConfig,
+    SimulationConfig,
+    SimulationMeta,
     WorkflowConfig,
     YieldedOutputTokenUsage,
 )
@@ -86,6 +91,9 @@ def calculate_polling_interval(
     interpolated_value = y1 + (y2 - y1) * pow(t, p)
 
     return min(max(round(interpolated_value), 15 if is_ai_evaluator_in_use else 5), 120)
+
+
+SIMULATION_POLL_TIMEOUT_MINUTES = 30
 
 
 def get_all_keys_by_value(obj: Optional[dict[Any, Any]], value: Any) -> List[str]:
@@ -194,12 +202,47 @@ class TestRunBuilder(Generic[T]):
         
         return sdk_variables if sdk_variables else None
 
+    def _poll_simulation_result(
+        self,
+        fetch_status: Callable[[], Dict[str, Any]],
+        parse_data: Callable[[Dict[str, Any]], Union[ExecuteSimulationPromptForDataResponse, ExecuteSimulationWorkflowForDataResponse]],
+    ) -> Union[ExecuteSimulationPromptForDataResponse, ExecuteSimulationWorkflowForDataResponse]:
+        """Poll simulation GET until runStatus is COMPLETE or FAILED. Returns parsed data when complete."""
+        polling_interval = calculate_polling_interval(
+            SIMULATION_POLL_TIMEOUT_MINUTES, is_ai_evaluator_in_use=False
+        )
+        max_iterations = math.ceil(
+            (SIMULATION_POLL_TIMEOUT_MINUTES * 60) / polling_interval
+        )
+        for _ in range(max_iterations):
+            resp = fetch_status()
+            status = resp.get("status") or resp.get("runStatus") or resp.get("run_status")
+            if status == RunStatus.FAILED.value:
+                raise Exception("Simulation failed")
+            if status == RunStatus.COMPLETE.value or status == RunStatus.STOPPED.value:
+                data = resp.get("data")
+                if data is None:
+                    data = {
+                        k: v
+                        for k, v in resp.items()
+                        if k not in ("status", "runStatus", "run_status")
+                    }
+                if not data:
+                    raise Exception("Simulation completed but no data returned")
+                return parse_data(data)
+            time.sleep(polling_interval)
+        raise Exception(
+            f"Simulation did not complete within {SIMULATION_POLL_TIMEOUT_MINUTES} minutes"
+        )
+
     def __process_entry(
         self,
         index: int,
         input: Optional[str],
         expected_output: Optional[str],
         context_to_evaluate: Optional[Union[str, List[str]]],
+        scenario: Optional[str],
+        expected_steps: Optional[str],
         output_function: Optional[
             Callable[[LocalData], Union[YieldedOutput, Awaitable[YieldedOutput]]]
         ],
@@ -208,6 +251,9 @@ class TestRunBuilder(Generic[T]):
         evaluator_name_to_id_and_pass_fail_criteria_map: Dict[
             str, EvaluatorNameToIdAndPassFailCriteria
         ],
+        test_run_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        dataset_entry_id: Optional[str] = None,
     ) -> ProcessedEntry:
         """
         Process a single test run entry
@@ -230,47 +276,170 @@ class TestRunBuilder(Generic[T]):
         if output_function is not None:
             output = output_function(row)
         elif self._config.workflow is not None:
-            workflow_output = self._maxim_apis.execute_workflow_for_data(
-                self._config.workflow.id, row, self._config.workflow.context_to_evaluate
-            )
-            output = YieldedOutput(
-                data=(
-                    workflow_output.output if workflow_output.output is not None else ""
-                ),
-                retrieved_context_to_evaluate=workflow_output.context_to_evaluate,
-                meta=YieldedOutputMeta(
-                    entity_type="WORKFLOW",
-                    entity_id=self._config.workflow.id,
-                    usage=YieldedOutputTokenUsage(
-                        latency=workflow_output.latency,
-                        completion_tokens=0,
-                        prompt_tokens=0,
-                        total_tokens=0,
+            # Check if we need to use simulation endpoints (simulationConfig + local evaluators)
+            has_local_evaluators = any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
+            use_simulation_endpoints = self._config.simulation_config is not None and has_local_evaluators
+            
+            if use_simulation_endpoints:
+                if not test_run_id:
+                    raise ValueError("test_run_id is required for simulation endpoints")
+                if not workspace_id:
+                    raise ValueError("workspace_id is required for simulation endpoints")
+
+                data_entry: Dict[str, Union[str, List[str], None, Dict[str, Any]]] = {}
+                for key, value in row.items():
+                    if isinstance(value, (list, dict)):
+                        data_entry[key] = value
+                    elif isinstance(value, str):
+                        data_entry[key] = value
+                    else:
+                        data_entry[key] = str(value) if value is not None else None
+
+                context_to_evaluate_for_simulation = context_to_evaluate or self._config.workflow.context_to_evaluate
+
+                start_resp = self._maxim_apis.execute_simulation_workflow_start(
+                    test_run_id=test_run_id,
+                    workflow_id=self._config.workflow.id,
+                    workspace_id=workspace_id,
+                    simulation_config=self._config.simulation_config,
+                    dataset_entry_id=dataset_entry_id,
+                    input=input,
+                    scenario=scenario,
+                    expected_steps=expected_steps,
+                    context_to_evaluate=context_to_evaluate_for_simulation,
+                    data_entry=data_entry,
+                )
+                fetch = lambda: self._maxim_apis.get_simulation_workflow_status(
+                    start_resp.workspace_id, start_resp.test_run_entry_id
+                )
+                parse = lambda d: ExecuteSimulationWorkflowForDataResponse.dict_to_class(d)
+                simulation_output = self._poll_simulation_result(fetch, parse)
+
+                outputs = simulation_output.outputs or []
+                output_str = outputs[-1] if outputs else (simulation_output.output or "")
+                output = YieldedOutput(
+                    data=output_str,
+                    simulation_outputs=outputs if outputs else None,
+                    retrieved_context_to_evaluate=simulation_output.context_to_evaluate,
+                    messages=simulation_output.messages,
+                    simulation_meta=SimulationMeta(
+                        session_id=simulation_output.session_id,
+                        simulation_id=simulation_output.simulation_id,
+                        messages=simulation_output.messages or [],
+                        trace=simulation_output.trace,
+                        turns=simulation_output.turns,
                     ),
-                ),
-            )
+                    meta=YieldedOutputMeta(
+                        entity_type="WORKFLOW",
+                        entity_id=self._config.workflow.id,
+                        usage=simulation_output.usage,
+                        cost=simulation_output.cost,
+                    ),
+                )
+            else:
+                workflow_output = self._maxim_apis.execute_workflow_for_data(
+                    self._config.workflow.id, row, self._config.workflow.context_to_evaluate
+                )
+                output = YieldedOutput(
+                    data=(
+                        workflow_output.output if workflow_output.output is not None else ""
+                    ),
+                    retrieved_context_to_evaluate=workflow_output.context_to_evaluate,
+                    meta=YieldedOutputMeta(
+                        entity_type="WORKFLOW",
+                        entity_id=self._config.workflow.id,
+                        usage=YieldedOutputTokenUsage(
+                            latency=workflow_output.latency,
+                            completion_tokens=0,
+                            prompt_tokens=0,
+                            total_tokens=0,
+                        ),
+                    ),
+                )
         elif self._config.prompt_version is not None:
             variables = (
                 get_variables_from_row(row, self._config.data_structure)
                 if self._config.data_structure
                 else {}
             )
-            prompt_output = self._maxim_apis.execute_prompt_for_data(
-                self._config.prompt_version.id,
-                input if input is not None else "",
-                variables,
-                self._config.prompt_version.context_to_evaluate,
-            )
-            output = YieldedOutput(
-                data=prompt_output.output if prompt_output.output is not None else "",
-                retrieved_context_to_evaluate=prompt_output.context_to_evaluate,
-                meta=YieldedOutputMeta(
-                    entity_type="PROMPT",
-                    entity_id=self._config.prompt_version.id,
-                    usage=prompt_output.usage,
-                    cost=prompt_output.cost,
-                ),
-            )
+            
+            # Check if we need to use simulation endpoints (simulationConfig + local evaluators)
+            has_local_evaluators = any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
+            use_simulation_endpoints = self._config.simulation_config is not None and has_local_evaluators
+            
+            if use_simulation_endpoints:
+                if not test_run_id:
+                    raise ValueError("test_run_id is required for simulation endpoints")
+                if not workspace_id:
+                    raise ValueError("workspace_id is required for simulation endpoints")
+
+                data_entry: Dict[str, Union[str, List[str], None, Dict[str, Any]]] = {}
+                for key, variable in variables.items():
+                    if variable.type == "text":
+                        data_entry[key] = variable.payload
+                    elif variable.type == "file":
+                        data_entry[key] = variable.to_json()
+                    else:
+                        data_entry[key] = str(variable.payload) if variable.payload is not None else None
+
+                context_to_evaluate_for_simulation = context_to_evaluate or self._config.prompt_version.context_to_evaluate
+
+                start_resp = self._maxim_apis.execute_simulation_prompt_start(
+                    test_run_id=test_run_id,
+                    prompt_version_id=self._config.prompt_version.id,
+                    workspace_id=workspace_id,
+                    simulation_config=self._config.simulation_config,
+                    dataset_entry_id=dataset_entry_id,
+                    input=input,
+                    scenario=scenario,
+                    expected_steps=expected_steps,
+                    context_to_evaluate=context_to_evaluate_for_simulation,
+                    data_entry=data_entry,
+                )
+                fetch = lambda: self._maxim_apis.get_simulation_prompt_status(
+                    start_resp.workspace_id, start_resp.test_run_entry_id
+                )
+                parse = lambda d: ExecuteSimulationPromptForDataResponse.dict_to_class(d)
+                simulation_output = self._poll_simulation_result(fetch, parse)
+
+                outputs = simulation_output.outputs or []
+                output_str = outputs[-1] if outputs else (simulation_output.output or "")
+                output = YieldedOutput(
+                    data=output_str,
+                    simulation_outputs=outputs if outputs else None,
+                    retrieved_context_to_evaluate=simulation_output.context_to_evaluate,
+                    messages=simulation_output.messages,
+                    simulation_meta=SimulationMeta(
+                        session_id=simulation_output.session_id,
+                        simulation_id=simulation_output.simulation_id,
+                        messages=simulation_output.messages or [],
+                        trace=simulation_output.trace,
+                    ),
+                    meta=YieldedOutputMeta(
+                        entity_type="PROMPT",
+                        entity_id=self._config.prompt_version.id,
+                        usage=simulation_output.usage,
+                        cost=simulation_output.cost,
+                    ),
+                )
+            else:
+                prompt_output = self._maxim_apis.execute_prompt_for_data(
+                    self._config.prompt_version.id,
+                    input if input is not None else "",
+                    variables,
+                    self._config.prompt_version.context_to_evaluate,
+                    self._config.simulation_config,
+                )
+                output = YieldedOutput(
+                    data=prompt_output.output if prompt_output.output is not None else "",
+                    retrieved_context_to_evaluate=prompt_output.context_to_evaluate,
+                    meta=YieldedOutputMeta(
+                        entity_type="PROMPT",
+                        entity_id=self._config.prompt_version.id,
+                        usage=prompt_output.usage,
+                        cost=prompt_output.cost,
+                    ),
+                )
         elif self._config.prompt_chain_version is not None:
             variables = (
                 get_variables_from_row(row, self._config.data_structure)
@@ -332,6 +501,11 @@ class TestRunBuilder(Generic[T]):
             LocalEvaluatorResultParameter(
                 output=yielded_output.data if yielded_output is not None else "",
                 context_to_evaluate=context_to_evaluate,
+                simulation_outputs=(
+                    yielded_output.simulation_outputs
+                    if yielded_output is not None
+                    else None
+                ),
             ),
         )
         local_evaluation_results = asyncio.run(
@@ -348,6 +522,8 @@ class TestRunBuilder(Generic[T]):
                     ].id,
                     name=local_evaluation_result.name,
                     pass_fail_criteria=local_evaluation_result.pass_fail_criteria,
+                    output=local_evaluation_result.output,
+                    simulation_outputs=local_evaluation_result.simulation_outputs,
                 )
             )
 
@@ -403,6 +579,9 @@ class TestRunBuilder(Generic[T]):
                 input=input,
                 expected_output=expected_output,
                 context_to_evaluate=context_to_evaluate,
+                scenario=scenario,
+                expected_steps=expected_steps,
+                simulation_meta=yielded_output.simulation_meta if yielded_output is not None else None,
                 variables=(
                     get_variables_from_row(row, self._config.data_structure)
                     if self._config.data_structure
@@ -615,6 +794,32 @@ class TestRunBuilder(Generic[T]):
         )
         return self
 
+    def with_simulation_config(
+        self, simulation_config: SimulationConfig
+    ) -> "TestRunBuilder[T]":
+        """
+        Set the simulation configuration for the test run. Use this to run AI-simulated multi-turn conversations.
+
+        Args:
+            simulation_config (SimulationConfig): The simulation configuration.
+
+        Returns:
+            TestRunBuilder[T]: The current TestRunBuilder instance for method chaining
+
+        Raises:
+            ValueError: If simulation config is used with yieldsOutput or promptChainVersion
+        """
+        if self._config.output_function is not None:
+            raise ValueError(
+                "Simulation config cannot be used with yieldsOutput. Use withWorkflowId or withPromptVersionId instead."
+            )
+        if self._config.prompt_chain_version is not None:
+            raise ValueError(
+                "Simulation config cannot be used with withPromptChainVersionId. Use withWorkflowId or withPromptVersionId instead."
+            )
+        self._config.simulation_config = simulation_config
+        return self
+
     def yields_output(
         self,
         output_function: Callable[
@@ -714,6 +919,18 @@ class TestRunBuilder(Generic[T]):
             )[0]
         except IndexError:
             contextToEvaluateKey = None
+        try:
+            scenarioKey = get_all_keys_by_value(
+                data_structure, "SCENARIO"
+            )[0]
+        except IndexError:
+            scenarioKey = None
+        try:
+            expectedStepsKey = get_all_keys_by_value(
+                data_structure, "EXPECTED_STEPS"
+            )[0]
+        except IndexError:
+            expectedStepsKey = None
 
         def process_row(
             index: int,
@@ -725,9 +942,9 @@ class TestRunBuilder(Generic[T]):
             try:
                 if row is None:
                     raise ValueError(f"Dataset entry {index} is missing")
-                input, expected_output, context_to_evaluate = (
+                input, expected_output, context_to_evaluate, scenario, expected_steps = (
                     get_input_expected_output_and_context_from_row(
-                        input_key, expectedOutputKey, contextToEvaluateKey, row
+                        input_key, expectedOutputKey, contextToEvaluateKey, scenarioKey, expectedStepsKey, row
                     )
                 )
                 if (
@@ -739,10 +956,15 @@ class TestRunBuilder(Generic[T]):
                         input=input,
                         expected_output=expected_output,
                         context_to_evaluate=context_to_evaluate,
+                        scenario=scenario,
+                        expected_steps=expected_steps,
                         output_function=self._config.output_function,
                         get_row=lambda index: row,
                         logger=self._config.logger,
                         evaluator_name_to_id_and_pass_fail_criteria_map=evaluator_name_to_id_and_pass_fail_criteria_map,
+                        test_run_id=test_run.id,
+                        workspace_id=test_run.workspace_id,
+                        dataset_entry_id=None,
                     )
                     # pushing this entry to test run
                     self._maxim_apis.push_test_run_entry(
@@ -845,17 +1067,19 @@ class TestRunBuilder(Generic[T]):
                             )
                             
                             if agent_response is not None:
+                                meta = getattr(agent_response, "meta", None)
+                                usage = getattr(meta, "usage", None) if meta is not None else None
                                 yielded_output = YieldedOutput(
-                                    data=agent_response.output or "",
+                                    data=agent_response.response or "",
                                     retrieved_context_to_evaluate=self._config.prompt_chain_version.context_to_evaluate,
                                     meta=YieldedOutputMeta(
                                         entity_type="PROMPT_CHAIN",
                                         entity_id=self._config.prompt_chain_version.id,
                                         usage=YieldedOutputTokenUsage(
-                                            prompt_tokens=agent_response.usage.prompt_tokens if agent_response.usage else 0,
-                                            completion_tokens=agent_response.usage.completion_tokens if agent_response.usage else 0,
-                                            total_tokens=agent_response.usage.total_tokens if agent_response.usage else 0,
-                                            latency=agent_response.usage.latency if agent_response.usage else 0,
+                                            prompt_tokens=getattr(usage, "prompt_tokens", 0) if usage else 0,
+                                            completion_tokens=getattr(usage, "completion_tokens", 0) if usage else 0,
+                                            total_tokens=getattr(usage, "total_tokens", 0) if usage else 0,
+                                            latency=getattr(usage, "latency", 0) if usage else 0,
                                         ),
                                     ),
                                 )
@@ -897,6 +1121,8 @@ class TestRunBuilder(Generic[T]):
                             expected_output=expected_output,
                             context_to_evaluate=context_to_evaluate,
                             sdk_variables=sdk_variables,
+                            scenario=scenario,
+                            expected_steps=expected_steps,
                         ),
                     )
             except Exception as e:
@@ -999,6 +1225,18 @@ class TestRunBuilder(Generic[T]):
             )[0]
         except IndexError:
             contextToEvaluateKey = None
+        try:
+            scenarioKey = get_all_keys_by_value(
+                data_structure, "SCENARIO"
+            )[0]
+        except IndexError:
+            scenarioKey = None
+        try:
+            expectedStepsKey = get_all_keys_by_value(
+                data_structure, "EXPECTED_STEPS"
+            )[0]
+        except IndexError:
+            expectedStepsKey = None
 
         def process_dataset_entry(
             index: int,
@@ -1012,9 +1250,9 @@ class TestRunBuilder(Generic[T]):
                 row_data: LocalData = row.to_dict()["data"]
                 if row_data is None:
                     raise ValueError(f"Dataset entry {index} is missing")
-                input, expected_output, context_to_evaluate = (
+                input, expected_output, context_to_evaluate, scenario, expected_steps = (
                     get_input_expected_output_and_context_from_row(
-                        input_key, expectedOutputKey, contextToEvaluateKey, row_data
+                        input_key, expectedOutputKey, contextToEvaluateKey, scenarioKey, expectedStepsKey, row_data
                     )
                 )
 
@@ -1028,10 +1266,15 @@ class TestRunBuilder(Generic[T]):
                         input=input,
                         expected_output=expected_output,
                         context_to_evaluate=context_to_evaluate,
+                        scenario=scenario,
+                        expected_steps=expected_steps,
                         output_function=self._config.output_function,
                         get_row=lambda index: row.to_dict()["data"],
                         logger=self._config.logger,
                         evaluator_name_to_id_and_pass_fail_criteria_map=evaluator_name_to_id_and_pass_fail_criteria_map,
+                        test_run_id=test_run.id,
+                        workspace_id=test_run.workspace_id,
+                        dataset_entry_id=row.id,
                     )
                     # pushing this entry to test run
                     self._maxim_apis.push_test_run_entry(
@@ -1138,17 +1381,19 @@ class TestRunBuilder(Generic[T]):
                             )
                             
                             if agent_response is not None:
+                                meta = getattr(agent_response, "meta", None)
+                                usage = getattr(meta, "usage", None) if meta is not None else None
                                 yielded_output = YieldedOutput(
-                                    data=agent_response.output or "",
+                                    data=agent_response.response or "",
                                     retrieved_context_to_evaluate=self._config.prompt_chain_version.context_to_evaluate,
                                     meta=YieldedOutputMeta(
                                         entity_type="PROMPT_CHAIN",
                                         entity_id=self._config.prompt_chain_version.id,
                                         usage=YieldedOutputTokenUsage(
-                                            prompt_tokens=agent_response.usage.prompt_tokens if agent_response.usage else 0,
-                                            completion_tokens=agent_response.usage.completion_tokens if agent_response.usage else 0,
-                                            total_tokens=agent_response.usage.total_tokens if agent_response.usage else 0,
-                                            latency=agent_response.usage.latency if agent_response.usage else 0,
+                                            prompt_tokens=getattr(usage, "prompt_tokens", 0) if usage else 0,
+                                            completion_tokens=getattr(usage, "completion_tokens", 0) if usage else 0,
+                                            total_tokens=getattr(usage, "total_tokens", 0) if usage else 0,
+                                            latency=getattr(usage, "latency", 0) if usage else 0,
                                         ),
                                     ),
                                 )
@@ -1255,9 +1500,10 @@ class TestRunBuilder(Generic[T]):
                                 input=input,
                                 expected_output=expected_output,
                                 context_to_evaluate=context_to_evaluate,
+                                expected_steps=expected_steps,
+                                scenario=scenario,
                             ),
                         )
-
             except Exception as e:
                 self._config.logger.error(
                     f"Error while running data entry at index [{index}]: {str(e)}",
@@ -1335,6 +1581,27 @@ class TestRunBuilder(Generic[T]):
                 )
             if self._config.data is None:
                 errors.append("Dataset id is required to run a test.")
+            if self._config.simulation_config is not None:
+                if self._config.output_function is not None:
+                    errors.append(
+                        "Simulation config cannot be used with yieldsOutput. Use withWorkflowId or withPromptVersionId instead."
+                    )
+                if self._config.prompt_chain_version is not None:
+                    errors.append(
+                        "Simulation config cannot be used with withPromptChainVersionId. Use withWorkflowId or withPromptVersionId instead."
+                    )
+                if not self._config.workflow and not self._config.prompt_version:
+                    errors.append(
+                        "Simulation config requires either withWorkflowId or withPromptVersionId to be set."
+                    )
+                if (
+                    self._config.simulation_config.response_fields
+                    and len(self._config.simulation_config.response_fields) > 0
+                    and not self._config.workflow
+                ):
+                    errors.append(
+                        "responseFields in simulationConfig can only be used with withWorkflowId, not with withPromptVersionId."
+                    )
             if len(errors) > 0:
                 raise ValueError(
                     "Missing required configuration for test\n" + "\n".join(errors)
@@ -1450,6 +1717,7 @@ class TestRunBuilder(Generic[T]):
                     human_evaluation_config=human_evaluation_config or None,
                     requires_local_run=requires_local_run,
                     tags=self._config.tags or None,
+                    simulation_config=self._config.simulation_config,
                 )
                 if self._config.environment_name is not None:
                     test_run.environment_name = self._config.environment_name
@@ -1609,6 +1877,8 @@ class TestRunBuilder(Generic[T]):
 
             except Exception as e:
                 self._config.logger.error("\n\n💥 Error while running test: ", e)
+                raise
 
         except Exception as e:
             self._config.logger.error("\n\n💥 Error while running test: ", e)
+            raise

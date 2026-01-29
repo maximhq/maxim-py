@@ -308,9 +308,13 @@ class LocalEvaluatorResultParameter:
 
     output: str
     context_to_evaluate: Optional[Union[str, List[str]]]
+    simulation_outputs: Optional[List[str]]
 
     def __init__(
-        self, output: str, context_to_evaluate: Optional[Union[str, List[str]]]
+        self,
+        output: str,
+        context_to_evaluate: Optional[Union[str, List[str]]],
+        simulation_outputs: Optional[List[str]],
     ):
         """
         This class represents the result parameter of a local evaluator.
@@ -318,9 +322,11 @@ class LocalEvaluatorResultParameter:
         Args:
             output: The output of the local evaluator.
             context_to_evaluate: The context to evaluate.
+            simulation_outputs: Optional list of simulation turn outputs (string[]) for use in local evals.
         """
         self.output = output
         self.context_to_evaluate = context_to_evaluate
+        self.simulation_outputs = simulation_outputs
 
     def __json__(self):
         return {
@@ -328,6 +334,7 @@ class LocalEvaluatorResultParameter:
             for key, value in {
                 "output": self.output,
                 "contextToEvaluate": self.context_to_evaluate,
+                "simulationOutputs": self.simulation_outputs,
             }.items()
             if value is not None
         }
@@ -338,6 +345,7 @@ class LocalEvaluatorResultParameter:
             for k, v in {
                 "output": self.output,
                 "contextToEvaluate": self.context_to_evaluate,
+                "simulationOutputs": self.simulation_outputs,
             }.items()
             if v is not None
         }
@@ -352,6 +360,7 @@ class LocalEvaluatorResultParameter:
         return cls(
             output=data["output"],
             context_to_evaluate=data.get("contextToEvaluate"),
+            simulation_outputs=data.get("simulationOutputs"),
         )
 
 
@@ -364,12 +373,16 @@ class LocalEvaluationResult:
     result: LocalEvaluatorReturn
     name: str
     pass_fail_criteria: PassFailCriteria
+    output: Optional[str]
+    simulation_outputs: Optional[List[str]]
 
     def __init__(
         self,
         result: LocalEvaluatorReturn,
         name: str,
         pass_fail_criteria: PassFailCriteria,
+        output: Optional[str],
+        simulation_outputs: Optional[List[str]],
     ):
         """
         This class represents the result of a local evaluation.
@@ -378,10 +391,14 @@ class LocalEvaluationResult:
             result: The result of the local evaluation.
             name: The name of the local evaluation.
             pass_fail_criteria: The pass fail criteria of the local evaluation.
+            output: Optional output string used for this evaluator's evaluation.
+            simulation_outputs: Optional list of simulation turn outputs (string[]) for use as separate column.
         """
         self.result = result
         self.name = name
         self.pass_fail_criteria = pass_fail_criteria
+        self.output = output
+        self.simulation_outputs = simulation_outputs
 
     def __json__(self):
         return {
@@ -390,6 +407,8 @@ class LocalEvaluationResult:
                 "result": self.result.__json__(),
                 "name": self.name,
                 "passFailCriteria": self.pass_fail_criteria.__json__(),
+                "output": self.output,
+                "simulationOutputs": self.simulation_outputs,
             }.items()
             if value is not None
         }
@@ -401,6 +420,8 @@ class LocalEvaluationResult:
                 "result": self.result.to_dict(),
                 "name": self.name,
                 "passFailCriteria": self.pass_fail_criteria.to_dict(),
+                "output": self.output,
+                "simulationOutputs": self.simulation_outputs,
             }.items()
             if v is not None
         }
@@ -416,6 +437,8 @@ class LocalEvaluationResult:
             result=LocalEvaluatorReturn.dict_to_class(data["result"]),
             name=data["name"],
             pass_fail_criteria=PassFailCriteria.dict_to_class(data["passFailCriteria"]),
+            output=data.get("output"),
+            simulation_outputs=data.get("simulationOutputs"),
         )
 
 
@@ -433,6 +456,8 @@ class LocalEvaluationResultWithId(LocalEvaluationResult):
         name: str,
         pass_fail_criteria: PassFailCriteria,
         id: str,
+        output: Optional[str],
+        simulation_outputs: Optional[List[str]],
     ):
         """
         This class represents the result of a local evaluation with an id.
@@ -442,8 +467,14 @@ class LocalEvaluationResultWithId(LocalEvaluationResult):
             name: The name of the local evaluation.
             pass_fail_criteria: The pass fail criteria of the local evaluation.
             id: The id of the local evaluation.
+            output: Optional output string used for this evaluator's evaluation.
+            simulation_outputs: Optional list of simulation turn outputs (string[]) for use as separate column.
         """
-        super().__init__(result, name, pass_fail_criteria)
+        super().__init__(
+            result, name, pass_fail_criteria,
+            output=output,
+            simulation_outputs=simulation_outputs,
+        )
         self.id = id
 
     def __json__(self):
@@ -454,6 +485,8 @@ class LocalEvaluationResultWithId(LocalEvaluationResult):
                 "name": self.name,
                 "passFailCriteria": self.pass_fail_criteria.__json__(),
                 "id": self.id,
+                "output": self.output,
+                "simulationOutputs": self.simulation_outputs,
             }.items()
             if value is not None
         }
@@ -466,6 +499,8 @@ class LocalEvaluationResultWithId(LocalEvaluationResult):
                 "name": self.name,
                 "passFailCriteria": self.pass_fail_criteria.to_dict(),
                 "id": self.id,
+                "output": self.output,
+                "simulationOutputs": self.simulation_outputs,
             }.items()
             if v is not None
         }
@@ -482,6 +517,8 @@ class LocalEvaluationResultWithId(LocalEvaluationResult):
             name=data["name"],
             pass_fail_criteria=PassFailCriteria.dict_to_class(data["passFailCriteria"]),
             id=data["id"],
+            output=data.get("output"),
+            simulation_outputs=data.get("simulationOutputs"),
         )
 
 

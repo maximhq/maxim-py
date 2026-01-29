@@ -182,6 +182,10 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.10
+
+- feat: Added support to run `local-Evaluators` with simulations in test runs.
+
 ### 3.14.9
 
 - feat: Adds support for `variable_mapping` field for test runs and a new class (PlatformEvaluator) to send variable mapping on platform evaluators.
