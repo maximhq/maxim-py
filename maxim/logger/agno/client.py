@@ -193,6 +193,42 @@ def _log_event(trace: Any, generation: Any, agno_response: Any) -> None:
     }
     generation.result(to_serializable_dict(result_data))
 
+
+def _log_event_from_chunks(trace: Any, generation: Any, chunks: list) -> None:
+    """Combine accumulated stream chunks into a single response and log once."""
+    if not chunks:
+        return
+    last_chunk = chunks[-1]
+
+    # Concatenate content across all chunks
+    combined_content_parts = []
+    for chunk in chunks:
+        content = getattr(chunk, "content", None)
+        if content is None and isinstance(chunk, dict):
+            content = chunk.get("content")
+        if isinstance(content, str):
+            combined_content_parts.append(content)
+        elif content is not None:
+            combined_content_parts.append(str(content))
+    combined_content = "".join(combined_content_parts)
+
+    import collections.abc
+    response_dict = None
+    if isinstance(last_chunk, dict):
+        response_dict = dict(last_chunk)
+    elif hasattr(last_chunk, 'dict') and callable(getattr(last_chunk, 'dict')):
+        response_dict = last_chunk.dict()
+    elif hasattr(last_chunk, '__dict__'):
+        response_dict = dict(vars(last_chunk))
+    elif isinstance(last_chunk, collections.abc.Mapping):
+        response_dict = dict(last_chunk)
+    else:
+        response_dict = {}
+
+    response_dict["content"] = combined_content
+    _log_event(trace, generation, response_dict)
+
+
 def _instrument_tool_calls(logger: Logger):
     """Instrument Agno tool calls for tracing."""
     try:
@@ -363,15 +399,15 @@ def _wrap_sync(logger: Logger, fn: Callable) -> Callable:
             result = fn(self, *args, **kwargs)
             if inspect.isgenerator(result):
                 def _iterate() -> Any:
-                    for chunk in result:
-                        _log_event(
-                            trace,
-                            generation,
-                            getattr(chunk, "content", str(chunk)),
-                        )
-                        yield chunk
-                    if end_trace:
-                        trace.end()
+                    chunks = []
+                    try:
+                        for chunk in result:
+                            chunks.append(chunk)
+                            yield chunk
+                    finally:
+                        _log_event_from_chunks(trace, generation, chunks)
+                        if end_trace:
+                            trace.end()
 
                 return _iterate()
 
@@ -408,14 +444,16 @@ def _wrap_async(logger: Logger, fn: Callable) -> Callable:
             trace, generation, _, end_trace = _start_trace(
                 logger, self, trace_id, generation_name, *args, **kwargs
             )
+            chunks = []
             try:
                 async for chunk in fn(self, *args, **kwargs):
-                    _log_event(trace, generation, chunk)
+                    chunks.append(chunk)
                     yield chunk
             except Exception as exc:  # pragma: no cover - passthrough
                 generation.error({"message": str(exc), "code": "AGNO_EXECUTION_ERROR"})
                 raise
             finally:
+                _log_event_from_chunks(trace, generation, chunks)
                 if end_trace:
                     trace.end()
         return wrapper
@@ -436,15 +474,15 @@ def _wrap_async(logger: Logger, fn: Callable) -> Callable:
             result = await fn(self, *args, **kwargs)
             if inspect.isasyncgen(result):
                 async def _iterate() -> Any:
-                    async for chunk in result:
-                        _log_event(
-                            trace,
-                            generation,
-                            chunk
-                        )
-                        yield chunk
-                    if end_trace:
-                        trace.end()
+                    chunks = []
+                    try:
+                        async for chunk in result:
+                            chunks.append(chunk)
+                            yield chunk
+                    finally:
+                        _log_event_from_chunks(trace, generation, chunks)
+                        if end_trace:
+                            trace.end()
 
                 return _iterate()
 
