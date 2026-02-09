@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional
 from uuid import uuid4
 from agno.agent import RunEvent
 import inspect
-from ..logger import GenerationConfig, Logger, TraceConfig, ToolCallConfig, RetrievalConfig
+from ..logger import GenerationConfig, Logger, TraceConfig, RetrievalConfig
 from ...scribe import scribe
 
 
@@ -115,8 +115,117 @@ def to_serializable_dict(obj):
     return str(obj)
 
 
-def _log_event(trace: Any, generation: Any, agno_response: Any) -> None:
-    """Log an Agno response to the trace and record results."""
+def _extract_tool_execution_fields(tool_exec: Any) -> dict:
+    """Extract fields from an Agno ToolExecution into a flat dict.
+
+    Works identically for v1 (1.7.x) and v2 (2.4.x) — both have the same
+    core fields: tool_call_id, tool_name, tool_args, result, tool_call_error.
+    """
+    import json
+
+    tool_call_id = getattr(tool_exec, "tool_call_id", None) or str(uuid4())
+    tool_name = getattr(tool_exec, "tool_name", None) or "unknown"
+    tool_args = getattr(tool_exec, "tool_args", None)
+    tool_result = getattr(tool_exec, "result", None)
+    tool_error = getattr(tool_exec, "tool_call_error", None)
+
+    args_str = ""
+    if tool_args is not None:
+        try:
+            args_str = json.dumps(tool_args)
+        except Exception:
+            args_str = str(tool_args)
+
+    return {
+        "id": tool_call_id,
+        "name": tool_name,
+        "args": args_str,
+        "result": tool_result,
+        "error": tool_error,
+    }
+
+
+def _log_single_tool_call(trace: Any, tool_exec: Any) -> None:
+    """Create a tool_call entity on the trace from a single ToolExecution."""
+    try:
+        fields = _extract_tool_execution_fields(tool_exec)
+        tc = trace.tool_call({
+            "id": fields["id"],
+            "name": fields["name"],
+            "description": f"Tool call: {fields['name']}",
+            "args": fields["args"],
+        })
+        if fields["error"]:
+            tc.error({"message": str(fields["result"] or "Tool call error")})
+        else:
+            tc.result(str(fields["result"]) if fields["result"] is not None else "")
+    except Exception as e:
+        scribe().warning(
+            f"[MaximSDK][Agno] Failed to log tool call "
+            f"{getattr(tool_exec, 'tool_name', '?')}: {e}"
+        )
+
+
+def _log_tool_calls_from_response(trace: Any, agno_response: Any) -> None:
+    """Extract tool executions from a non-streaming Agno response and log each."""
+    tools = getattr(agno_response, "tools", None)
+    if not tools:
+        return
+    for tool_exec in tools:
+        _log_single_tool_call(trace, tool_exec)
+
+
+def _maybe_log_tool_call_from_chunk(trace: Any, chunk: Any) -> None:
+    """If *chunk* is a ToolCallCompleted event, log the tool call immediately."""
+    event = getattr(chunk, "event", None)
+    if event != RunEvent.tool_call_completed.value:
+        return
+    tool_exec = getattr(chunk, "tool", None)
+    if tool_exec is not None:
+        _log_single_tool_call(trace, tool_exec)
+
+
+def _build_tool_calls_for_generation(tool_executions: list) -> list:
+    """Build an OpenAI-style ``tool_calls`` list from Agno ToolExecution objects."""
+    result = []
+    for tool_exec in tool_executions:
+        fields = _extract_tool_execution_fields(tool_exec)
+        result.append({
+            "id": fields["id"],
+            "type": "function",
+            "function": {
+                "name": fields["name"],
+                "arguments": fields["args"],
+            },
+        })
+    return result
+
+
+def _collect_tool_executions_from_chunks(chunks: list) -> list:
+    """Gather ToolExecution objects from ToolCallCompleted stream events."""
+    tool_execs = []
+    for chunk in chunks:
+        event = getattr(chunk, "event", None)
+        if event != RunEvent.tool_call_completed.value:
+            continue
+        tool_exec = getattr(chunk, "tool", None)
+        if tool_exec is not None:
+            tool_execs.append(tool_exec)
+    return tool_execs
+
+
+def _log_event(
+    trace: Any,
+    generation: Any,
+    agno_response: Any,
+    tool_executions: list | None = None,
+) -> None:
+    """Log an Agno response to the trace and record results.
+
+    Args:
+        tool_executions: Optional list of Agno ToolExecution objects to include
+            as ``tool_calls`` in the generation message.
+    """
     import time
     import collections.abc
 
@@ -162,6 +271,10 @@ def _log_event(trace: Any, generation: Any, agno_response: Any) -> None:
     completion_tokens = _first(metrics.get("completion_tokens", 0))
     total_tokens = _first(metrics.get("total_tokens", 0))
 
+    gen_tool_calls = None
+    if tool_executions:
+        gen_tool_calls = _build_tool_calls_for_generation(tool_executions)
+
     result_data = {
         "id": f"agno_{uuid4()}",
         "object": "chat.completion",
@@ -181,6 +294,7 @@ def _log_event(trace: Any, generation: Any, agno_response: Any) -> None:
                 "message": {
                     "role": "assistant",
                     "content": response_dict.get("content", ""),
+                    "tool_calls": gen_tool_calls,
                 },
                 "finish_reason": "stop",
             }
@@ -195,9 +309,18 @@ def _log_event(trace: Any, generation: Any, agno_response: Any) -> None:
 
 
 def _log_event_from_chunks(trace: Any, generation: Any, chunks: list) -> None:
-    """Combine accumulated stream chunks into a single response and log once."""
+    """Combine accumulated stream chunks into a single response and log once.
+
+    Tool call entities are already logged inline during iteration via
+    ``_maybe_log_tool_call_from_chunk``; here we only collect the
+    ToolExecution objects so they appear in the generation message.
+    """
     if not chunks:
         return
+
+    # Collect tool executions for the generation message
+    tool_execs = _collect_tool_executions_from_chunks(chunks)
+
     last_chunk = chunks[-1]
 
     # Concatenate content across all chunks
@@ -226,102 +349,8 @@ def _log_event_from_chunks(trace: Any, generation: Any, chunks: list) -> None:
         response_dict = {}
 
     response_dict["content"] = combined_content
-    _log_event(trace, generation, response_dict)
+    _log_event(trace, generation, response_dict, tool_executions=tool_execs or None)
 
-
-def _instrument_tool_calls(logger: Logger):
-    """Instrument Agno tool calls for tracing."""
-    try:
-        from agno.agent.agent import Agent
-    except ImportError:
-        scribe().warning("[MaximSDK][Agno] Agent class not available for tool instrumentation")
-        return
-
-    # Patch Agent._run_tool method for synchronous tool execution
-    if hasattr(Agent, '_run_tool') and not getattr(Agent, '_maxim_run_tool_patched', False):
-        original_run_tool = Agent._run_tool
-
-        def instrumented_run_tool(self, run_messages, tool):
-            # Try to get the current span/trace from the agent
-            trace = getattr(self, '_maxim_trace', None)
-            if not trace:
-                # No trace available, call original
-                return original_run_tool(self, run_messages, tool)
-
-            # Create tool call
-            tool_call_id = str(uuid4())
-            tool_name = getattr(tool, 'name', 'unknown_tool')
-            tool_description = getattr(tool, 'description', '')
-
-            tool_call_config = ToolCallConfig(
-                id=tool_call_id,
-                name=tool_name,
-                description=tool_description,
-                args=str(getattr(tool, "arguments", {})),
-            )
-
-            tool_call = trace.tool_call(tool_call_config)
-
-            try:
-                result = original_run_tool(self, run_messages, tool)
-
-                # Handle iterator result
-                def _iterate():
-                    for chunk in result:
-                        yield chunk
-                    tool_call.result("Tool execution completed")
-
-                return _iterate()
-            except Exception as e:
-                tool_call.result(f"Error: {str(e)}")
-                raise
-
-        Agent._run_tool = instrumented_run_tool
-        setattr(Agent, "_maxim_run_tool_patched", True)
-        scribe().info("[MaximSDK][Agno] Agent._run_tool instrumented for tool tracing")
-
-        # Patch Agent._arun_tool method for asynchronous tool execution
-    if hasattr(Agent, '_arun_tool') and not getattr(Agent, '_maxim_arun_tool_patched', False):
-        original_arun_tool = Agent._arun_tool
-
-        def instrumented_arun_tool(self, run_messages, tool):
-            # Try to get the current span/trace from the agent
-            trace = getattr(self, '_maxim_trace', None)
-            if not trace:
-                # No trace available, call original
-                return original_arun_tool(self, run_messages, tool)
-
-            # Create tool call
-            tool_call_id = str(uuid4())
-            tool_name = getattr(tool, 'name', 'unknown_tool')
-            tool_description = getattr(tool, 'description', '')
-
-            tool_call_config = ToolCallConfig(
-                id=tool_call_id,
-                name=tool_name,
-                description=tool_description,
-                args=str(getattr(tool, "arguments", {})),
-            )
-
-            tool_call = trace.tool_call(tool_call_config)
-
-            try:
-                result = original_arun_tool(self, run_messages, tool)
-
-                # Handle async iterator result
-                async def _iterate():
-                    async for chunk in result:
-                        yield chunk
-                    tool_call.result("Tool execution completed")
-
-                return _iterate()
-            except Exception as e:
-                tool_call.result(f"Error: {str(e)}")
-                raise
-
-        Agent._arun_tool = instrumented_arun_tool
-        setattr(Agent, "_maxim_arun_tool_patched", True)
-        scribe().info("[MaximSDK][Agno] Agent._arun_tool instrumented for async tool tracing")
 
 
 def _instrument_knowledge_retrieval(logger: Logger):
@@ -402,6 +431,7 @@ def _wrap_sync(logger: Logger, fn: Callable) -> Callable:
                     chunks = []
                     try:
                         for chunk in result:
+                            _maybe_log_tool_call_from_chunk(trace, chunk)
                             chunks.append(chunk)
                             yield chunk
                     finally:
@@ -411,10 +441,13 @@ def _wrap_sync(logger: Logger, fn: Callable) -> Callable:
 
                 return _iterate()
 
+            _log_tool_calls_from_response(trace, result)
+            tool_execs = getattr(result, "tools", None) or []
             _log_event(
                 trace,
                 generation,
-                result
+                result,
+                tool_executions=tool_execs or None,
             )
             return result
         except Exception as exc:  # pragma: no cover - passthrough
@@ -447,6 +480,7 @@ def _wrap_async(logger: Logger, fn: Callable) -> Callable:
             chunks = []
             try:
                 async for chunk in fn(self, *args, **kwargs):
+                    _maybe_log_tool_call_from_chunk(trace, chunk)
                     chunks.append(chunk)
                     yield chunk
             except Exception as exc:  # pragma: no cover - passthrough
@@ -477,6 +511,7 @@ def _wrap_async(logger: Logger, fn: Callable) -> Callable:
                     chunks = []
                     try:
                         async for chunk in result:
+                            _maybe_log_tool_call_from_chunk(trace, chunk)
                             chunks.append(chunk)
                             yield chunk
                     finally:
@@ -486,10 +521,13 @@ def _wrap_async(logger: Logger, fn: Callable) -> Callable:
 
                 return _iterate()
 
+            _log_tool_calls_from_response(trace, result)
+            tool_execs = getattr(result, "tools", None) or []
             _log_event(
                 trace,
                 generation,
-                result
+                result,
+                tool_executions=tool_execs or None,
             )
             return result
         except Exception as exc:  # pragma: no cover - passthrough
@@ -523,8 +561,6 @@ def instrument_agno(logger: Logger) -> None:
         Agent.arun = _wrap_async(logger, original_arun)
     setattr(Agent, "_maxim_patched", True)
 
-    # Instrument tool calls and knowledge retrieval
-    _instrument_tool_calls(logger)
     _instrument_knowledge_retrieval(logger)
 
     scribe().info("[MaximSDK] Agno instrumentation enabled with tool and knowledge tracing")

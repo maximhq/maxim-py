@@ -182,6 +182,13 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.11
+
+- feat: Support for logging on streaming responses.
+- feat: Adds support for async generator in Agno V2 `arun` with `stream=True`.
+- fix: Issues with tool call logging.
+- fix: Adds async check for log repository availability.
+
 ### 3.14.10
 
 - feat: Added support to run `local-Evaluators` with simulations in test runs.
