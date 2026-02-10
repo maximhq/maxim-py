@@ -309,6 +309,49 @@ def _log_event(
 
 
 def _log_event_from_chunks(trace: Any, generation: Any, chunks: list) -> None:
+    """Combine accumulated stream chunks into a single response and log once."""
+    if not chunks:
+        return
+    last_chunk = chunks[-1]
+
+    # Concatenate content across all chunks
+    combined_content_parts = []
+    for chunk in chunks:
+        content = getattr(chunk, "content", None)
+        if content is None and isinstance(chunk, dict):
+            content = chunk.get("content")
+        if isinstance(content, str):
+            combined_content_parts.append(content)
+        elif content is not None:
+            combined_content_parts.append(str(content))
+    combined_content = "".join(combined_content_parts)
+
+    import collections.abc
+    response_dict = None
+    if isinstance(last_chunk, dict):
+        response_dict = dict(last_chunk)
+    elif hasattr(last_chunk, 'dict') and callable(getattr(last_chunk, 'dict')):
+        response_dict = last_chunk.dict()
+    elif hasattr(last_chunk, '__dict__'):
+        response_dict = dict(vars(last_chunk))
+    elif isinstance(last_chunk, collections.abc.Mapping):
+        response_dict = dict(last_chunk)
+    else:
+        response_dict = {}
+
+    response_dict["content"] = combined_content
+    _log_event(trace, generation, response_dict)
+
+
+def _instrument_tool_calls(logger: Logger):
+    """Instrument Agno tool calls for tracing."""
+    try:
+        from agno.agent.agent import Agent
+    except ImportError:
+        scribe().warning("[MaximSDK][Agno] Agent class not available for tool instrumentation")
+        return
+
+def _log_event_from_chunks(trace: Any, generation: Any, chunks: list) -> None:
     """Combine accumulated stream chunks into a single response and log once.
 
     Tool call entities are already logged inline during iteration via
