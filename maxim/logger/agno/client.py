@@ -394,6 +394,33 @@ def _wrap_sync(logger: Logger, fn: Callable) -> Callable:
 def _wrap_async(logger: Logger, fn: Callable) -> Callable:
     """Wrap an asynchronous ``Agent.arun`` implementation."""
 
+    # Agno v2: arun is an async generator function (yields events directly).
+    # We must wrap it as an async generator so callers can
+    # ``async for chunk in agent.arun(...)`` without awaiting first.
+    if inspect.isasyncgenfunction(fn):
+        async def wrapper(
+            self,
+            *args: Any,
+            trace_id: Optional[str] = None,
+            generation_name: Optional[str] = None,
+            **kwargs: Any,
+        ) -> Any:
+            trace, generation, _, end_trace = _start_trace(
+                logger, self, trace_id, generation_name, *args, **kwargs
+            )
+            try:
+                async for chunk in fn(self, *args, **kwargs):
+                    _log_event(trace, generation, chunk)
+                    yield chunk
+            except Exception as exc:  # pragma: no cover - passthrough
+                generation.error({"message": str(exc), "code": "AGNO_EXECUTION_ERROR"})
+                raise
+            finally:
+                if end_trace:
+                    trace.end()
+        return wrapper
+
+    # Agno v1: arun is a regular async function that returns a coroutine.
     async def wrapper(
         self,
         *args: Any,
