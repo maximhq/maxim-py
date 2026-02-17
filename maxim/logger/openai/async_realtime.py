@@ -13,6 +13,7 @@ from openai.resources.realtime.realtime import (
     AsyncRealtimeInputAudioBufferResource,
 )
 from openai.types.realtime import (
+    ConversationItemAdded,
     ConversationItemCreatedEvent,
     ConversationItemInputAudioTranscriptionCompletedEvent,
     RealtimeServerEvent,
@@ -71,6 +72,8 @@ class MaximOpenAIAsyncRealtimeConnection(AsyncRealtimeConnection):
         self._session_name = session_name
         self._session_tags = session_tags
         self._is_local_session = session_id is None
+        self._session_end_emitted = False
+        self._finalized = False
 
         # Container management
         self._container_manager = ContainerManager()
@@ -131,7 +134,7 @@ class MaximOpenAIAsyncRealtimeConnection(AsyncRealtimeConnection):
 
             async def commit(self, **kwargs) -> None:  # type: ignore
                 """Override commit to handle audio buffer commit."""
-                # Audio will be associated with the next conversation.item.created event
+                # Audio will be associated with the next conversation item event.
                 await super().commit(**kwargs)
 
         # Replace the input_audio_buffer with our wrapper
@@ -162,6 +165,77 @@ class MaximOpenAIAsyncRealtimeConnection(AsyncRealtimeConnection):
         self._container_manager.set_root_trace(trace_id, trace_container)
         return trace_container
 
+    async def _flush_pending_attachment_uploads(self) -> None:
+        """
+        Flush pending attachment uploads synchronously before lifecycle end events.
+        """
+        writer = getattr(self._logger, "writer", None)
+        if writer is None:
+            return
+        try:
+            if hasattr(writer, "flush_upload_attachment_logs"):
+                writer.flush_upload_attachment_logs(is_sync=True)
+                if hasattr(writer, "flush_commit_logs"):
+                    writer.flush_commit_logs(is_sync=True)
+                return
+
+            if hasattr(writer, "flush"):
+                try:
+                    writer.flush(is_sync=True)
+                except TypeError:
+                    writer.flush()
+                return
+
+            if hasattr(self._logger, "flush"):
+                self._logger.flush()
+        except Exception as e:
+            scribe().warning(
+                f"[MaximSDK][MaximOpenAIAsyncRealtimeConnection] Error flushing attachment uploads: {str(e)}"
+            )
+
+    async def _end_current_trace_if_needed(self) -> None:
+        """End current trace once, after flushing pending uploads."""
+        trace_container = self._current_trace_container
+        if trace_container is None:
+            self._current_generation_id = None
+            return
+
+        await self._flush_pending_attachment_uploads()
+        try:
+            trace_container.end()
+        except Exception as e:
+            scribe().warning(
+                f"[MaximSDK][MaximOpenAIAsyncRealtimeConnection] Error ending trace: {str(e)}"
+            )
+        finally:
+            self._current_trace_container = None
+            self._current_generation_id = None
+
+    async def _end_session_if_needed(self) -> None:
+        """End local session once, after flushing pending uploads."""
+        if self._session_end_emitted:
+            return
+        if not self._is_local_session or self._session_container is None:
+            return
+
+        await self._flush_pending_attachment_uploads()
+        try:
+            self._session_container.end()
+            self._session_end_emitted = True
+        except Exception as e:
+            scribe().warning(
+                f"[MaximSDK][MaximOpenAIAsyncRealtimeConnection] Error ending session: {str(e)}"
+            )
+
+    async def _finalize_connection(self) -> None:
+        """Finalize connection lifecycle once."""
+        if self._finalized:
+            return
+
+        self._finalized = True
+        await self._end_current_trace_if_needed()
+        await self._end_session_if_needed()
+
     async def __aiter__(self) -> AsyncIterator[RealtimeServerEvent]:
         """
         Override to intercept events and log them to Maxim.
@@ -173,22 +247,7 @@ class MaximOpenAIAsyncRealtimeConnection(AsyncRealtimeConnection):
                 await self._handle_event(event)
                 yield event
         except ConnectionClosedOK:
-            # End current trace container if exists
-            if self._current_trace_container is not None:
-                try:
-                    self._current_trace_container.end()
-                except Exception as e:
-                    scribe().warning(
-                        f"[MaximSDK][MaximOpenAIAsyncRealtimeConnection] Error ending trace: {str(e)}"
-                    )
-            # End session container if it's a local session
-            if self._is_local_session and self._session_container is not None:
-                try:
-                    self._session_container.end()
-                except Exception as e:
-                    scribe().warning(
-                        f"[MaximSDK][MaximOpenAIAsyncRealtimeConnection] Error ending session: {str(e)}"
-                    )
+            await self._finalize_connection()
             return
 
     async def _handle_event(self, event: RealtimeServerEvent) -> None:
@@ -206,7 +265,7 @@ class MaximOpenAIAsyncRealtimeConnection(AsyncRealtimeConnection):
                 await self._handle_session_created(event)
             elif event_type == "session.updated":
                 await self._handle_session_updated(event)
-            elif event_type == "conversation.item.added":
+            elif event_type in ("conversation.item.added", "conversation.item.created"):
                 await self._handle_conversation_item_created(event)
             elif event_type == "response.created":
                 await self._handle_response_created(event)
@@ -449,10 +508,10 @@ class MaximOpenAIAsyncRealtimeConnection(AsyncRealtimeConnection):
             )
 
     async def _handle_conversation_item_created(
-        self, event: ConversationItemCreatedEvent
+        self, event: ConversationItemCreatedEvent | ConversationItemAdded
     ) -> None:
         """
-        Handle conversation.item.added event to track user messages and function call outputs.
+        Handle conversation item events to track user messages and function call outputs.
         This handles the extraction of the user message from the event because we do not receive the user message in the response.created event.
         """
         try:
@@ -501,7 +560,7 @@ class MaximOpenAIAsyncRealtimeConnection(AsyncRealtimeConnection):
 
         except Exception as e:
             scribe().warning(
-                f"[MaximSDK][MaximOpenAIAsyncRealtimeConnection] Error handling conversation.item.added: {str(e)}"
+                f"[MaximSDK][MaximOpenAIAsyncRealtimeConnection] Error handling conversation.item.added/created: {str(e)}"
             )
 
     async def _handle_response_created(self, event: ResponseCreatedEvent) -> None:
@@ -844,19 +903,9 @@ class MaximOpenAIAsyncRealtimeConnection(AsyncRealtimeConnection):
                 # Don't end trace or clean up - keep it open for the next response
             else:
                 # No tool calls - this is the final response, end the trace
-                if self._current_trace_container is not None:
-                    try:
-                        self._current_trace_container.end()
-                        if self._session_container is not None:
-                            self._session_container.end() # The end will get updated with every trace end
-                    except Exception as e:
-                        scribe().warning(
-                            f"[MaximSDK][MaximOpenAIAsyncRealtimeConnection] Error ending trace: {str(e)}"
-                        )
+                await self._end_current_trace_if_needed()
 
                 # Clean up
-                self._current_generation_id = None
-                self._current_trace_container = None
                 self._has_pending_tool_calls = False
                 self._is_continuing_trace = False
                 self._tool_calls.clear()
@@ -878,7 +927,7 @@ class MaximOpenAIAsyncRealtimeConnection(AsyncRealtimeConnection):
             # When items are deleted (e.g., during summarization), clear _last_user_message
             # to prevent stale data from being used in the next generation.
             # The next response.created event will get the user message from the
-            # conversation.item.created or conversation.item.input_audio_transcription.completed event.
+            # conversation.item.added/created or conversation.item.input_audio_transcription.completed event.
             self._last_user_message = None
         except Exception as e:
             scribe().warning(
@@ -922,6 +971,7 @@ class MaximOpenAIAsyncRealtimeManager(AsyncRealtimeConnectionManager):
         super().__init__(client=client, **kwargs)
         self._logger = logger
         self._extra_headers = kwargs.get("extra_headers", {})
+        self._wrapped_connection: Optional[MaximOpenAIAsyncRealtimeConnection] = None
 
     async def __aenter__(self) -> MaximOpenAIAsyncRealtimeConnection:
         """
@@ -933,11 +983,21 @@ class MaximOpenAIAsyncRealtimeManager(AsyncRealtimeConnectionManager):
         wrapped_connection = MaximOpenAIAsyncRealtimeConnection(
             base_connection._connection,
             self._logger,
-            extra_headers=self._extra_headers
-            if hasattr(self, "_extra_headers")
-            else None,
+            extra_headers=self._extra_headers,
         )
+        self._wrapped_connection = wrapped_connection
         return wrapped_connection
+
+    async def __aexit__(self, exc_type, exc, exc_tb) -> None:
+        """Finalize wrapped connection before parent closes socket."""
+        if self._wrapped_connection is not None:
+            try:
+                await self._wrapped_connection._finalize_connection()
+            except Exception as e:
+                scribe().warning(
+                    f"[MaximSDK][MaximOpenAIAsyncRealtimeManager] Error during wrapped finalize: {str(e)}"
+                )
+        await super().__aexit__(exc_type, exc, exc_tb)
 
 
 class MaximOpenAIAsyncRealtime(AsyncRealtime):
