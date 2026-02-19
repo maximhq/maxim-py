@@ -1180,6 +1180,7 @@ class MaximAPI:
         tags: Optional[list[str]] = None,
         human_evaluation_config: Optional[HumanEvaluationConfig] = None,
         simulation_config: Optional[SimulationConfig] = None,
+        connected_repo_id: Optional[str] = None,
     ) -> TestRun:
         """
         Create a new test run.
@@ -1241,6 +1242,11 @@ class MaximAPI:
                                 if simulation_config
                                 else None
                             ),
+                            "connectedRepoId": (
+                                connected_repo_id
+                                if connected_repo_id is not None
+                                else None
+                            ),
                         }.items()
                         if v is not None
                     }
@@ -1250,6 +1256,43 @@ class MaximAPI:
             if "error" in json_response:
                 raise Exception(json_response["error"])
             return TestRun.dict_to_class(json_response["data"])
+        except httpx.HTTPStatusError as e:
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
+            raise Exception(e) from e
+        except Exception as e:
+            raise Exception(e) from e
+
+    def create_test_run_entry(
+        self,
+        test_run: Union[TestRun, TestRunWithDatasetEntry],
+    ) -> Dict[str, str]:
+        try:
+            res = self.__make_network_call(
+                method="POST",
+                endpoint="/api/sdk/v1/test-run/test-run-entry/create",
+                body=json.dumps(
+                    {
+                        "testRun": test_run.to_dict(),
+                    }
+                ),
+                headers={"Content-Type": "application/json"},
+            )
+            json_response = json.loads(res.decode())
+            if "error" in json_response:
+                raise Exception(json_response["error"])
+            return json_response["data"]
         except httpx.HTTPStatusError as e:
             if e.response is not None:
                 try:
@@ -1340,8 +1383,14 @@ class MaximAPI:
                 body_dict["localSimulation"] = True
             res = self.__make_network_call(
                 method="POST",
-                endpoint="/api/sdk/v3/test-run/push",
-                body=json.dumps(body_dict),
+                endpoint="/api/sdk/v4/test-run/push",
+                body=json.dumps(
+                    {
+                        "testRun": test_run.to_dict(),
+                        **({"runConfig": run_config} if run_config is not None else {}),
+                        "entry": entry.to_dict(),
+                    }
+                ),
                 headers={"Content-Type": "application/json"},
             )
             json_response = json.loads(res.decode())

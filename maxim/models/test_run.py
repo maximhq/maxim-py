@@ -1,8 +1,11 @@
 import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Generic, List, Optional, Union
+
+if TYPE_CHECKING:
+    from maxim.logger import Logger
 
 from ..evaluators import BaseEvaluator
 from ..models.dataset import Data, LocalData, T, Variable
@@ -366,6 +369,7 @@ class TestRun:
     human_evaluation_config: Optional[HumanEvaluationConfig] = None
     parent_test_run_id: Optional[str] = None
     environment_name: Optional[str] = None
+    connected_repo_id: Optional[str] = None
 
     def to_dict(self):
         return {
@@ -381,6 +385,7 @@ class TestRun:
                 ),
                 "parentTestRunId": self.parent_test_run_id,
                 "environmentName": self.environment_name,
+                "connectedRepoId": self.connected_repo_id,
             }.items()
             if v is not None
         }
@@ -397,6 +402,7 @@ class TestRun:
             ),
             "parentTestRunId": self.parent_test_run_id,
             "environmentName": self.environment_name,
+            "connectedRepoId": self.connected_repo_id,
         }
 
     @classmethod
@@ -413,6 +419,7 @@ class TestRun:
             ),
             parent_test_run_id=data.get("parentTestRunId"),
             environment_name=data.get("environmentName"),
+            connected_repo_id=data.get("connectedRepoId"),
         )
 
     @classmethod
@@ -428,6 +435,7 @@ class TestRun:
             ),
             parent_test_run_id=data.get("parentTestRunId"),
             environment_name=data.get("environmentName"),
+            connected_repo_id=data.get("connectedRepoId"),
         )
 
 
@@ -437,7 +445,8 @@ class TestRunEntry:
     This class represents an entry of a test run.
     """
 
-    variables: Dict[str, Variable]
+    id: Optional[str] = None
+    variables: Dict[str, Variable] = field(default_factory=dict)
     output: Optional[str] = None
     input: Optional[str] = None
     expected_output: Optional[str] = None
@@ -447,9 +456,12 @@ class TestRunEntry:
     simulation_meta: Optional[SimulationMeta] = None
     local_evaluation_results: Optional[List[LocalEvaluationResultWithId]] = None
     sdk_variables: Optional[Dict[str, Dict[str, str]]] = None
+    connected_trace_id: Optional[str] = None
 
     def to_dict(self):
         result = {}
+        if self.id is not None:
+            result["id"] = self.id
         if self.output is not None:
             result["output"] = self.output
         if self.input is not None:
@@ -487,6 +499,11 @@ class TestRunEntry:
             if "meta" not in result:
                 result["meta"] = {}
             result["meta"]["sdkVariables"] = sdk_vars_formatted
+        if self.connected_trace_id is not None:
+            if "meta" not in result:
+                result["meta"] = {}
+            result["meta"]["connectedTraceId"] = self.connected_trace_id
+
 
         return {key: value for key, value in result.items() if value is not None}
 
@@ -494,6 +511,7 @@ class TestRunEntry:
         base_result = {
             key: value
             for key, value in {
+                "id": self.id,
                 "output": self.output,
                 "input": self.input,
                 "expectedOutput": self.expected_output,
@@ -532,6 +550,11 @@ class TestRunEntry:
                 base_result["meta"] = {}
             base_result["meta"]["sdkVariables"] = sdk_vars_formatted
         
+        if self.connected_trace_id is not None:
+            if "meta" not in base_result:
+                base_result["meta"] = {}
+            base_result["meta"]["connectedTraceId"] = self.connected_trace_id
+        
         return base_result
 
     @classmethod
@@ -550,7 +573,7 @@ class TestRunEntry:
 
         # Parse sdk_variables from meta.sdkVariables if present
         sdk_variables = None
-        meta = data.get("meta")
+        meta = data.get("meta") or {}
         if meta and "sdkVariables" in meta:
             sdk_variables = {}
             for evaluator_id, var_data in meta["sdkVariables"].items():
@@ -561,8 +584,13 @@ class TestRunEntry:
                         sdk_variables[evaluator_id] = var_data.get("payload", {})
                 else:
                     sdk_variables[evaluator_id] = var_data
+        
+        connected_trace_id = meta.get("connectedTraceId", None)
+        if connected_trace_id is not None:
+            connected_trace_id = str(connected_trace_id)
 
         return cls(
+            id=data.get("id", None),
             output=data.get("output", None),
             input=data.get("input", None),
             expected_output=data.get("expectedOutput", None),
@@ -584,6 +612,7 @@ class TestRunEntry:
                 else None
             ),
             sdk_variables=sdk_variables,
+            connected_trace_id=connected_trace_id,
         )
 
 
@@ -1124,6 +1153,11 @@ class TestRunConfig(Generic[T]):
     output_function: Optional[
         Callable[..., Union[YieldedOutput, Awaitable[YieldedOutput]]]
     ] = None
+    output_function_with_tracing: Optional[
+        Callable[[LocalData, str], Union[YieldedOutput, Awaitable[YieldedOutput]]]
+    ] = None
+    internal_maxim_logger: Optional["Logger"] = None
+    disable_default_trace_creation: Optional[bool] = False
     concurrency: Optional[int] = None
     environment_name: Optional[str] = None
     simulation_config: Optional[SimulationConfig] = None

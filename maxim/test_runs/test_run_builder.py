@@ -6,6 +6,10 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, Union, final
+from uuid import uuid4
+
+from maxim.logger import Logger
+from maxim.logger.components import TraceConfigDict
 
 from ..apis import MaximAPI
 from ..dataset import sanitize_data_structure
@@ -531,6 +535,8 @@ class TestRunBuilder(Generic[T]):
         test_run_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
         dataset_entry_id: Optional[str] = None,
+        entry_id: Optional[str] = None,
+        connected_trace_id: Optional[str] = None,
     ) -> ProcessedEntry:
         """
         Process a single test run entry
@@ -568,7 +574,13 @@ class TestRunBuilder(Generic[T]):
                 logger=logger,
             )
         elif output_function is not None:
-            output = output_function(row)
+            if (
+                output_function is self._config.output_function_with_tracing
+                and connected_trace_id is not None
+            ):
+                output = output_function(row, connected_trace_id)
+            else:
+                output = output_function(row)
         elif self._config.workflow is not None:
             # Check if we need to use simulation endpoints (simulationConfig + local evaluators)
             has_local_evaluators = any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
@@ -772,11 +784,8 @@ class TestRunBuilder(Generic[T]):
         else:
             yielded_output = output
 
-        if yielded_output is not None:
-            if (
-                yielded_output.retrieved_context_to_evaluate is not None
-                and context_to_evaluate is not None
-            ):
+        if yielded_output is not None and yielded_output.retrieved_context_to_evaluate is not None:
+            if context_to_evaluate is not None:
                 logger.info(
                     "Overriding context_to_evaluate from output over dataset entry"
                 )
@@ -869,6 +878,7 @@ class TestRunBuilder(Generic[T]):
 
         return ProcessedEntry(
             entry=TestRunEntry(
+                id=entry_id,
                 output=yielded_output.data if yielded_output is not None else None,
                 input=input,
                 expected_output=expected_output,
@@ -883,6 +893,7 @@ class TestRunBuilder(Generic[T]):
                 ),
                 local_evaluation_results=local_evaluation_results_with_ids,
                 sdk_variables=sdk_variables if sdk_variables else None,
+                connected_trace_id=connected_trace_id if connected_trace_id is not None else None,
             ),
             meta=yielded_output.meta if yielded_output is not None else None,
         )
@@ -1138,18 +1149,67 @@ class TestRunBuilder(Generic[T]):
         if self._config.simulation_config is None:
             if self._config.workflow is not None:
                 raise ValueError(
-                    "Workflow id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
+                    "Workflow id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id, yields_output or yields_output_with_tracing in a test run."
                 )
             if self._config.prompt_chain_version is not None:
                 raise ValueError(
-                    "Prompt chain version id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
+                    "Prompt chain version id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id, yields_output or yields_output_with_tracing in a test run."
                 )
             if self._config.prompt_version is not None:
                 raise ValueError(
-                    "Prompt version id is already set for this run builder. You can use either one of with_prompt_version_id, prompt_chain_version_id, with_workflow_id or yields_output in a test run."
+                    "Prompt version id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id, yields_output or yields_output_with_tracing in a test run."
+                )
+            if self._config.output_function_with_tracing is not None:
+                raise ValueError(
+                    "output_function_with_tracing is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id, yields_output or yields_output_with_tracing in a test run."
                 )
         self._config.output_function = output_function
         return self
+    
+    def yields_output_with_tracing(
+        self,
+        output_function: Callable[
+            [LocalData, str], Union[YieldedOutput, Awaitable[YieldedOutput]]
+        ],
+        maxim_logger: Logger,
+        disable_default_trace_creation: bool = False,
+    ) -> "TestRunBuilder[T]":
+        """
+        Set the output function for the test run with tracing.
+        The output function receives (row, trace_id) - pass trace_id to LLM calls
+        (e.g. via x-maxim-trace-id header) to associate them with the test run entry trace.
+
+        Args:
+            output_function: Callable receiving (row, trace_id) returning YieldedOutput.
+                Use trace_id when making LLM/API calls to link traces.
+
+        Returns:
+            TestRunBuilder[T]: The current TestRunBuilder instance for method chaining
+
+        Raises:
+            ValueError: If a workflow ID, prompt chain version ID or prompt version ID is already set for this run builder
+        """
+        if self._config.workflow is not None:
+            raise ValueError(
+                "Workflow id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id, yields_output or yields_output_with_tracing in a test run."
+            )
+        if self._config.prompt_chain_version is not None:
+            raise ValueError(
+                "Prompt chain version id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id, yields_output or yields_output_with_tracing in a test run."
+            )
+        if self._config.prompt_version is not None:
+            raise ValueError(
+                "Prompt version id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id, yields_output or yields_output_with_tracing in a test run."
+            )
+        if self._config.output_function is not None:
+            raise ValueError(
+                "output_function is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id, yields_output or yields_output_with_tracing in a test run."
+            )
+        self._config.output_function_with_tracing = output_function
+        self._config.internal_maxim_logger = maxim_logger
+        self._config.disable_default_trace_creation = disable_default_trace_creation
+        return self
+
 
     def with_concurrency(self, concurrency: int) -> "TestRunBuilder[T]":
         """
@@ -1248,15 +1308,33 @@ class TestRunBuilder(Generic[T]):
                 if (
                     any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
                     or self._config.output_function is not None
+                    or self._config.output_function_with_tracing is not None
                 ):
+                    test_run_entry = None
+                    if self._config.simulation_config is None:
+                        test_run_entry = self._maxim_apis.create_test_run_entry(
+                        test_run=test_run
+                    )
+                    
+                    trace_id = str(uuid4())
+                    if not self._config.disable_default_trace_creation and self._config.internal_maxim_logger:
+                        try:
+                            test_run_entry_trace = self._config.internal_maxim_logger.trace(config=TraceConfigDict(id=trace_id, name=f"Test Run Entry {index + 1}"))
+                            test_run_entry_trace.add_tag("testRunEntryId", test_run_entry.get("id", trace_id))
+                            test_run_entry_trace.add_tag("testRunId", test_run.id)
+                        except Exception as e:
+                            self._config.logger.error(f"Error creating trace for test run entry {index + 1}: {e}")
+
                     result = self.__process_entry(
+                        entry_id=test_run_entry.get("id", None) if test_run_entry is not None else None,
+                        connected_trace_id=trace_id,
                         index=index,
                         input=input,
                         expected_output=expected_output,
                         context_to_evaluate=context_to_evaluate,
                         scenario=scenario,
                         expected_steps=expected_steps,
-                        output_function=self._config.output_function,
+                        output_function=self._config.output_function or self._config.output_function_with_tracing,
                         get_row=lambda index: row,
                         logger=self._config.logger,
                         evaluator_name_to_id_and_pass_fail_criteria_map=evaluator_name_to_id_and_pass_fail_criteria_map,
@@ -1425,8 +1503,8 @@ class TestRunBuilder(Generic[T]):
                             expected_output=expected_output,
                             context_to_evaluate=context_to_evaluate,
                             sdk_variables=sdk_variables,
-                            scenario=scenario,
                             expected_steps=expected_steps,
+                            scenario=scenario
                         ),
                     )
             except Exception as e:
@@ -1465,11 +1543,12 @@ class TestRunBuilder(Generic[T]):
                         semaphore.release()
                         index += 1
                         continue
+                    current_index = index
                     index += 1
                     thread = threading.Thread(
                         target=process_row,
                         args=(
-                            index,
+                            current_index,
                             row,
                             evaluator_name_to_id_and_pass_fail_criteria_map,
                         ),
@@ -1563,16 +1642,34 @@ class TestRunBuilder(Generic[T]):
                 if (
                     any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
                     or self._config.output_function is not None
+                    or self._config.output_function_with_tracing is not None
                 ):
+                    test_run_entry = None
+                    if self._config.simulation_config is None:
+                        test_run_entry = self._maxim_apis.create_test_run_entry(
+                            test_run=test_run
+                        )
+
+                    trace_id = str(uuid4())
+                    if not self._config.disable_default_trace_creation and self._config.internal_maxim_logger:
+                        try:
+                            test_run_entry_trace = self._config.internal_maxim_logger.trace(config=TraceConfigDict(id=trace_id, name=f"Test Run Entry {index + 1}"))
+                            test_run_entry_trace.add_tag("testRunEntryId", test_run_entry.get("id", trace_id))
+                            test_run_entry_trace.add_tag("testRunId", test_run.id)
+                        except Exception as e:
+                            self._config.logger.error(f"Error creating trace for test run entry {index + 1}: {e}")
+
                     # processing the entry
                     result = self.__process_entry(
+                        entry_id=test_run_entry.get("id", None) if test_run_entry is not None else None,
+                        connected_trace_id=trace_id,
                         index=index,
                         input=input,
                         expected_output=expected_output,
                         context_to_evaluate=context_to_evaluate,
                         scenario=scenario,
                         expected_steps=expected_steps,
-                        output_function=self._config.output_function,
+                        output_function=self._config.output_function or self._config.output_function_with_tracing,
                         get_row=lambda index: row.to_dict()["data"],
                         logger=self._config.logger,
                         evaluator_name_to_id_and_pass_fail_criteria_map=evaluator_name_to_id_and_pass_fail_criteria_map,
@@ -1756,6 +1853,8 @@ class TestRunBuilder(Generic[T]):
                                     context_to_evaluate=context_to_evaluate,
                                     output=yielded_output.data,
                                     sdk_variables=sdk_variables,
+                                    scenario=scenario,
+                                    expected_steps=expected_steps,
                                 ),
                                 run_config=(
                                     {
@@ -1791,6 +1890,8 @@ class TestRunBuilder(Generic[T]):
                                     input=input,
                                     expected_output=expected_output,
                                     context_to_evaluate=context_to_evaluate,
+                                    scenario=scenario,
+                                    expected_steps=expected_steps,
                                 ),
                             )
                     else:
@@ -1885,13 +1986,18 @@ class TestRunBuilder(Generic[T]):
                 and self._config.workflow is None
                 and self._config.prompt_version is None
                 and self._config.prompt_chain_version is None
+                and self._config.output_function_with_tracing is None
             ):
                 errors.append(
-                    "One of output function (by calling yields_output) or workflow id (by calling with_workflow_id) or prompt version id (by calling with_prompt_version_id) or prompt chain version id (by calling with_prompt_chain_version_id) is required to run a test."
+                    "One of output function (by calling yields_output) or output function with tracing (by calling yields_output_with_tracing) or workflow id (by calling with_workflow_id) or prompt version id (by calling with_prompt_version_id) or prompt chain version id (by calling with_prompt_chain_version_id) is required to run a test."
                 )
             if self._config.data is None:
                 errors.append("Dataset id is required to run a test.")
             if self._config.simulation_config is not None:
+                if self._config.output_function_with_tracing is not None:
+                    errors.append(
+                        "Simulation config cannot currently be used with yieldsOutputWithTracing. Use withWorkflowId or withPromptVersionId instead."
+                    )
                 if self._config.output_function is not None:
                     if not self._config.prompt_version and not self._config.workflow:
                         errors.append(
@@ -2014,6 +2120,25 @@ class TestRunBuilder(Generic[T]):
                 ):
                     requires_local_run = True
 
+                # When workflow + simulation_config, default response_fields to ["response"] if not set
+                simulation_config_to_send = self._config.simulation_config
+                if (
+                    self._config.workflow is not None
+                    and simulation_config_to_send is not None
+                    and (not simulation_config_to_send.response_fields or len(simulation_config_to_send.response_fields) == 0)
+                ):
+                    simulation_config_to_send = SimulationConfig(
+                        scenario=simulation_config_to_send.scenario,
+                        persona=simulation_config_to_send.persona,
+                        max_turns=simulation_config_to_send.max_turns,
+                        tools=simulation_config_to_send.tools,
+                        context=simulation_config_to_send.context,
+                        response_fields=["response"],
+                        environment_id=simulation_config_to_send.environment_id,
+                        stop_trigger=simulation_config_to_send.stop_trigger,
+                        additional_instructions=simulation_config_to_send.additional_instructions,
+                    )
+
                 test_run = self._maxim_apis.create_test_run(
                     name=name,
                     workspace_id=workspace_id,
@@ -2036,8 +2161,14 @@ class TestRunBuilder(Generic[T]):
                     evaluator_config=evaluator_configs,
                     human_evaluation_config=human_evaluation_config or None,
                     requires_local_run=requires_local_run,
-                    tags=self._config.tags or None,
-                    simulation_config=self._config.simulation_config,
+                    tags=(
+                        list(self._config.tags or [])
+                        + [f"repoId:{self._config.internal_maxim_logger.id}"]
+                        if self._config.internal_maxim_logger
+                        else self._config.tags or None
+                    ),
+                    simulation_config=simulation_config_to_send,
+                    connected_repo_id=self._config.internal_maxim_logger.id if self._config.internal_maxim_logger else None,
                 )
                 if self._config.environment_name is not None:
                     test_run.environment_name = self._config.environment_name

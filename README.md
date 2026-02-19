@@ -182,6 +182,11 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.12
+
+- feat: Adds `yields_output_with_tracing` to link logs with test runs
+- feat: Adds support for simulation runs with `yields_output`
+
 ### 3.14.11
 
 - feat: Support for logging on streaming responses.
