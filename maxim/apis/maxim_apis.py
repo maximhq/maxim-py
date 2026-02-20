@@ -38,10 +38,12 @@ from ..models import (
     Folder,
     HumanEvaluationConfig,
     ImageURL,
+    LocalExecutionResponse,
     PromptResponse,
     RunType,
     SignedURLResponse,
     SimulationConfig,
+    SimulationConversationTurn,
     TestRun,
     TestRunEntry,
     TestRunResult,
@@ -1310,6 +1312,7 @@ class MaximAPI:
         test_run: Union[TestRun, TestRunWithDatasetEntry],
         entry: TestRunEntry,
         run_config: Optional[Dict[str, Any]] = None,
+        local_simulation: Optional[bool] = None,
     ) -> None:
         """
         Push an entry to a test run.
@@ -1318,6 +1321,7 @@ class MaximAPI:
             test_run: The test run
             entry: The test run entry to push
             run_config: Optional run configuration
+            local_simulation: If True, marks the entry as a local simulation push
 
         Raises:
             Exception: If the request fails
@@ -1326,16 +1330,18 @@ class MaximAPI:
             # making sure run_config has not null values
             if run_config is not None:
                 run_config = {k: v for k, v in run_config.items() if v is not None}
+            body_dict: Dict[str, Any] = {
+                "testRun": test_run.to_dict(),
+                "entry": entry.to_dict(),
+            }
+            if run_config is not None:
+                body_dict["runConfig"] = run_config
+            if local_simulation:
+                body_dict["localSimulation"] = True
             res = self.__make_network_call(
                 method="POST",
                 endpoint="/api/sdk/v3/test-run/push",
-                body=json.dumps(
-                    {
-                        "testRun": test_run.to_dict(),
-                        **({"runConfig": run_config} if run_config is not None else {}),
-                        "entry": entry.to_dict(),
-                    }
-                ),
+                body=json.dumps(body_dict),
                 headers={"Content-Type": "application/json"},
             )
             json_response = json.loads(res.decode())
@@ -1882,6 +1888,155 @@ class MaximAPI:
     ) -> Dict[str, Any]:
         """Poll simulation workflow status (GET). Returns dict with 'status' and optionally 'outputs' etc. when complete."""
         return self._get_simulation_status("workflow", workspace_id, test_run_entry_id)
+
+    def _execute_simulation_local_execution(
+        self,
+        entity_type: Literal["prompt", "workflow"],
+        test_run_id: str,
+        workspace_id: str,
+        simulation_config: SimulationConfig,
+        entity_id: str,
+        dataset_entry_id: Optional[str] = None,
+        entry: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[SimulationConversationTurn]] = None,
+        test_run_entry_id: Optional[str] = None,
+    ) -> LocalExecutionResponse:
+        """Call the local-execution endpoint for simulation. Shared by prompt and workflow."""
+        entity_key = "promptVersionId" if entity_type == "prompt" else "workflowId"
+        payload: Dict[str, Any] = {
+            "testRunId": test_run_id,
+            entity_key: entity_id,
+            "workspaceId": workspace_id,
+            "simulationConfig": simulation_config.to_dict(),
+        }
+        if dataset_entry_id is not None:
+            payload["datasetEntryId"] = dataset_entry_id
+        if entry is not None:
+            payload["entry"] = entry
+        if conversation_history is not None:
+            payload["conversationHistory"] = [t.to_dict() for t in conversation_history]
+        if test_run_entry_id is not None:
+            payload["testRunEntryId"] = test_run_entry_id
+
+        try:
+            res = self.__make_network_call(
+                method="POST",
+                endpoint=f"/api/sdk/v2/test-run/simulation/{entity_type}/local-execution",
+                body=json.dumps(payload),
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+            json_response = json.loads(res.decode())
+            if "error" in json_response:
+                raise Exception(json_response["error"])
+            return LocalExecutionResponse.dict_to_class(json_response["data"])
+        except httpx.HTTPStatusError as e:
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
+            raise Exception(e) from e
+        except Exception as e:
+            raise Exception(e) from e
+
+    def execute_simulation_local_prompt_execution(
+        self,
+        test_run_id: str,
+        workspace_id: str,
+        prompt_version_id: str,
+        simulation_config: SimulationConfig,
+        dataset_entry_id: Optional[str] = None,
+        entry: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[SimulationConversationTurn]] = None,
+        test_run_entry_id: Optional[str] = None,
+    ) -> LocalExecutionResponse:
+        """Call the local-execution endpoint for prompt simulation."""
+        return self._execute_simulation_local_execution(
+            entity_type="prompt",
+            test_run_id=test_run_id,
+            workspace_id=workspace_id,
+            simulation_config=simulation_config,
+            entity_id=prompt_version_id,
+            dataset_entry_id=dataset_entry_id,
+            entry=entry,
+            conversation_history=conversation_history,
+            test_run_entry_id=test_run_entry_id,
+        )
+
+    def execute_simulation_local_workflow_execution(
+        self,
+        test_run_id: str,
+        workspace_id: str,
+        workflow_id: str,
+        simulation_config: SimulationConfig,
+        dataset_entry_id: Optional[str] = None,
+        entry: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[SimulationConversationTurn]] = None,
+        test_run_entry_id: Optional[str] = None,
+    ) -> LocalExecutionResponse:
+        """Call the local-execution endpoint for workflow simulation."""
+        return self._execute_simulation_local_execution(
+            entity_type="workflow",
+            test_run_id=test_run_id,
+            workspace_id=workspace_id,
+            simulation_config=simulation_config,
+            entity_id=workflow_id,
+            dataset_entry_id=dataset_entry_id,
+            entry=entry,
+            conversation_history=conversation_history,
+            test_run_entry_id=test_run_entry_id,
+        )
+
+    def update_simulation_status(
+        self,
+        test_run_entry_id: str,
+        status: str = "FAILED",
+    ) -> None:
+        """Mark a simulation test run entry as FAILED."""
+        try:
+            res = self.__make_network_call(
+                method="POST",
+                endpoint="/api/sdk/v2/test-run/simulation/update-status",
+                body=json.dumps({
+                    "testRunEntryId": test_run_entry_id,
+                    "status": status,
+                }),
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+            json_response = json.loads(res.decode())
+            if "error" in json_response:
+                raise Exception(json_response["error"])
+        except httpx.HTTPStatusError as e:
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
+            raise Exception(e) from e
+        except Exception as e:
+            raise Exception(e) from e
 
     def get_upload_url(self, key: str, mime_type: str, size: int) -> SignedURLResponse:
         """

@@ -174,6 +174,7 @@ class LogWriter:
                 mime_type = attachment.get("mime_type", None)
             if mime_type is None:
                 mime_type = "application/octet-stream"
+            attachment["mimeType"] = mime_type
             size = len(file_data)
             key = attachment["key"]
             resp = self.maxim_api.get_upload_url(key, mime_type, size)
@@ -230,6 +231,7 @@ class LogWriter:
                 mime_type = attachment.get("mime_type", None)
             if mime_type is None:
                 mime_type = "application/octet-stream"
+            attachment["mimeType"] = mime_type
             scribe().debug(
                 "[MaximSDK] Mime type: %s",
                 mime_type,
