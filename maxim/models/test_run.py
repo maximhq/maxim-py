@@ -155,6 +155,34 @@ class YieldedOutputMeta:
 
 
 @dataclass
+class SimulationConversationTurn:
+    """A single turn in the simulation conversation history."""
+    turn: int
+    request: Dict[str, Any]
+    response: Dict[str, Any]
+    reasoning: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "turn": self.turn,
+            "request": self.request,
+            "response": self.response,
+        }
+        if self.reasoning is not None:
+            result["reasoning"] = self.reasoning
+        return result
+
+    @classmethod
+    def dict_to_class(cls, data: Dict[str, Any]) -> "SimulationConversationTurn":
+        return cls(
+            turn=data["turn"],
+            request=data["request"],
+            response=data["response"],
+            reasoning=data.get("reasoning"),
+        )
+
+
+@dataclass
 class SimulationMeta:
     """
     Metadata returned from simulation endpoints.
@@ -164,30 +192,59 @@ class SimulationMeta:
     simulation_id: Optional[str] = None
     messages: Optional[List[Any]] = None
     trace: Optional[List[Any]] = None
-    turns: Optional[List[Any]] = None  # For workflow simulations
+    turns: Optional[List[Any]] = None
+    test_run_entry_id: Optional[str] = None
+    last_turn: Optional[Dict[str, Any]] = None
+    stop_reason: Optional[str] = None
+    usage: Optional["YieldedOutputTokenUsage"] = None
+    cost: Optional["YieldedOutputCost"] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        result = {}
+        result: Dict[str, Any] = {}
         if self.session_id is not None:
             result["sessionId"] = self.session_id
         if self.simulation_id is not None:
             result["simulationId"] = self.simulation_id
         if self.messages is not None:
-            result["messages"] = self.messages
+            result["messages"] = [
+                m.to_dict() if hasattr(m, "to_dict") else m for m in self.messages
+            ]
         if self.trace is not None:
             result["trace"] = self.trace
         if self.turns is not None:
             result["turns"] = self.turns
+        if self.test_run_entry_id is not None:
+            result["testRunEntryId"] = self.test_run_entry_id
+        if self.last_turn is not None:
+            result["lastTurn"] = self.last_turn
+        if self.stop_reason is not None:
+            result["stopReason"] = self.stop_reason
+        if self.usage is not None:
+            result["usage"] = {
+                "promptTokens": self.usage.prompt_tokens,
+                "completionTokens": self.usage.completion_tokens,
+                "totalTokens": self.usage.total_tokens,
+                **({"latency": self.usage.latency} if self.usage.latency is not None else {}),
+            }
+        if self.cost is not None:
+            result["cost"] = self.cost.to_dict()
         return result
 
     @classmethod
     def dict_to_class(cls, data: Dict[str, Any]) -> "SimulationMeta":
+        usage_data = data.get("usage")
+        cost_data = data.get("cost")
         return cls(
             session_id=data.get("sessionId"),
             simulation_id=data.get("simulationId"),
             messages=data.get("messages", []),
             trace=data.get("trace"),
             turns=data.get("turns"),
+            test_run_entry_id=data.get("testRunEntryId"),
+            last_turn=data.get("lastTurn"),
+            stop_reason=data.get("stopReason"),
+            usage=YieldedOutputTokenUsage.dict_to_class(usage_data) if usage_data else None,
+            cost=YieldedOutputCost.dict_to_class(cost_data) if cost_data else None,
         )
 
 
@@ -202,6 +259,8 @@ class YieldedOutput:
     simulation_outputs: Optional[List[str]] = None
     messages: Optional[List[Any]] = None
     simulation_meta: Optional[SimulationMeta] = None
+    simulation_response: Optional[Dict[str, Any]] = None
+    tool_calls: Optional[List[Any]] = None
     meta: Optional[YieldedOutputMeta] = None
 
 
@@ -974,15 +1033,17 @@ class SimulationConfig:
     Configuration for simulation in test runs.
     """
     scenario: Optional[str] = None
-    persona: Optional[Union[str, Dict[str, str]]] = None  # Can be string or {"type": "DATASET_COLUMN", "payload": "column_name"}
+    persona: Optional[Union[str, Dict[str, str]]] = None
     max_turns: Optional[int] = None
     tools: Optional[List[str]] = None
-    context: Optional[Dict[str, Any]] = None  # e.g., {"docs": {"type": "DATASOURCE", "dataSourceIds": ["id1", "id2"]}}
+    context: Optional[Dict[str, Any]] = None
     response_fields: Optional[List[str]] = None
     environment_id: Optional[str] = None
+    stop_trigger: Optional[Dict[str, Any]] = None
+    additional_instructions: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        result = {}
+        result: Dict[str, Any] = {}
         if self.scenario is not None:
             result["scenario"] = self.scenario
         if self.persona is not None:
@@ -997,6 +1058,10 @@ class SimulationConfig:
             result["responseFields"] = self.response_fields
         if self.environment_id is not None:
             result["environmentId"] = self.environment_id
+        if self.stop_trigger is not None:
+            result["stopTrigger"] = self.stop_trigger
+        if self.additional_instructions is not None:
+            result["additionalInstructions"] = self.additional_instructions
         return result
 
     @classmethod
@@ -1009,7 +1074,17 @@ class SimulationConfig:
             context=data.get("context"),
             response_fields=data.get("responseFields"),
             environment_id=data.get("environmentId"),
+            stop_trigger=data.get("stopTrigger"),
+            additional_instructions=data.get("additionalInstructions"),
         )
+
+
+@dataclass
+class SimulationContext:
+    """Context passed to the output function during simulation turns."""
+    conversation_history: List[SimulationConversationTurn]
+    current_user_input: Dict[str, Any]
+    turn_number: int
 
 
 @dataclass
@@ -1047,7 +1122,7 @@ class TestRunConfig(Generic[T]):
     logger: TestRunLogger = ConsoleLogger()
     human_evaluation_config: Optional[HumanEvaluationConfig] = None
     output_function: Optional[
-        Callable[[LocalData], Union[YieldedOutput, Awaitable[YieldedOutput]]]
+        Callable[..., Union[YieldedOutput, Awaitable[YieldedOutput]]]
     ] = None
     concurrency: Optional[int] = None
     environment_name: Optional[str] = None
@@ -1257,4 +1332,37 @@ class ExecuteSimulationWorkflowForDataResponse:
                 if data.get("cost")
                 else None
             ),
+        )
+
+
+@dataclass
+class LocalExecutionResponse:
+    """Response from the local-execution simulation endpoints."""
+    test_run_entry_id: Optional[str]
+    user_input: Optional[Dict[str, Any]]
+    turn_number: int
+    is_complete: bool
+    stop_reason: Optional[str] = None
+    usage: Optional[YieldedOutputTokenUsage] = None
+    cost: Optional[YieldedOutputCost] = None
+    session_id: Optional[str] = None
+    simulation_id: Optional[str] = None
+
+    @classmethod
+    def dict_to_class(cls, data: Dict[str, Any]) -> "LocalExecutionResponse":
+        usage_data = data.get("usage")
+        cost_data = data.get("cost")
+        user_input_raw = data.get("userInput")
+        if isinstance(user_input_raw, str):
+            user_input_raw = {"input": user_input_raw}
+        return cls(
+            test_run_entry_id=data.get("testRunEntryId"),
+            user_input=user_input_raw,
+            turn_number=data.get("turnNumber", 0),
+            is_complete=data.get("isComplete", False),
+            stop_reason=data.get("stopReason"),
+            usage=YieldedOutputTokenUsage.dict_to_class(usage_data) if usage_data else None,
+            cost=YieldedOutputCost.dict_to_class(cost_data) if cost_data else None,
+            session_id=data.get("sessionId"),
+            simulation_id=data.get("simulationId"),
         )

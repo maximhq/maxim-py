@@ -39,11 +39,15 @@ from ..models.evaluator import (
 from ..models.test_run import (
     ExecuteSimulationPromptForDataResponse,
     ExecuteSimulationWorkflowForDataResponse,
+    LocalExecutionResponse,
     PromptChainVersionConfig,
     PromptVersionConfig,
     SimulationConfig,
+    SimulationContext,
+    SimulationConversationTurn,
     SimulationMeta,
     WorkflowConfig,
+    YieldedOutputCost,
     YieldedOutputTokenUsage,
 )
 from ..test_runs.run_utils import (
@@ -235,6 +239,279 @@ class TestRunBuilder(Generic[T]):
             f"Simulation did not complete within {SIMULATION_POLL_TIMEOUT_MINUTES} minutes"
         )
 
+    @staticmethod
+    def _get_nested_field_value(obj: Any, field_path: str) -> Any:
+        """Get a value from a nested object by dot-separated path."""
+        keys = field_path.split(".")
+        value = obj
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            elif hasattr(value, key):
+                value = getattr(value, key)
+            else:
+                return None
+        return value
+
+    def _run_simulation_with_local_output(
+        self,
+        row: LocalData,
+        test_run_id: str,
+        workspace_id: str,
+        dataset_entry_id: Optional[str],
+        input_val: Optional[str],
+        scenario: Optional[str],
+        expected_steps: Optional[str],
+        context_to_evaluate: Optional[Union[str, List[str]]],
+        output_function: Callable[..., Union[YieldedOutput, Awaitable[YieldedOutput]]],
+        logger: TestRunLogger,
+    ) -> YieldedOutput:
+        """
+        Run a turn-by-turn local simulation loop.
+        Calls the backend /local-execution endpoint for each turn to get the AI user input,
+        then calls the user's output_function with conversation context.
+        """
+        simulation_config = self._config.simulation_config
+        if simulation_config is None:
+            raise ValueError("simulation_config is required for local simulation")
+
+        if simulation_config.stop_trigger is not None:
+            if not isinstance(simulation_config.stop_trigger, dict):
+                raise ValueError("stop_trigger must be a dict")
+            field = simulation_config.stop_trigger.get("field")
+            if not field or not isinstance(field, str):
+                raise ValueError("stop_trigger.field must be a non-empty string")
+
+        entity_type: str
+        prompt_version_id: Optional[str] = None
+        workflow_id: Optional[str] = None
+        if self._config.workflow is not None:
+            entity_type = "workflow"
+            workflow_id = self._config.workflow.id
+        elif self._config.prompt_version is not None:
+            entity_type = "prompt"
+            prompt_version_id = self._config.prompt_version.id
+        else:
+            raise ValueError("Either workflow or prompt_version must be set for local simulation")
+
+        max_turns = simulation_config.max_turns or 10
+        conversation_history: List[SimulationConversationTurn] = []
+        simulation_outputs: List[str] = []
+        test_run_entry_id: Optional[str] = None
+        session_id: Optional[str] = None
+        simulation_id: Optional[str] = None
+        stop_reason: Optional[str] = None
+        is_complete = False
+        turn_number = 0
+
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        total_tokens = 0
+        total_input_cost: float = 0
+        total_output_cost: float = 0
+        total_cost: float = 0
+
+        # Resolve persona with priority: dataset column > simulation config
+        dataset_persona: Optional[str] = None
+        for key, value in row.items():
+            if key.lower() == "persona" and value is not None:
+                persona_str = str(value).strip()
+                if persona_str:
+                    dataset_persona = persona_str
+                    break
+
+        simconfig_persona: Optional[str] = None
+        if simulation_config.persona is not None and dataset_persona is None:
+            if isinstance(simulation_config.persona, str):
+                simconfig_persona = simulation_config.persona
+            elif isinstance(simulation_config.persona, dict) and simulation_config.persona.get("type") == "DATASET_COLUMN":
+                col_name = simulation_config.persona.get("payload", "")
+                if col_name:
+                    ref_value = str(row.get(col_name, "")).strip() if row.get(col_name) is not None else None
+                    simconfig_persona = ref_value if ref_value else None
+
+        resolved_persona = dataset_persona if dataset_persona is not None else simconfig_persona
+
+        resolved_simulation_config = SimulationConfig(
+            scenario=simulation_config.scenario,
+            persona=resolved_persona,
+            max_turns=max_turns,
+            tools=simulation_config.tools,
+            context=simulation_config.context,
+            stop_trigger=simulation_config.stop_trigger,
+            response_fields=simulation_config.response_fields,
+            environment_id=simulation_config.environment_id,
+            additional_instructions=simulation_config.additional_instructions,
+        )
+
+        # Build entry dict for the backend
+        data_entry: Dict[str, Any] = {}
+        for key, value in row.items():
+            if isinstance(value, (list, dict)):
+                data_entry[key] = value
+            elif isinstance(value, str):
+                data_entry[key] = value
+            else:
+                data_entry[key] = str(value) if value is not None else None
+
+        # Convert data_entry to variable format (matching JS SDK pattern)
+        variable_entry = self._maxim_apis._convert_data_entry_to_variable_format(data_entry)
+
+        try:
+            simulation_start_time = time.time()
+            while turn_number < max_turns and not is_complete:
+                turn_number += 1
+
+                entry_payload: Optional[Dict[str, Any]] = None
+                if turn_number == 1:
+                    entry_payload = {
+                        "input": input_val,
+                        "scenario": scenario,
+                        "expectedSteps": expected_steps,
+                        "contextToEvaluate": context_to_evaluate,
+                        "dataEntry": variable_entry,
+                    }
+                    if resolved_persona is not None:
+                        entry_payload["persona"] = resolved_persona
+
+                if entity_type == "prompt":
+                    turn_result = self._maxim_apis.execute_simulation_local_prompt_execution(
+                        test_run_id=test_run_id,
+                        workspace_id=workspace_id,
+                        prompt_version_id=prompt_version_id or "",
+                        simulation_config=resolved_simulation_config,
+                        dataset_entry_id=dataset_entry_id if turn_number == 1 else None,
+                        entry=entry_payload,
+                        conversation_history=conversation_history if turn_number > 1 else None,
+                        test_run_entry_id=test_run_entry_id,
+                    )
+                else:
+                    turn_result = self._maxim_apis.execute_simulation_local_workflow_execution(
+                        test_run_id=test_run_id,
+                        workspace_id=workspace_id,
+                        workflow_id=workflow_id or "",
+                        simulation_config=resolved_simulation_config,
+                        dataset_entry_id=dataset_entry_id if turn_number == 1 else None,
+                        entry=entry_payload,
+                        conversation_history=conversation_history if turn_number > 1 else None,
+                        test_run_entry_id=test_run_entry_id,
+                    )
+
+                if turn_number == 1:
+                    if turn_result.test_run_entry_id is None:
+                        raise ValueError("test_run_entry_id is required on first turn but was not returned by backend")
+                    test_run_entry_id = turn_result.test_run_entry_id
+                    session_id = turn_result.session_id
+                    simulation_id = turn_result.simulation_id
+
+                if turn_result.usage:
+                    total_prompt_tokens += turn_result.usage.prompt_tokens
+                    total_completion_tokens += turn_result.usage.completion_tokens
+                    total_tokens += turn_result.usage.total_tokens
+                if turn_result.cost:
+                    total_input_cost += turn_result.cost.input_cost
+                    total_output_cost += turn_result.cost.output_cost
+                    total_cost += turn_result.cost.total_cost
+
+                if turn_result.stop_reason:
+                    stop_reason = turn_result.stop_reason
+                    logger.info(f"Simulation stopped: {stop_reason}")
+                    is_complete = True
+                    break
+
+                if turn_result.is_complete:
+                    is_complete = True
+                    break
+
+                user_input = turn_result.user_input or {}
+
+                sim_context = SimulationContext(
+                    conversation_history=list(conversation_history),
+                    current_user_input=user_input,
+                    turn_number=turn_number,
+                )
+                assistant_output = output_function(row, sim_context)
+                if isinstance(assistant_output, Awaitable):
+                    assistant_output = asyncio.run(process_awaitable(assistant_output))
+
+                if entity_type == "prompt":
+                    response: Dict[str, Any] = {
+                        "output": assistant_output.data,
+                        "tool_calls": assistant_output.tool_calls or [],
+                    }
+                else:
+                    response = assistant_output.simulation_response or {"output": assistant_output.data}
+
+                simulation_outputs.append(assistant_output.data)
+
+                if entity_type == "prompt":
+                    normalized_request: Dict[str, Any] = {"input": user_input.get("input", "") if isinstance(user_input, dict) else str(user_input)}
+                else:
+                    normalized_request = user_input if isinstance(user_input, dict) else {"input": str(user_input)}
+
+                conversation_history.append(SimulationConversationTurn(
+                    turn=turn_number,
+                    request=normalized_request,
+                    response=response,
+                ))
+
+                if simulation_config.stop_trigger is not None:
+                    if not isinstance(simulation_config.stop_trigger, dict):
+                        raise TypeError("stop_trigger must be a dict")
+                    field = simulation_config.stop_trigger.get("field")
+                    if not field or not isinstance(field, str):
+                        raise ValueError("stop_trigger.field must be a non-empty string")
+
+                    if simulation_config.stop_trigger:
+                        field_value = self._get_nested_field_value(assistant_output, simulation_config.stop_trigger.get("field", ""))
+                        if field_value == simulation_config.stop_trigger.get("value"):
+                            is_complete = True
+                            break
+
+            total_latency = (time.time() - simulation_start_time) * 1000
+
+            last_turn: Optional[Dict[str, Any]] = None
+            if conversation_history:
+                last = conversation_history[-1]
+                last_turn = {
+                    "turn": last.turn,
+                    "request": last.request,
+                    "response": last.response,
+                }
+
+            return YieldedOutput(
+                data=simulation_outputs[-1] if simulation_outputs else "",
+                simulation_outputs=simulation_outputs,
+                simulation_meta=SimulationMeta(
+                    test_run_entry_id=test_run_entry_id,
+                    session_id=session_id,
+                    simulation_id=simulation_id,
+                    messages=conversation_history,
+                    last_turn=last_turn,
+                    stop_reason=stop_reason,
+                    usage=YieldedOutputTokenUsage(
+                        prompt_tokens=total_prompt_tokens,
+                        completion_tokens=total_completion_tokens,
+                        total_tokens=total_tokens,
+                        latency=total_latency,
+                    ),
+                    cost=YieldedOutputCost(
+                        input_cost=total_input_cost,
+                        output_cost=total_output_cost,
+                        total_cost=total_cost,
+                    ),
+                ),
+            )
+        except Exception:
+            if test_run_entry_id:
+                try:
+                    self._maxim_apis.update_simulation_status(test_run_entry_id, "FAILED")
+                except Exception as cleanup_error:
+                    logger.error(
+                        f"Failed to mark simulation as failed (testRunEntryId: {test_run_entry_id}): {cleanup_error}"
+                    )
+            raise
+
     def __process_entry(
         self,
         index: int,
@@ -244,7 +521,7 @@ class TestRunBuilder(Generic[T]):
         scenario: Optional[str],
         expected_steps: Optional[str],
         output_function: Optional[
-            Callable[[LocalData], Union[YieldedOutput, Awaitable[YieldedOutput]]]
+            Callable[..., Union[YieldedOutput, Awaitable[YieldedOutput]]]
         ],
         get_row: Callable[[int], Optional[LocalData]],
         logger: TestRunLogger,
@@ -261,7 +538,7 @@ class TestRunBuilder(Generic[T]):
         Args:
             index (int): The index of the entry
             keys (dict[str, Optional[str]]): Mapping of column names to keys in the data
-            output_function (Callable[[dict[str, Any]], YieldedOutput]): Function to generate output
+            output_function (Callable): Function to generate output
             get_row (Callable[[int], Optional[dict[str, Any]]]): Function to retrieve a row from the dataset
             logger (TestRunLogger): Logger instance
 
@@ -273,7 +550,24 @@ class TestRunBuilder(Generic[T]):
             raise ValueError(f"Dataset entry {index} is missing")
 
         output: Optional[Union[Awaitable[YieldedOutput], YieldedOutput]]
-        if output_function is not None:
+        if self._config.simulation_config is not None and output_function is not None:
+            if not test_run_id:
+                raise ValueError("test_run_id is required for local simulation")
+            if not workspace_id:
+                raise ValueError("workspace_id is required for local simulation")
+            output = self._run_simulation_with_local_output(
+                row=row,
+                test_run_id=test_run_id,
+                workspace_id=workspace_id,
+                dataset_entry_id=dataset_entry_id,
+                input_val=input,
+                scenario=scenario,
+                expected_steps=expected_steps,
+                context_to_evaluate=context_to_evaluate,
+                output_function=output_function,
+                logger=logger,
+            )
+        elif output_function is not None:
             output = output_function(row)
         elif self._config.workflow is not None:
             # Check if we need to use simulation endpoints (simulationConfig + local evaluators)
@@ -800,6 +1094,9 @@ class TestRunBuilder(Generic[T]):
         """
         Set the simulation configuration for the test run. Use this to run AI-simulated multi-turn conversations.
 
+        When used with yields_output(), the SDK runs your output function locally in a turn-by-turn loop
+        and requires either with_prompt_version_id() or with_workflow_id() to be set.
+
         Args:
             simulation_config (SimulationConfig): The simulation configuration.
 
@@ -807,12 +1104,8 @@ class TestRunBuilder(Generic[T]):
             TestRunBuilder[T]: The current TestRunBuilder instance for method chaining
 
         Raises:
-            ValueError: If simulation config is used with yieldsOutput or promptChainVersion
+            ValueError: If simulation config is used with promptChainVersion
         """
-        if self._config.output_function is not None:
-            raise ValueError(
-                "Simulation config cannot be used with yieldsOutput. Use withWorkflowId or withPromptVersionId instead."
-            )
         if self._config.prompt_chain_version is not None:
             raise ValueError(
                 "Simulation config cannot be used with withPromptChainVersionId. Use withWorkflowId or withPromptVersionId instead."
@@ -823,33 +1116,38 @@ class TestRunBuilder(Generic[T]):
     def yields_output(
         self,
         output_function: Callable[
-            [LocalData], Union[YieldedOutput, Awaitable[YieldedOutput]]
+            ..., Union[YieldedOutput, Awaitable[YieldedOutput]]
         ],
     ) -> "TestRunBuilder[T]":
         """
-        Set the output function for the test run
+        Set the output function for the test run.
+
+        When combined with with_simulation_config(), this enables local-execution simulation
+        where your output function is called turn-by-turn with simulation context.
+        In that case, with_prompt_version_id() or with_workflow_id() must also be set.
 
         Args:
-            output_function (Callable[[T], Union[YieldedOutput, Awaitable[YieldedOutput]]]): The output function to use
-
+            output_function: The output function to use. Accepts (data) for test_runs and for simulation (data, simulation_context).
         Returns:
             TestRunBuilder[T]: The current TestRunBuilder instance for method chaining
 
         Raises:
-            ValueError: If a workflow ID, prompt chain version ID or prompt version ID is already set for this run builder
+            ValueError: If incompatible configuration is already set
         """
-        if self._config.workflow is not None:
-            raise ValueError(
-                "Workflow id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
-            )
-        if self._config.prompt_chain_version is not None:
-            raise ValueError(
-                "Prompt chain version id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
-            )
-        if self._config.prompt_version is not None:
-            raise ValueError(
-                "Prompt version id is already set for this run builder. You can use either one of with_prompt_version_id, prompt_chain_version_id, with_workflow_id or yields_output in a test run."
-            )
+        # Only validate mutual exclusivity when simulation_config is None.
+        if self._config.simulation_config is None:
+            if self._config.workflow is not None:
+                raise ValueError(
+                    "Workflow id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
+                )
+            if self._config.prompt_chain_version is not None:
+                raise ValueError(
+                    "Prompt chain version id is already set for this run builder. You can use either one of with_prompt_version_id, with_prompt_chain_version_id, with_workflow_id or yields_output in a test run."
+                )
+            if self._config.prompt_version is not None:
+                raise ValueError(
+                    "Prompt version id is already set for this run builder. You can use either one of with_prompt_version_id, prompt_chain_version_id, with_workflow_id or yields_output in a test run."
+                )
         self._config.output_function = output_function
         return self
 
@@ -966,26 +1264,32 @@ class TestRunBuilder(Generic[T]):
                         workspace_id=test_run.workspace_id,
                         dataset_entry_id=None,
                     )
-                    # pushing this entry to test run
+                    is_local_sim = (
+                        self._config.simulation_config is not None
+                        and self._config.output_function is not None
+                    )
                     self._maxim_apis.push_test_run_entry(
                         test_run=test_run,
                         entry=result.entry,
                         run_config=(
-                            {
-                                "cost": (
-                                    result.meta.cost.to_dict()
-                                    if result.meta.cost is not None
-                                    else None
-                                ),
-                                "usage": (
-                                    result.meta.usage.to_dict()
-                                    if result.meta.usage is not None
-                                    else None
-                                ),
-                            }
-                            if result.meta is not None
-                            else None
+                            None if is_local_sim else (
+                                {
+                                    "cost": (
+                                        result.meta.cost.to_dict()
+                                        if result.meta.cost is not None
+                                        else None
+                                    ),
+                                    "usage": (
+                                        result.meta.usage.to_dict()
+                                        if result.meta.usage is not None
+                                        else None
+                                    ),
+                                }
+                                if result.meta is not None
+                                else None
+                            )
                         ),
+                        local_simulation=is_local_sim or None,
                     )
                 else:
                     # Check if we have platform evaluators with variable_mapping
@@ -1276,7 +1580,10 @@ class TestRunBuilder(Generic[T]):
                         workspace_id=test_run.workspace_id,
                         dataset_entry_id=row.id,
                     )
-                    # pushing this entry to test run
+                    is_local_sim = (
+                        self._config.simulation_config is not None
+                        and self._config.output_function is not None
+                    )
                     self._maxim_apis.push_test_run_entry(
                         test_run=TestRunWithDatasetEntry(
                             test_run=test_run,
@@ -1285,21 +1592,24 @@ class TestRunBuilder(Generic[T]):
                         ),
                         entry=result.entry,
                         run_config=(
-                            {
-                                "cost": (
-                                    result.meta.cost.to_dict()
-                                    if result.meta.cost is not None
-                                    else None
-                                ),
-                                "usage": (
-                                    result.meta.usage.to_dict()
-                                    if result.meta.usage is not None
-                                    else None
-                                ),
-                            }
-                            if result.meta
-                            else None
+                            None if is_local_sim else (
+                                {
+                                    "cost": (
+                                        result.meta.cost.to_dict()
+                                        if result.meta.cost is not None
+                                        else None
+                                    ),
+                                    "usage": (
+                                        result.meta.usage.to_dict()
+                                        if result.meta.usage is not None
+                                        else None
+                                    ),
+                                }
+                                if result.meta
+                                else None
+                            )
                         ),
+                        local_simulation=is_local_sim or None,
                     )
                 else:
                     # Check if we have platform evaluators with variable_mapping
@@ -1583,17 +1893,27 @@ class TestRunBuilder(Generic[T]):
                 errors.append("Dataset id is required to run a test.")
             if self._config.simulation_config is not None:
                 if self._config.output_function is not None:
-                    errors.append(
-                        "Simulation config cannot be used with yieldsOutput. Use withWorkflowId or withPromptVersionId instead."
-                    )
-                if self._config.prompt_chain_version is not None:
-                    errors.append(
-                        "Simulation config cannot be used with withPromptChainVersionId. Use withWorkflowId or withPromptVersionId instead."
-                    )
-                if not self._config.workflow and not self._config.prompt_version:
-                    errors.append(
-                        "Simulation config requires either withWorkflowId or withPromptVersionId to be set."
-                    )
+                    if not self._config.prompt_version and not self._config.workflow:
+                        errors.append(
+                            "Simulation config with yields_output requires either with_prompt_version_id or with_workflow_id to be set."
+                        )
+                    if self._config.prompt_chain_version is not None:
+                        errors.append(
+                            "Simulation config with yields_output cannot use with_prompt_chain_version_id. Use with_prompt_version_id or with_workflow_id."
+                        )
+                    if self._config.prompt_version and self._config.workflow:
+                        errors.append(
+                            "Simulation config with yields_output cannot use both with_prompt_version_id and with_workflow_id. Set exactly one."
+                        )
+                else:
+                    if self._config.prompt_chain_version is not None:
+                        errors.append(
+                            "Simulation config cannot be used with withPromptChainVersionId. Use withWorkflowId or withPromptVersionId instead."
+                        )
+                    if not self._config.workflow and not self._config.prompt_version:
+                        errors.append(
+                            "Simulation config requires either withWorkflowId or withPromptVersionId to be set."
+                        )
                 if (
                     self._config.simulation_config.response_fields
                     and len(self._config.simulation_config.response_fields) > 0
