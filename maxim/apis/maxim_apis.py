@@ -1617,13 +1617,23 @@ class MaximAPI:
         except Exception as e:
             raise Exception(e) from e
 
+    def _variable_to_v2_execute_prompt_format(self, variable: Variable) -> dict[str, Any]:
+        """Convert Variable to the format expected by v2 execute prompt API (payload.text for text type)."""
+        if variable.type == "text":
+            text_val = (
+                variable.payload
+                if isinstance(variable.payload, str)
+                else str(variable.payload or "")
+            )
+            return {"type": "text", "payload": {"text": text_val}}
+        return variable.to_json()
+
     def execute_prompt_for_data(
         self,
         prompt_version_id: str,
         input: str,
         variables: Dict[str, Variable],
         context_to_evaluate: Optional[str] = None,
-        simulation_config: Optional[SimulationConfig] = None,
     ) -> ExecutePromptForDataResponse:
         try:
             res = self.__make_network_call(
@@ -1634,15 +1644,10 @@ class MaximAPI:
                         "promptVersionId": prompt_version_id,
                         "input": input,
                         "dataEntry": {
-                            key: variable.to_json()
+                            key: self._variable_to_v2_execute_prompt_format(variable)
                             for key, variable in variables.items()
                         },
                         "contextToEvaluate": context_to_evaluate,
-                        "simulationConfig": (
-                            simulation_config.to_dict()
-                            if simulation_config
-                            else None
-                        ),
                     }
                 ),
                 headers={
@@ -1688,7 +1693,7 @@ class MaximAPI:
                         "promptChainVersionId": prompt_chain_version_id,
                         "input": input,
                         "dataEntry": {
-                            key: variable.to_json()
+                            key: self._variable_to_v2_execute_prompt_format(variable)
                             for key, variable in variables.items()
                         },
                         "contextToEvaluate": context_to_evaluate,
@@ -1938,23 +1943,19 @@ class MaximAPI:
         """Poll simulation workflow status (GET). Returns dict with 'status' and optionally 'outputs' etc. when complete."""
         return self._get_simulation_status("workflow", workspace_id, test_run_entry_id)
 
-    def _execute_simulation_local_execution(
+    def execute_simulation_local_execution(
         self,
-        entity_type: Literal["prompt", "workflow"],
         test_run_id: str,
         workspace_id: str,
         simulation_config: SimulationConfig,
-        entity_id: str,
         dataset_entry_id: Optional[str] = None,
         entry: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[SimulationConversationTurn]] = None,
         test_run_entry_id: Optional[str] = None,
     ) -> LocalExecutionResponse:
-        """Call the local-execution endpoint for simulation. Shared by prompt and workflow."""
-        entity_key = "promptVersionId" if entity_type == "prompt" else "workflowId"
+        """Call the local-execution endpoint for simulation."""
         payload: Dict[str, Any] = {
             "testRunId": test_run_id,
-            entity_key: entity_id,
             "workspaceId": workspace_id,
             "simulationConfig": simulation_config.to_dict(),
         }
@@ -1970,7 +1971,7 @@ class MaximAPI:
         try:
             res = self.__make_network_call(
                 method="POST",
-                endpoint=f"/api/sdk/v2/test-run/simulation/{entity_type}/local-execution",
+                endpoint="/api/sdk/v2/test-run/simulation/local-execution",
                 body=json.dumps(payload),
                 headers={
                     "Content-Type": "application/json",
@@ -1998,54 +1999,6 @@ class MaximAPI:
             raise Exception(e) from e
         except Exception as e:
             raise Exception(e) from e
-
-    def execute_simulation_local_prompt_execution(
-        self,
-        test_run_id: str,
-        workspace_id: str,
-        prompt_version_id: str,
-        simulation_config: SimulationConfig,
-        dataset_entry_id: Optional[str] = None,
-        entry: Optional[Dict[str, Any]] = None,
-        conversation_history: Optional[List[SimulationConversationTurn]] = None,
-        test_run_entry_id: Optional[str] = None,
-    ) -> LocalExecutionResponse:
-        """Call the local-execution endpoint for prompt simulation."""
-        return self._execute_simulation_local_execution(
-            entity_type="prompt",
-            test_run_id=test_run_id,
-            workspace_id=workspace_id,
-            simulation_config=simulation_config,
-            entity_id=prompt_version_id,
-            dataset_entry_id=dataset_entry_id,
-            entry=entry,
-            conversation_history=conversation_history,
-            test_run_entry_id=test_run_entry_id,
-        )
-
-    def execute_simulation_local_workflow_execution(
-        self,
-        test_run_id: str,
-        workspace_id: str,
-        workflow_id: str,
-        simulation_config: SimulationConfig,
-        dataset_entry_id: Optional[str] = None,
-        entry: Optional[Dict[str, Any]] = None,
-        conversation_history: Optional[List[SimulationConversationTurn]] = None,
-        test_run_entry_id: Optional[str] = None,
-    ) -> LocalExecutionResponse:
-        """Call the local-execution endpoint for workflow simulation."""
-        return self._execute_simulation_local_execution(
-            entity_type="workflow",
-            test_run_id=test_run_id,
-            workspace_id=workspace_id,
-            simulation_config=simulation_config,
-            entity_id=workflow_id,
-            dataset_entry_id=dataset_entry_id,
-            entry=entry,
-            conversation_history=conversation_history,
-            test_run_entry_id=test_run_entry_id,
-        )
 
     def update_simulation_status(
         self,

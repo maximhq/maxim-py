@@ -1055,13 +1055,33 @@ class PromptChainVersionConfig:
             context_to_evaluate=data.get("contextToEvaluate"),
         )
 
+@dataclass
+class CustomSimulatorConfig:
+    """Configuration for a custom simulator that uses a user-provided prompt instead of the default Maxim simulator."""
+    simulator_prompt: str
+    model: str
+    provider: str
+    variables: Optional[Dict[str, str]] = None
+    variable_bindings: Optional[Dict[str, Any]] = None
+    model_parameters: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def dict_to_class(cls, data: Dict[str, Any]) -> "CustomSimulatorConfig":
+        return cls(
+            simulator_prompt=data.get("simulatorPrompt") or data.get("simulator_prompt", ""),
+            model=data.get("model", ""),
+            provider=data.get("provider", ""),
+            variables=data.get("variables"),
+            variable_bindings=data.get("variableBindings") or data.get("variable_bindings"),
+            model_parameters=data.get("modelParameters") or data.get("model_parameters"),
+        )
+
 
 @dataclass
 class SimulationConfig:
     """
     Configuration for simulation in test runs.
     """
-    scenario: Optional[str] = None
     persona: Optional[Union[str, Dict[str, str]]] = None
     max_turns: Optional[int] = None
     tools: Optional[List[str]] = None
@@ -1070,11 +1090,10 @@ class SimulationConfig:
     environment_id: Optional[str] = None
     stop_trigger: Optional[Dict[str, Any]] = None
     additional_instructions: Optional[str] = None
+    custom_simulator: Optional[CustomSimulatorConfig] = None
 
     def to_dict(self) -> Dict[str, Any]:
         result: Dict[str, Any] = {}
-        if self.scenario is not None:
-            result["scenario"] = self.scenario
         if self.persona is not None:
             result["persona"] = self.persona
         if self.max_turns is not None:
@@ -1091,12 +1110,37 @@ class SimulationConfig:
             result["stopTrigger"] = self.stop_trigger
         if self.additional_instructions is not None:
             result["additionalInstructions"] = self.additional_instructions
+        if self.custom_simulator is not None:
+            result["type"] = "CUSTOM"
+            result["simulatorPrompt"] = self.custom_simulator.simulator_prompt
+            if self.custom_simulator.model is not None:
+                result["model"] = self.custom_simulator.model
+            if self.custom_simulator.provider is not None:
+                result["provider"] = self.custom_simulator.provider
+            if self.custom_simulator.variables is not None:
+                result["variables"] = self.custom_simulator.variables
+            if self.custom_simulator.variable_bindings is not None:
+                result["variableBindings"] = self.custom_simulator.variable_bindings
+            if self.custom_simulator.model_parameters is not None:
+                result["modelParameters"] = self.custom_simulator.model_parameters
         return result
 
     @classmethod
     def dict_to_class(cls, data: Dict[str, Any]) -> "SimulationConfig":
+        custom_sim_data = data.get("customSimulator") or (
+            {
+                "simulatorPrompt": data.get("simulatorPrompt"),
+                "model": data.get("model"),
+                "provider": data.get("provider"),
+                "variables": data.get("variables"),
+                "variableBindings": data.get("variableBindings"),
+                "modelParameters": data.get("modelParameters"),
+            }
+            if data.get("type") == "CUSTOM"
+            else None
+        )
+        custom_simulator = CustomSimulatorConfig.dict_to_class(custom_sim_data) if custom_sim_data else None
         return cls(
-            scenario=data.get("scenario"),
             persona=data.get("persona"),
             max_turns=data.get("maxTurns"),
             tools=data.get("tools"),
@@ -1105,6 +1149,7 @@ class SimulationConfig:
             environment_id=data.get("environmentId"),
             stop_trigger=data.get("stopTrigger"),
             additional_instructions=data.get("additionalInstructions"),
+            custom_simulator=custom_simulator,
         )
 
 
@@ -1114,6 +1159,8 @@ class SimulationContext:
     conversation_history: List[SimulationConversationTurn]
     current_user_input: Dict[str, Any]
     turn_number: int
+    total_cost: float
+    total_tokens: int
 
 
 @dataclass
