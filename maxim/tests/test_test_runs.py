@@ -365,7 +365,7 @@ class TestTestRuns(unittest.TestCase):
             .with_data(data)
             .with_concurrency(1)  # Lower concurrency for image processing
             .with_evaluators("Bias", "Clarity")
-            .with_prompt_version_id(promptVersionId)  # Test with prompt version
+            .with_prompt_version_id(promptVersionId) # Test with prompt version
             .run()
         )
 
