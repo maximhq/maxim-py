@@ -19,6 +19,7 @@ from ..models import (
     Evaluator,
     EvaluatorType,
     HumanEvaluationConfig,
+    PromptResponse,
     RunResult,
     RunStatus,
     RunType,
@@ -286,18 +287,6 @@ class TestRunBuilder(Generic[T]):
             if not field or not isinstance(field, str):
                 raise ValueError("stop_trigger.field must be a non-empty string")
 
-        entity_type: str
-        prompt_version_id: Optional[str] = None
-        workflow_id: Optional[str] = None
-        if self._config.workflow is not None:
-            entity_type = "workflow"
-            workflow_id = self._config.workflow.id
-        elif self._config.prompt_version is not None:
-            entity_type = "prompt"
-            prompt_version_id = self._config.prompt_version.id
-        else:
-            raise ValueError("Either workflow or prompt_version must be set for local simulation")
-
         max_turns = simulation_config.max_turns or 10
         conversation_history: List[SimulationConversationTurn] = []
         simulation_outputs: List[str] = []
@@ -337,15 +326,15 @@ class TestRunBuilder(Generic[T]):
         resolved_persona = dataset_persona if dataset_persona is not None else simconfig_persona
 
         resolved_simulation_config = SimulationConfig(
-            scenario=simulation_config.scenario,
-            persona=resolved_persona,
             max_turns=max_turns,
+            persona=resolved_persona,
             tools=simulation_config.tools,
             context=simulation_config.context,
             stop_trigger=simulation_config.stop_trigger,
             response_fields=simulation_config.response_fields,
             environment_id=simulation_config.environment_id,
             additional_instructions=simulation_config.additional_instructions,
+            custom_simulator=simulation_config.custom_simulator,
         )
 
         # Build entry dict for the backend
@@ -377,29 +366,16 @@ class TestRunBuilder(Generic[T]):
                     }
                     if resolved_persona is not None:
                         entry_payload["persona"] = resolved_persona
-
-                if entity_type == "prompt":
-                    turn_result = self._maxim_apis.execute_simulation_local_prompt_execution(
-                        test_run_id=test_run_id,
-                        workspace_id=workspace_id,
-                        prompt_version_id=prompt_version_id or "",
-                        simulation_config=resolved_simulation_config,
-                        dataset_entry_id=dataset_entry_id if turn_number == 1 else None,
-                        entry=entry_payload,
-                        conversation_history=conversation_history if turn_number > 1 else None,
-                        test_run_entry_id=test_run_entry_id,
-                    )
-                else:
-                    turn_result = self._maxim_apis.execute_simulation_local_workflow_execution(
-                        test_run_id=test_run_id,
-                        workspace_id=workspace_id,
-                        workflow_id=workflow_id or "",
-                        simulation_config=resolved_simulation_config,
-                        dataset_entry_id=dataset_entry_id if turn_number == 1 else None,
-                        entry=entry_payload,
-                        conversation_history=conversation_history if turn_number > 1 else None,
-                        test_run_entry_id=test_run_entry_id,
-                    )
+                    
+                turn_result = self._maxim_apis.execute_simulation_local_execution(
+                    test_run_id=test_run_id,
+                    workspace_id=workspace_id,
+                    simulation_config=resolved_simulation_config,
+                    dataset_entry_id=dataset_entry_id if turn_number == 1 else None,
+                    entry=entry_payload,
+                    conversation_history=conversation_history if turn_number > 1 else None,
+                    test_run_entry_id=test_run_entry_id,
+                )
 
                 if turn_number == 1:
                     if turn_result.test_run_entry_id is None:
@@ -433,25 +409,21 @@ class TestRunBuilder(Generic[T]):
                     conversation_history=list(conversation_history),
                     current_user_input=user_input,
                     turn_number=turn_number,
+                    total_cost=float(total_cost),
+                    total_tokens=int(total_tokens),
                 )
                 assistant_output = output_function(row, sim_context)
                 if isinstance(assistant_output, Awaitable):
                     assistant_output = asyncio.run(process_awaitable(assistant_output))
 
-                if entity_type == "prompt":
-                    response: Dict[str, Any] = {
-                        "output": assistant_output.data,
-                        "tool_calls": assistant_output.tool_calls or [],
-                    }
-                else:
-                    response = assistant_output.simulation_response or {"output": assistant_output.data}
+                response: Dict[str, Any] = {
+                    "output": assistant_output.data,
+                    "tool_calls": assistant_output.tool_calls or [],
+                }
 
                 simulation_outputs.append(assistant_output.data)
 
-                if entity_type == "prompt":
-                    normalized_request: Dict[str, Any] = {"input": user_input.get("input", "") if isinstance(user_input, dict) else str(user_input)}
-                else:
-                    normalized_request = user_input if isinstance(user_input, dict) else {"input": str(user_input)}
+                normalized_request: Dict[str, Any] = {"input": user_input.get("input", "") if isinstance(user_input, dict) else str(user_input)}
 
                 conversation_history.append(SimulationConversationTurn(
                     turn=turn_number,
@@ -584,7 +556,7 @@ class TestRunBuilder(Generic[T]):
         elif self._config.workflow is not None:
             # Check if we need to use simulation endpoints (simulationConfig + local evaluators)
             has_local_evaluators = any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
-            use_simulation_endpoints = self._config.simulation_config is not None and has_local_evaluators
+            use_simulation_endpoints = self._config.simulation_config is not None
             
             if use_simulation_endpoints:
                 if not test_run_id:
@@ -671,7 +643,7 @@ class TestRunBuilder(Generic[T]):
             
             # Check if we need to use simulation endpoints (simulationConfig + local evaluators)
             has_local_evaluators = any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
-            use_simulation_endpoints = self._config.simulation_config is not None and has_local_evaluators
+            use_simulation_endpoints = self._config.simulation_config is not None
             
             if use_simulation_endpoints:
                 if not test_run_id:
@@ -734,7 +706,6 @@ class TestRunBuilder(Generic[T]):
                     input if input is not None else "",
                     variables,
                     self._config.prompt_version.context_to_evaluate,
-                    self._config.simulation_config,
                 )
                 output = YieldedOutput(
                     data=prompt_output.output if prompt_output.output is not None else "",
@@ -1105,8 +1076,9 @@ class TestRunBuilder(Generic[T]):
         """
         Set the simulation configuration for the test run. Use this to run AI-simulated multi-turn conversations.
 
-        When used with yields_output(), the SDK runs your output function locally in a turn-by-turn loop
-        and requires either with_prompt_version_id() or with_workflow_id() to be set.
+        When used with yields_output(), the SDK runs your output function locally in a turn-by-turn loop.
+        You may optionally set with_prompt_version_id() or with_workflow_id() for prompt/workflow-based simulation,
+        or omit both for SDK-only simulation (no prompt or workflow dependency).
 
         Args:
             simulation_config (SimulationConfig): The simulation configuration.
@@ -1135,7 +1107,7 @@ class TestRunBuilder(Generic[T]):
 
         When combined with with_simulation_config(), this enables local-execution simulation
         where your output function is called turn-by-turn with simulation context.
-        In that case, with_prompt_version_id() or with_workflow_id() must also be set.
+        You may optionally set with_prompt_version_id() or with_workflow_id(), or omit both for SDK-only simulation.
 
         Args:
             output_function: The output function to use. Accepts (data) for test_runs and for simulation (data, simulation_context).
@@ -1146,6 +1118,12 @@ class TestRunBuilder(Generic[T]):
             ValueError: If incompatible configuration is already set
         """
         # Only validate mutual exclusivity when simulation_config is None.
+        if self._config.simulation_config is not None:
+            if self._config.prompt_version is not None or self._config.workflow is not None:
+                raise ValueError(
+                    "simulation_config with yields_output cannot be used with with_prompt_version_id or with_workflow_id. "
+                    "For local-execution simulation, omit with_prompt_version_id and with_workflow_id (SDK-only simulation)."
+            )
         if self._config.simulation_config is None:
             if self._config.workflow is not None:
                 raise ValueError(
@@ -1309,6 +1287,10 @@ class TestRunBuilder(Generic[T]):
                     any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
                     or self._config.output_function is not None
                     or self._config.output_function_with_tracing is not None
+                     or (
+                        self._config.simulation_config is not None
+                        and (self._config.workflow is not None or self._config.prompt_version is not None)
+                    )
                 ):
                     test_run_entry = None
                     if self._config.simulation_config is None:
@@ -1643,6 +1625,10 @@ class TestRunBuilder(Generic[T]):
                     any(isinstance(e, BaseEvaluator) for e in self._config.evaluators)
                     or self._config.output_function is not None
                     or self._config.output_function_with_tracing is not None
+                    or (
+                        self._config.simulation_config is not None
+                        and (self._config.workflow is not None or self._config.prompt_version is not None)
+                    )
                 ):
                     test_run_entry = None
                     if self._config.simulation_config is None:
@@ -1999,17 +1985,13 @@ class TestRunBuilder(Generic[T]):
                         "Simulation config cannot currently be used with yieldsOutputWithTracing. Use withWorkflowId or withPromptVersionId instead."
                     )
                 if self._config.output_function is not None:
-                    if not self._config.prompt_version and not self._config.workflow:
-                        errors.append(
-                            "Simulation config with yields_output requires either with_prompt_version_id or with_workflow_id to be set."
-                        )
                     if self._config.prompt_chain_version is not None:
                         errors.append(
-                            "Simulation config with yields_output cannot use with_prompt_chain_version_id. Use with_prompt_version_id or with_workflow_id."
+                            "Simulation config with yields_output cannot use with_prompt_chain_version_id. Use with_prompt_version_id or with_workflow_id, or omit both for SDK-only simulation."
                         )
                     if self._config.prompt_version and self._config.workflow:
                         errors.append(
-                            "Simulation config with yields_output cannot use both with_prompt_version_id and with_workflow_id. Set exactly one."
+                            "Simulation config with yields_output cannot use both with_prompt_version_id and with_workflow_id. Set at most one (or neither for SDK-only simulation)."
                         )
                 else:
                     if self._config.prompt_chain_version is not None:
@@ -2128,8 +2110,6 @@ class TestRunBuilder(Generic[T]):
                     and (not simulation_config_to_send.response_fields or len(simulation_config_to_send.response_fields) == 0)
                 ):
                     simulation_config_to_send = SimulationConfig(
-                        scenario=simulation_config_to_send.scenario,
-                        persona=simulation_config_to_send.persona,
                         max_turns=simulation_config_to_send.max_turns,
                         tools=simulation_config_to_send.tools,
                         context=simulation_config_to_send.context,
