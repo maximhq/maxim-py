@@ -224,9 +224,9 @@ class SimulationMeta:
             result["stopReason"] = self.stop_reason
         if self.usage is not None:
             result["usage"] = {
-                "promptTokens": self.usage.prompt_tokens,
-                "completionTokens": self.usage.completion_tokens,
-                "totalTokens": self.usage.total_tokens,
+                "prompt_tokens": self.usage.prompt_tokens,
+                "completion_tokens": self.usage.completion_tokens,
+                "total_tokens": self.usage.total_tokens,
                 **({"latency": self.usage.latency} if self.usage.latency is not None else {}),
             }
         if self.cost is not None:

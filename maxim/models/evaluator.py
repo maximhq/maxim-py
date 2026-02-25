@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union, Callable, TypeVar
-
+from collections.abc import Mapping
 
 class EvaluatorType(str, Enum):
     AI = "AI"
@@ -543,18 +543,22 @@ class VariableMappingInput:
     """
     The output object passed to variableMapping functions.
     This matches the YieldedOutput type from testRun but is defined here to avoid circular imports.
-    
+
     Attributes:
         data: The main output string from the run
         retrieved_context_to_evaluate: Optional context retrieved during the run
-        messages: Optional list of messages from the run
+        messages: Optional list of messages from the run (conversation history for simulation)
         meta: Optional metadata including usage and cost information
+        simulation_outputs: Optional list of outputs from each simulation turn
+        simulation_meta: Optional full simulation metadata (messages, usage, cost, etc.)
     """
     data: str
     retrieved_context_to_evaluate: Optional[Union[str, List[str]]] = None
     messages: Optional[List[Any]] = None
     meta: Optional[Dict[str, Any]] = None
     extra: Optional[Dict[str, Any]] = None
+    simulation_outputs: Optional[List[str]] = None
+    simulation_meta: Optional[Dict[str, Any]] = None
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a value by key, checking standard fields first, then extra."""
@@ -568,6 +572,10 @@ class VariableMappingInput:
             return self.meta
         elif key == "output":
             return self.data
+        elif key == "simulation_outputs":
+            return self.simulation_outputs
+        elif key == "simulation_meta":
+            return self.simulation_meta
         elif self.extra and key in self.extra:
             return self.extra[key]
         return default
@@ -581,17 +589,21 @@ class VariableMappingInput:
             result["messages"] = self.messages
         if self.meta is not None:
             result["meta"] = self.meta
+        if self.simulation_outputs is not None:
+            result["simulation_outputs"] = self.simulation_outputs
+        if self.simulation_meta is not None:
+            result["simulation_meta"] = self.simulation_meta
         if self.extra is not None:
             result.update(self.extra)
         return result
 
     @classmethod
-    def from_yielded_output(cls, output: Any, input_value: Optional[str] = None, 
+    def from_yielded_output(cls, output: Any, input_value: Optional[str] = None,
                             context_to_evaluate: Optional[Union[str, List[str]]] = None) -> "VariableMappingInput":
         """Create a VariableMappingInput from a YieldedOutput-like object."""
         data = getattr(output, "data", "") if output else ""
         retrieved_context = getattr(output, "retrieved_context_to_evaluate", None) or context_to_evaluate
-        
+
         meta_obj = getattr(output, "meta", None)
         meta: Optional[Dict[str, Any]] = None
         if meta_obj:
@@ -602,19 +614,37 @@ class VariableMappingInput:
                 meta["usage"] = usage_obj.to_dict() if hasattr(usage_obj, "to_dict") else usage_obj
             if cost_obj:
                 meta["cost"] = cost_obj.to_dict() if hasattr(cost_obj, "to_dict") else cost_obj
-        
+
         extra: Dict[str, Any] = {}
         if input_value is not None:
             extra["input"] = input_value
         if context_to_evaluate is not None:
             extra["retrieval"] = context_to_evaluate
-        
+
+        simulation_outputs = getattr(output, "simulation_outputs", None)
+        simulation_meta_obj = getattr(output, "simulation_meta", None)
+        simulation_meta: Optional[Dict[str, Any]] = None
+        if simulation_meta_obj is not None:
+            if isinstance(simulation_meta_obj, (dict, Mapping)):
+                simulation_meta = dict(simulation_meta_obj)
+            elif hasattr(simulation_meta_obj, "to_dict"):
+                simulation_meta = simulation_meta_obj.to_dict()
+
+        # Messages: conversation history from simulation_meta or output.messages
+        messages: Optional[List[Any]] = None
+        if simulation_meta is not None and "messages" in simulation_meta:
+            messages = simulation_meta["messages"]
+        elif getattr(output, "messages", None):
+            messages = output.messages
+
         return cls(
             data=data,
             retrieved_context_to_evaluate=retrieved_context,
-            messages=None,
+            messages=messages,
             meta=meta,
             extra=extra if extra else None,
+            simulation_outputs=simulation_outputs,
+            simulation_meta=simulation_meta,
         )
 
 
