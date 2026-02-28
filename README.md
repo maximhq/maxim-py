@@ -452,6 +452,14 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 - fix: Fixes chunk and chat auto-tracing for gemini client
 
+### 3.8.4
+
+- feat: Adds instrumentation based Langchain integration
+
+### 3.8.5
+
+- feat: Completes Langchain instrumentation for retrievals and streaming methods
+
 ### 3.8.2
 
 - feat: Adds one line integration for Portkey AI
