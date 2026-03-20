@@ -182,6 +182,10 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.14
+
+- feat: Adds response format support in generation result
+
 ### 3.14.13
 
 - feat: Adds `simulation_meta` and `simulation_output` to `variable_mappings` in `yields_output`

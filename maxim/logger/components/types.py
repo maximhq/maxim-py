@@ -165,6 +165,16 @@ def object_to_dict(obj: Any) -> Union[Dict, List, str, int, float, bool, None]:
     if isinstance(obj, SimpleNamespace):
         return object_to_dict(vars(obj))
 
+    # Pydantic v2 models (e.g. OpenAI SDK): use model_dump instead of dir()/getattr.
+    # Iterating attributes triggers PydanticDeprecatedSince211 on model_fields / model_computed_fields.
+    model_dump = getattr(obj, "model_dump", None)
+    if callable(model_dump):
+        try:
+            dumped = model_dump(mode="json")
+        except TypeError:
+            dumped = model_dump()
+        return object_to_dict(dumped)
+
     # Handle custom objects with __dict__
     if hasattr(obj, "__dict__"):
         # Get all attributes, including properties

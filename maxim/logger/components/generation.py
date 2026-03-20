@@ -60,6 +60,90 @@ def generation_request_from_gemini_content(content: Any) -> "GenerationRequestMe
     return GenerationRequestMessage(role=content["role"], content=parts_content)
 
 
+# ---- OpenAI Responses API input item types ----
+# These mirror OpenAI's ResponseInputItemParam shapes so users can pass
+# Responses-format conversation history directly to GenerationConfigDict.messages.
+
+
+class ResponsesFunctionCallParam(TypedDict, total=False):
+    """An assistant function/tool call item in an OpenAI Responses API conversation."""
+
+    type: Literal["function_call"]
+    name: str
+    arguments: str
+    call_id: str
+    id: str
+    status: str
+
+
+class ResponsesFunctionCallOutputParam(TypedDict, total=False):
+    """A function/tool call output (tool result) item in an OpenAI Responses API conversation."""
+
+    type: Literal["function_call_output"]
+    call_id: str
+    output: str
+    id: str
+
+
+class ResponsesReasoningSummaryParam(TypedDict):
+    """A summary text block inside a reasoning item."""
+
+    type: Literal["summary_text"]
+    text: str
+
+
+class ResponsesReasoningParam(TypedDict, total=False):
+    """A reasoning (chain-of-thought) item in an OpenAI Responses API conversation."""
+
+    type: Literal["reasoning"]
+    id: str
+    summary: List[ResponsesReasoningSummaryParam]
+    status: str
+
+
+class ResponsesFileSearchCallParam(TypedDict, total=False):
+    """A file search tool call item in an OpenAI Responses API conversation."""
+
+    type: Literal["file_search_call"]
+    id: str
+    queries: List[str]
+    status: str
+
+
+class ResponsesWebSearchCallParam(TypedDict, total=False):
+    """A web search tool call item in an OpenAI Responses API conversation."""
+
+    type: Literal["web_search_call"]
+    id: str
+    status: str
+
+
+class ResponsesComputerCallOutputParam(TypedDict, total=False):
+    """A computer use tool output item in an OpenAI Responses API conversation."""
+
+    type: Literal["computer_call_output"]
+    call_id: str
+    output: str
+
+
+class ResponsesItemReferenceParam(TypedDict):
+    """A reference to a previous conversation item by ID, used for multi-turn context."""
+
+    type: Literal["item_reference"]
+    id: str
+
+
+ResponsesInputItemParam = Union[
+    ResponsesFunctionCallParam,
+    ResponsesFunctionCallOutputParam,
+    ResponsesReasoningParam,
+    ResponsesFileSearchCallParam,
+    ResponsesWebSearchCallParam,
+    ResponsesComputerCallOutputParam,
+    ResponsesItemReferenceParam,
+]
+
+
 @deprecated(
     "This class will be removed in a future version. Use {} which is TypedDict."
 )
@@ -68,7 +152,7 @@ class GenerationConfig:
     id: str
     provider: str
     model: str
-    messages: Optional[List[GenerationRequestMessage]] = field(default_factory=list)
+    messages: Optional[List[Union[GenerationRequestMessage, ResponsesInputItemParam]]] = field(default_factory=list)
     model_parameters: Dict[str, Any] = field(default_factory=dict)
     span_id: Optional[str] = None
     name: Optional[str] = None
@@ -86,7 +170,7 @@ class GenerationConfigDict(TypedDict, total=False):
     id: str
     provider: str
     model: str
-    messages: Optional[List[GenerationRequestMessage]]
+    messages: Optional[List[Union[GenerationRequestMessage, ResponsesInputItemParam]]]
     model_parameters: Dict[str, Any]
     span_id: Optional[str]
     name: Optional[str]
@@ -123,6 +207,29 @@ def get_generation_config_dict(
         )
     elif isinstance(config, dict):
         return dict(GenerationConfigDict(**config))
+
+
+def _normalize_generation_messages(
+    messages: List[Union[GenerationRequestMessage, ResponsesInputItemParam]],
+) -> List[GenerationRequestMessage]:
+    """Normalize messages to GenerationRequestMessage format.
+
+    Accepts both ChatCompletions format (role+content) and Responses API format.
+    Responses-format items are detected when any item carries a 'type' key, and
+    are converted via OpenAIUtils.parse_responses_input_to_messages.
+    The import is deferred to avoid a circular dependency through
+    maxim.logger.__init__ → components → openai.utils → logger.
+    """
+    if not messages:
+        return []
+    if any(isinstance(m, dict) and "type" in m for m in messages):
+        try:
+            from ..openai.utils import OpenAIUtils  # deferred — avoids circular import
+
+            return OpenAIUtils.parse_responses_input_to_messages(messages)
+        except ImportError:
+            pass
+    return messages  # type: ignore[return-value]
 
 
 valid_providers = [
@@ -313,7 +420,9 @@ class Generation(BaseContainer):
                 self.provider = "unknown"
         else:
             self.provider = "unknown"
-        self.messages.extend([m for m in (final_config.get("messages") or [])])
+        self.messages.extend(
+            _normalize_generation_messages(list(final_config.get("messages") or []))
+        )
         self.messages, attachments = parse_attachments_from_messages(self.messages)
         if len(attachments) > 0:
             for attachment in attachments:
