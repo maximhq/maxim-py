@@ -276,6 +276,176 @@ def is_openai_response_structure(data: Any) -> bool:
     return True
 
 
+def _responses_output_item_type(item: Any) -> Optional[str]:
+    if isinstance(item, dict):
+        return item.get("type") if isinstance(item.get("type"), str) else None
+    t = getattr(item, "type", None)
+    return t if isinstance(t, str) else None
+
+
+def _responses_reasoning_summary_text(item: Any) -> str:
+    summary = item.get("summary") if isinstance(item, dict) else getattr(item, "summary", None)
+    if summary is None:
+        return ""
+    if isinstance(summary, str):
+        return summary
+    if not isinstance(summary, (list, tuple)):
+        return str(summary)
+    parts: List[str] = []
+    for block in summary:
+        if isinstance(block, dict):
+            if block.get("type") == "summary_text":
+                tx = block.get("text")
+                if isinstance(tx, str):
+                    parts.append(tx)
+        else:
+            if getattr(block, "type", None) == "summary_text":
+                tx = getattr(block, "text", None)
+                if isinstance(tx, str):
+                    parts.append(tx)
+    return "".join(parts)
+
+
+def _responses_assistant_output_text(item: Any) -> str:
+    content = item.get("content") if isinstance(item, dict) else getattr(item, "content", None)
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, (list, tuple)):
+        return str(content) if content is not None else ""
+    parts: List[str] = []
+    for c in content:
+        if isinstance(c, dict):
+            ct = c.get("type")
+            if ct == "output_text":
+                tx = c.get("text")
+                if isinstance(tx, str):
+                    parts.append(tx)
+            elif ct == "refusal":
+                ref = c.get("refusal")
+                if isinstance(ref, str):
+                    parts.append(f"[refusal] {ref}")
+        else:
+            ct = getattr(c, "type", None)
+            if ct == "output_text":
+                tx = getattr(c, "text", None)
+                if isinstance(tx, str):
+                    parts.append(tx)
+            elif ct == "refusal":
+                ref = getattr(c, "refusal", None)
+                if isinstance(ref, str):
+                    parts.append(f"[refusal] {ref}")
+    return "".join(parts)
+
+
+def _responses_is_assistant_message_with_output_text(item: Any) -> bool:
+    if _responses_output_item_type(item) != "message":
+        return False
+    role = item.get("role") if isinstance(item, dict) else getattr(item, "role", None)
+    if role != "assistant":
+        return False
+    return bool(_responses_assistant_output_text(item).strip()) or (
+        isinstance(item, dict)
+        and isinstance(item.get("content"), list)
+        or (not isinstance(item, dict) and isinstance(getattr(item, "content", None), list))
+    )
+
+
+def _responses_prepend_thinking_to_message_dict(msg: dict, prefix: str) -> None:
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "output_text":
+            t = block.get("text")
+            if isinstance(t, str):
+                block["text"] = prefix + t
+            else:
+                block["text"] = prefix
+            return
+
+
+def _responses_dict_has_output_text_block(msg: dict) -> bool:
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return False
+    return any(isinstance(b, dict) and b.get("type") == "output_text" for b in content)
+
+
+def _responses_item_has_output_text_block(item: Any) -> bool:
+    if isinstance(item, dict):
+        return _responses_dict_has_output_text_block(item)
+    content = getattr(item, "content", None)
+    if not isinstance(content, (list, tuple)):
+        return False
+    for b in content:
+        if getattr(b, "type", None) == "output_text":
+            return True
+    return False
+
+
+def inject_thinking_into_openai_response_result(result: Dict[str, Any]) -> None:
+    """Prepend ``<think>...</think>`` to assistant output_text when immediately preceded by reasoning.
+
+    Mutates ``result["output"]`` in place. Used when logging OpenAI Responses API results.
+    """
+    output = result.get("output")
+    if not isinstance(output, list):
+        return
+    pending: List[str] = []
+    for item in output:
+        itype = _responses_output_item_type(item)
+        if itype == "reasoning":
+            chunk = _responses_reasoning_summary_text(item)
+            if chunk:
+                pending.append(chunk)
+            continue
+        if itype == "message" and isinstance(item, dict):
+            role = item.get("role")
+            if role == "assistant":
+                if pending and _responses_dict_has_output_text_block(item):
+                    combined = "".join(pending)
+                    prefix = f"<think>\n\n{combined}\n\n</think>\n\n"
+                    _responses_prepend_thinking_to_message_dict(item, prefix)
+                pending = []
+            else:
+                pending = []
+            continue
+        pending = []
+
+
+def compose_openai_responses_output_text_with_thinking(output: Any) -> str:
+    """Build visible text from Responses ``output`` items, including ``<think>`` prefixes (read-only)."""
+    if not isinstance(output, list):
+        return ""
+    pending: List[str] = []
+    chunks: List[str] = []
+    for item in output:
+        itype = _responses_output_item_type(item)
+        if itype == "reasoning":
+            chunk = _responses_reasoning_summary_text(item)
+            if chunk:
+                pending.append(chunk)
+            continue
+        if itype == "message":
+            role = item.get("role") if isinstance(item, dict) else getattr(item, "role", None)
+            if role == "assistant":
+                body = _responses_assistant_output_text(item)
+                has_ot = _responses_item_has_output_text_block(item)
+                if pending:
+                    if has_ot:
+                        chunks.append(f"<think>\n\n{''.join(pending)}\n\n</think>\n\n")
+                    pending = []
+                if body:
+                    chunks.append(body)
+            else:
+                pending = []
+            continue
+        pending = []
+    return "".join(chunks)
+
+
 def parse_result(data: Any) -> Dict[str, Any]:
     """
     Parse result from a dictionary.
@@ -295,6 +465,7 @@ def parse_result(data: Any) -> Dict[str, Any]:
     if is_openai_response_structure(data):
         # For Responses API results, return as-is without deep validation
         # Only the general top-level shape is validated by is_openai_response_structure
+        inject_thinking_into_openai_response_result(data)
         return data
 
     # Otherwise, process as Chat Completion API result (existing behavior)

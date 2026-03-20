@@ -277,6 +277,20 @@ class OpenAIUtils:
 
     @staticmethod
     def extract_responses_output_text(response: Any) -> Optional[str]:
+        from ..parsers.generation_parser import compose_openai_responses_output_text_with_thinking
+
+        output_list: Any = None
+        if isinstance(response, dict):
+            output_list = response.get("output")
+        else:
+            try:
+                output_list = getattr(response, "output", None)
+            except Exception:
+                output_list = None
+        if isinstance(output_list, list) and output_list:
+            composed = compose_openai_responses_output_text_with_thinking(output_list)
+            if isinstance(composed, str) and composed.strip():
+                return composed
         try:
             output_text = getattr(response, "output_text", None)
             if isinstance(output_text, str):
