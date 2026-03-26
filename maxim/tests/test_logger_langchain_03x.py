@@ -1325,6 +1325,43 @@ class TestLoggingUsingLangchain(unittest.TestCase):
 
         logger.flush()
 
+    def test_multi_turn_chat_conversation(self):
+        """Two-turn chat: second invoke includes prior human/assistant messages as history.
+
+        Mirrors a typical app that calls the model once per user message while passing
+        the full transcript (or rolling window) on each request.
+        """
+        logger = self.maxim.logger(LoggerConfig(id=repoId))
+        model = ChatOpenAI(
+            callbacks=[MaximLangchainTracer(logger)],
+            api_key=openAIKey,
+            model="gpt-4o-mini",
+        )
+
+        first_messages = [
+            (
+                "system",
+                "You are a concise assistant. Reply in one short sentence when possible.",
+            ),
+            ("human", "Remember this secret word exactly: zebra."),
+        ]
+        first = model.invoke(first_messages)
+        print(f"Multi-turn first reply: {first}")
+
+        second_messages = [
+            (
+                "system",
+                "You are a concise assistant. Reply in one short sentence when possible.",
+            ),
+            ("human", "Remember this secret word exactly: zebra."),
+            ("ai", first.content),
+            ("human", "What secret word did I ask you to remember? Reply with that word only."),
+        ]
+        second = model.invoke(second_messages)
+        print(f"Multi-turn second reply: {second}")
+
+        logger.flush()
+
     def tearDown(self) -> None:
         self.maxim.cleanup()
         return super().tearDown()

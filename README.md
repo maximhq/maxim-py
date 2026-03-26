@@ -182,6 +182,10 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.15
+
+- fix: sets last input as user message in Langchain tracer's `on_chat_model_start`
+
 ### 3.14.14
 
 - feat: Adds response format support in generation result
