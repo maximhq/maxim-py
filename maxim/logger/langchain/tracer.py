@@ -403,6 +403,12 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 self.container_manager.set_container(str(run_id), container)
                 if isinstance(container, TraceContainer):
                     self.container_manager.set_root_trace(str(run_id), container)
+            # Set trace input from last user message like JS tracer
+            try:
+                if isinstance(container, TraceContainer) and last_input_message:
+                    container.set_input(last_input_message)
+            except Exception:
+                pass
             generation_container = container.add_generation(generation_config)
             if len(attachments) > 0:
                 for attachment in attachments:
