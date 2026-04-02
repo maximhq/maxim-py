@@ -93,6 +93,10 @@ from .test_run import (
     YieldedOutputMeta,
     YieldedOutputCost,
     YieldedOutputTokenUsage,
+    Preset,
+    PresetDataset,
+    PresetEvaluator,
+    ContextToEvaluateEntry,
 )
 
 __all__ = [

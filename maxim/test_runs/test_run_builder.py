@@ -4,6 +4,7 @@ import math
 import re
 import threading
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, Union, final
 from uuid import uuid4
@@ -35,6 +36,7 @@ from ..models import (
 )
 from ..models.dataset import Data, LocalData
 from ..models.evaluator import (
+    EvaluatorType,
     LocalEvaluationResultWithId,
     LocalEvaluatorResultParameter,
     PlatformEvaluator,
@@ -45,6 +47,7 @@ from ..models.test_run import (
     ExecuteSimulationPromptForDataResponse,
     ExecuteSimulationWorkflowForDataResponse,
     LocalExecutionResponse,
+    Preset,
     PromptChainVersionConfig,
     PromptVersionConfig,
     SimulationConfig,
@@ -148,6 +151,7 @@ class TestRunBuilder(Generic[T]):
             in_workspace_id=workspace_id,
         )
         self._maxim_apis = MaximAPI(base_url, api_key)
+        self._preset_name: Optional[str] = None
 
     def _compute_sdk_variables_for_platform_evaluators(
         self,
@@ -1096,6 +1100,31 @@ class TestRunBuilder(Generic[T]):
         self._config.simulation_config = simulation_config
         return self
 
+    def with_preset(self, preset_name: str) -> "TestRunBuilder[T]":
+        """
+        Set a preset (test configuration) to use for this test run.
+
+        The preset provides default values for datasets, evaluators, simulation config,
+        and context-to-evaluate settings. Any values explicitly set via other builder
+        methods will take priority over preset defaults.
+
+        Requires an entity to be set first via with_workflow_id(), with_prompt_version_id(),
+        or with_prompt_chain_version_id(), as the preset is scoped to a specific entity.
+
+        Args:
+            preset_name (str): The name of the preset (test config) in the workspace
+
+        Returns:
+            TestRunBuilder[T]: The current TestRunBuilder instance for method chaining
+
+        Raises:
+            ValueError: If preset_name is empty or not a string
+        """
+        if not preset_name or not isinstance(preset_name, str):
+            raise ValueError("Preset name must be a non-empty string.")
+        self._preset_name = preset_name
+        return self
+
     def yields_output(
         self,
         output_function: Callable[
@@ -1328,29 +1357,57 @@ class TestRunBuilder(Generic[T]):
                         self._config.simulation_config is not None
                         and self._config.output_function is not None
                     )
-                    self._maxim_apis.push_test_run_entry(
-                        test_run=test_run,
-                        entry=result.entry,
-                        run_config=(
-                            None if is_local_sim else (
-                                {
-                                    "cost": (
-                                        result.meta.cost.to_dict()
-                                        if result.meta.cost is not None
-                                        else None
-                                    ),
-                                    "usage": (
-                                        result.meta.usage.to_dict()
-                                        if result.meta.usage is not None
-                                        else None
-                                    ),
-                                }
-                                if result.meta is not None
-                                else None
-                            )
-                        ),
-                        local_simulation=is_local_sim or None,
+                    # For simulation endpoint entries (simulation_config set, no output_function),
+                    is_simulation_endpoint_entry = (
+                        self._config.simulation_config is not None
+                        and self._config.output_function is None
+                        and self._config.output_function_with_tracing is None
                     )
+                    has_local_eval_results = (
+                        result.entry.local_evaluation_results is not None
+                        and len(result.entry.local_evaluation_results) > 0
+                    )
+                    should_push = not is_simulation_endpoint_entry or has_local_eval_results
+
+                    if should_push:
+                        # For simulation endpoint entries with local results: filter evalConfig
+                        # to only local evaluators so the V4 push fast path marks COMPLETE
+                        # without re-queuing for platform evals (which the simulation worker already ran).
+                        push_test_run = test_run
+                        if is_simulation_endpoint_entry:
+                            push_test_run = deepcopy(test_run)
+                            if "evals" in push_test_run.eval_config:
+                                push_test_run.eval_config = {
+                                    **push_test_run.eval_config,
+                                    "evals": [
+                                        e for e in push_test_run.eval_config["evals"]
+                                        if e.get("type") == EvaluatorType.LOCAL.value
+                                    ],
+                                }
+
+                        self._maxim_apis.push_test_run_entry(
+                            test_run=push_test_run,
+                            entry=result.entry,
+                            run_config=(
+                                None if is_local_sim else (
+                                    {
+                                        "cost": (
+                                            result.meta.cost.to_dict()
+                                            if result.meta.cost is not None
+                                            else None
+                                        ),
+                                        "usage": (
+                                            result.meta.usage.to_dict()
+                                            if result.meta.usage is not None
+                                            else None
+                                        ),
+                                    }
+                                    if result.meta is not None
+                                    else None
+                                )
+                            ),
+                            local_simulation=is_local_sim or None,
+                        )
                 else:
                     # Check if we have platform evaluators with variable_mapping
                     has_platform_evaluator_with_mapping = any(
@@ -1667,33 +1724,57 @@ class TestRunBuilder(Generic[T]):
                         self._config.simulation_config is not None
                         and self._config.output_function is not None
                     )
-                    self._maxim_apis.push_test_run_entry(
-                        test_run=TestRunWithDatasetEntry(
+                    is_simulation_endpoint_entry = (
+                        self._config.simulation_config is not None
+                        and self._config.output_function is None
+                        and self._config.output_function_with_tracing is None
+                    )
+                    has_local_eval_results = (
+                        result.entry.local_evaluation_results is not None
+                        and len(result.entry.local_evaluation_results) > 0
+                    )
+                    should_push = not is_simulation_endpoint_entry or has_local_eval_results
+
+                    if should_push:
+                        push_test_run_with_dataset = TestRunWithDatasetEntry(
                             test_run=test_run,
                             dataset_id=dataset_id,
                             dataset_entry_id=row.id,
-                        ),
-                        entry=result.entry,
-                        run_config=(
-                            None if is_local_sim else (
-                                {
-                                    "cost": (
-                                        result.meta.cost.to_dict()
-                                        if result.meta.cost is not None
-                                        else None
-                                    ),
-                                    "usage": (
-                                        result.meta.usage.to_dict()
-                                        if result.meta.usage is not None
-                                        else None
-                                    ),
+                        )
+                        if is_simulation_endpoint_entry:
+                            push_test_run_with_dataset = deepcopy(push_test_run_with_dataset)
+                            if "evals" in push_test_run_with_dataset.eval_config:
+                                push_test_run_with_dataset.eval_config = {
+                                    **push_test_run_with_dataset.eval_config,
+                                    "evals": [
+                                        e for e in push_test_run_with_dataset.eval_config["evals"]
+                                        if e.get("type") == EvaluatorType.LOCAL.value
+                                    ],
                                 }
-                                if result.meta
-                                else None
-                            )
-                        ),
-                        local_simulation=is_local_sim or None,
-                    )
+
+                        self._maxim_apis.push_test_run_entry(
+                            test_run=push_test_run_with_dataset,
+                            entry=result.entry,
+                            run_config=(
+                                None if is_local_sim else (
+                                    {
+                                        "cost": (
+                                            result.meta.cost.to_dict()
+                                            if result.meta.cost is not None
+                                            else None
+                                        ),
+                                        "usage": (
+                                            result.meta.usage.to_dict()
+                                            if result.meta.usage is not None
+                                            else None
+                                        ),
+                                    }
+                                    if result.meta
+                                    else None
+                                )
+                            ),
+                            local_simulation=is_local_sim or None,
+                        )
                 else:
                     # Check if we have platform evaluators with variable_mapping
                     has_platform_evaluator_with_mapping = any(
@@ -1950,6 +2031,63 @@ class TestRunBuilder(Generic[T]):
         )
         thread.start()
 
+    def _resolve_preset(self, preset: Preset) -> None:
+        """
+        Merge preset defaults into the current config.
+        Explicit config always takes priority over preset values.
+        """
+        # 1. Dataset: only if user hasn't called with_data()
+        if self._config.data is None and preset.datasets and len(preset.datasets) > 0:
+            ds = preset.datasets[0]
+            if ds.split_id:
+                self._config.data = ds.split_id
+            else:
+                self._config.data = ds.id
+            if len(preset.datasets) > 1:
+                self._config.logger.info(
+                    message=f"Preset '{preset.name}' has {len(preset.datasets)} datasets; using '{ds.name}'. "
+                    "Override with .with_data() to select a different dataset."
+                )
+
+        # 2. Evaluators: only if user hasn't called with_evaluators()
+        if (not self._config.evaluators or len(self._config.evaluators) == 0) and preset.evaluators:
+            self._config.evaluators = [e.name for e in preset.evaluators]
+
+        # 3. Simulation config: only if user hasn't called with_simulation_config()
+        if self._config.simulation_config is None and preset.simulation_config is not None:
+            sim_config = preset.simulation_config
+            if not self._config.workflow and sim_config.response_fields:
+                sim_config = SimulationConfig(
+                    persona=sim_config.persona,
+                    max_turns=sim_config.max_turns,
+                    tools=sim_config.tools,
+                    context=sim_config.context,
+                    response_fields=None,
+                    environment_id=sim_config.environment_id,
+                    stop_trigger=sim_config.stop_trigger,
+                    additional_instructions=sim_config.additional_instructions,
+                    custom_simulator=sim_config.custom_simulator,
+                )
+            self._config.simulation_config = sim_config
+
+        # 4. Context to evaluate: apply to the user's entity config if not already set
+        if preset.context_to_evaluate:
+            ctx_column = None
+            for entry in preset.context_to_evaluate:
+                if entry.type == "DATASET_COLUMN":
+                    ctx_column = entry.payload
+                    break
+            if ctx_column:
+                if self._config.workflow and not self._config.workflow.context_to_evaluate:
+                    self._config.workflow.context_to_evaluate = ctx_column
+                elif self._config.prompt_version and not self._config.prompt_version.context_to_evaluate:
+                    self._config.prompt_version.context_to_evaluate = ctx_column
+                elif self._config.prompt_chain_version and not self._config.prompt_chain_version.context_to_evaluate:
+                    self._config.prompt_chain_version.context_to_evaluate = ctx_column
+
+        # 5. Store preset ID for backend reference
+        self._config.test_config_id = preset.id
+
     def run(self, timeout_in_minutes: Optional[int] = 10) -> Optional[RunResult]:
         """
         Run the test
@@ -1967,6 +2105,46 @@ class TestRunBuilder(Generic[T]):
                 errors.append("Name is required to run a test.")
             if self._config.in_workspace_id == "":
                 errors.append("Workspace id is required to run a test.")
+            # Resolve preset before remaining validation so preset-supplied
+            # values (dataset, evaluators, simulation config, etc.) are
+            # available for the checks below.
+            if self._preset_name is not None:
+                entity_id = None
+                entity_type = None
+                if self._config.workflow:
+                    entity_id = self._config.workflow.id
+                    entity_type = "WORKFLOW"
+                elif self._config.prompt_version:
+                    entity_id = self._config.prompt_version.id
+                    entity_type = "PROMPT"
+                elif self._config.prompt_chain_version:
+                    entity_id = self._config.prompt_chain_version.id
+                    entity_type = "PROMPT_CHAIN"
+
+                if entity_id is None or entity_type is None:
+                    errors.append(
+                        "with_preset() requires an entity to be set first via "
+                        "with_workflow_id(), with_prompt_version_id(), or with_prompt_chain_version_id()."
+                    )
+                else:
+                    self._config.logger.info(
+                        message=f"Fetching preset '{self._preset_name}' for {entity_type} '{entity_id}'..."
+                    )
+                    try:
+                        preset = self._maxim_apis.fetch_preset(
+                            name=self._preset_name,
+                            workspace_id=self._config.in_workspace_id,
+                            entity_id=entity_id,
+                            entity_type=entity_type,
+                        )
+                        self._resolve_preset(preset)
+                        self._config.logger.info(
+                            message=f"Preset '{self._preset_name}' resolved successfully."
+                        )
+                    except Exception as e:
+                        errors.append(
+                            f"Failed to fetch preset '{self._preset_name}': {str(e)}"
+                        )
             if (
                 self._config.output_function is None
                 and self._config.workflow is None
@@ -2149,6 +2327,7 @@ class TestRunBuilder(Generic[T]):
                     ),
                     simulation_config=simulation_config_to_send,
                     connected_repo_id=self._config.internal_maxim_logger.id if self._config.internal_maxim_logger else None,
+                    test_config_id=self._config.test_config_id,
                 )
                 if self._config.environment_name is not None:
                     test_run.environment_name = self._config.environment_name

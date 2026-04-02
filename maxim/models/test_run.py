@@ -429,7 +429,7 @@ class TestRun:
             workspace_id=data["workspaceId"],
             eval_config=data["evalConfig"],
             human_evaluation_config=(
-                HumanEvaluationConfig(data["humanEvaluationConfig"])
+                HumanEvaluationConfig(**data["humanEvaluationConfig"])
                 if data.get("humanEvaluationConfig")
                 else None
             ),
@@ -1161,6 +1161,85 @@ class SimulationContext:
     turn_number: int
     total_cost: float
     total_tokens: int
+
+
+@dataclass
+class PresetDataset:
+    """A dataset attached to a preset."""
+    id: str
+    name: str
+    split_id: Optional[str] = None
+    split_name: Optional[str] = None
+
+    @classmethod
+    def dict_to_class(cls, data: Dict[str, Any]) -> "PresetDataset":
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            split_id=data.get("splitId"),
+            split_name=data.get("splitName"),
+        )
+
+
+@dataclass
+class PresetEvaluator:
+    """An evaluator attached to a preset."""
+    id: str
+    name: str
+    meta: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def dict_to_class(cls, data: Dict[str, Any]) -> "PresetEvaluator":
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            meta=data.get("meta"),
+        )
+
+
+@dataclass
+class ContextToEvaluateEntry:
+    """A context-to-evaluate configuration entry from a preset."""
+    type: str
+    payload: str
+
+    @classmethod
+    def dict_to_class(cls, data: Dict[str, Any]) -> "ContextToEvaluateEntry":
+        return cls(type=data["type"], payload=data["payload"])
+
+
+@dataclass
+class Preset:
+    """A test configuration preset (TestConfig) fetched from the platform."""
+    id: str
+    name: str
+    description: Optional[str] = None
+    datasets: Optional[List[PresetDataset]] = None
+    evaluators: Optional[List[PresetEvaluator]] = None
+    simulation_config: Optional[SimulationConfig] = None
+    context_to_evaluate: Optional[List[ContextToEvaluateEntry]] = None
+    attached_data_sources: Optional[List[Dict[str, str]]] = None
+
+    @classmethod
+    def dict_to_class(cls, data: Dict[str, Any]) -> "Preset":
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            description=data.get("description"),
+            datasets=[PresetDataset.dict_to_class(d) for d in (data.get("datasets") or [])] or None,
+            evaluators=[PresetEvaluator.dict_to_class(e) for e in (data.get("evaluators") or [])] or None,
+            simulation_config=(
+                SimulationConfig.dict_to_class(data["simulationConfig"])
+                if data.get("simulationConfig")
+                else None
+            ),
+            context_to_evaluate=(
+                [ContextToEvaluateEntry.dict_to_class(c) for c in (data.get("contextToEvaluate") or [])]
+                if data.get("contextToEvaluate")
+                else None
+            ),
+            attached_data_sources=data.get("attachedDataSources"),
+        )
 
 
 @dataclass
