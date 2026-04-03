@@ -39,6 +39,7 @@ from ..models import (
     HumanEvaluationConfig,
     ImageURL,
     LocalExecutionResponse,
+    Preset,
     PromptResponse,
     RunType,
     SignedURLResponse,
@@ -1167,6 +1168,56 @@ class MaximAPI:
         except Exception as e:
             raise Exception(e) from e
 
+    def fetch_preset(self, name: str, workspace_id: str, entity_id: str, entity_type: str) -> Preset:
+        """
+        Fetch a preset (test config) by name for a given entity.
+
+        Args:
+            name: The name of the preset
+            workspace_id: The workspace ID
+            entity_id: The entity ID (workflow, prompt version, or prompt chain version)
+            entity_type: The entity type (PROMPT, WORKFLOW, or PROMPT_CHAIN)
+
+        Returns:
+            Preset: The preset details
+
+        Raises:
+            Exception: If the preset is not found or the request fails
+        """
+        try:
+            from urllib.parse import quote
+            params = (
+                f"name={quote(name)}"
+                f"&workspaceId={workspace_id}"
+                f"&entityId={entity_id}"
+                f"&entityType={entity_type}"
+            )
+            res = self.__make_network_call(
+                method="GET",
+                endpoint=f"/api/sdk/v1/test-configs?{params}",
+            )
+            json_response = json.loads(res.decode())
+            if "error" in json_response:
+                raise Exception(json_response["error"])
+            return Preset.dict_to_class(json_response["data"])
+        except httpx.HTTPStatusError as e:
+            if e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    if (
+                        error_data
+                        and isinstance(error_data, dict)
+                        and "error" in error_data
+                        and isinstance(error_data["error"], dict)
+                        and "message" in error_data["error"]
+                    ):
+                        raise Exception(error_data["error"]["message"]) from e
+                except (ValueError, KeyError):
+                    pass
+            raise Exception(e) from e
+        except Exception as e:
+            raise Exception(e) from e
+
     def create_test_run(
         self,
         name: str,
@@ -1181,6 +1232,7 @@ class MaximAPI:
         human_evaluation_config: Optional[HumanEvaluationConfig] = None,
         simulation_config: Optional[SimulationConfig] = None,
         connected_repo_id: Optional[str] = None,
+        test_config_id: Optional[str] = None,
     ) -> TestRun:
         """
         Create a new test run.
@@ -1245,6 +1297,11 @@ class MaximAPI:
                             "connectedRepoId": (
                                 connected_repo_id
                                 if connected_repo_id is not None
+                                else None
+                            ),
+                            "testConfigId": (
+                                test_config_id
+                                if test_config_id is not None
                                 else None
                             ),
                         }.items()

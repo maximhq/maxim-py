@@ -25,6 +25,7 @@ class Evaluator:
     builtin: bool
     reversed: Optional[bool] = False
     config: Optional[Any] = None
+    meta: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -36,6 +37,7 @@ class Evaluator:
                 "builtin": self.builtin,
                 "reversed": self.reversed,
                 "config": self.config,
+                "meta": self.meta,
             }.items()
             if v is not None
         }
@@ -48,6 +50,7 @@ class Evaluator:
             "builtin": self.builtin,
             "reversed": self.reversed,
             "config": self.config,
+            "meta": self.meta,
         }
 
     @classmethod
@@ -59,6 +62,7 @@ class Evaluator:
             builtin=data["builtin"],
             reversed=data.get("reversed"),
             config=data.get("config"),
+            meta=data.get("meta"),
         )
 
 
