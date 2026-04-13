@@ -590,6 +590,7 @@ class TestRunBuilder(Generic[T]):
                     expected_steps=expected_steps,
                     context_to_evaluate=context_to_evaluate_for_simulation,
                     data_entry=data_entry,
+                    environment_name=self._config.environment_name,
                 )
                 fetch = lambda: self._maxim_apis.get_simulation_workflow_status(
                     start_resp.workspace_id, start_resp.test_run_entry_id
@@ -677,6 +678,7 @@ class TestRunBuilder(Generic[T]):
                     expected_steps=expected_steps,
                     context_to_evaluate=context_to_evaluate_for_simulation,
                     data_entry=data_entry,
+                    environment_name=self._config.environment_name,
                 )
                 fetch = lambda: self._maxim_apis.get_simulation_prompt_status(
                     start_resp.workspace_id, start_resp.test_run_entry_id
@@ -2053,7 +2055,11 @@ class TestRunBuilder(Generic[T]):
         if (not self._config.evaluators or len(self._config.evaluators) == 0) and preset.evaluators:
             self._config.evaluators = [e.name for e in preset.evaluators]
 
-        # 3. Simulation config: only if user hasn't called with_simulation_config()
+        # 3. Environment name: only if user hasn't called with_environment()
+        if self._config.environment_name is None and preset.environment_name is not None:
+            self._config.environment_name = preset.environment_name
+
+        # 4. Simulation config: only if user hasn't called with_simulation_config()
         if self._config.simulation_config is None and preset.simulation_config is not None:
             sim_config = preset.simulation_config
             if not self._config.workflow and sim_config.response_fields:
@@ -2070,7 +2076,7 @@ class TestRunBuilder(Generic[T]):
                 )
             self._config.simulation_config = sim_config
 
-        # 4. Context to evaluate: apply to the user's entity config if not already set
+        # 5. Context to evaluate: apply to the user's entity config if not already set
         if preset.context_to_evaluate:
             ctx_column = None
             for entry in preset.context_to_evaluate:
@@ -2085,7 +2091,7 @@ class TestRunBuilder(Generic[T]):
                 elif self._config.prompt_chain_version and not self._config.prompt_chain_version.context_to_evaluate:
                     self._config.prompt_chain_version.context_to_evaluate = ctx_column
 
-        # 5. Store preset ID for backend reference
+        # 6. Store preset ID for backend reference
         self._config.test_config_id = preset.id
 
     def run(self, timeout_in_minutes: Optional[int] = 10) -> Optional[RunResult]:
