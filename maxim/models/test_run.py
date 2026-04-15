@@ -1219,6 +1219,7 @@ class Preset:
     simulation_config: Optional[SimulationConfig] = None
     context_to_evaluate: Optional[List[ContextToEvaluateEntry]] = None
     attached_data_sources: Optional[List[Dict[str, str]]] = None
+    environment_name: Optional[str] = None
 
     @classmethod
     def dict_to_class(cls, data: Dict[str, Any]) -> "Preset":
@@ -1239,6 +1240,7 @@ class Preset:
                 else None
             ),
             attached_data_sources=data.get("attachedDataSources"),
+            environment_name=data.get("environmentName"),
         )
 
 

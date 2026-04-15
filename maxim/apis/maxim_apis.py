@@ -1833,6 +1833,7 @@ class MaximAPI:
         expected_steps: Optional[str] = None,
         context_to_evaluate: Optional[Union[str, List[str]]] = None,
         data_entry: Optional[Dict[str, Union[str, List[str], None, Dict[str, Any]]]] = None,
+        environment_name: Optional[str] = None,
     ) -> ExecuteSimulationStartResponse:
         """Start a simulation (POST). Shared by prompt and workflow. Returns workspaceId and testRunEntryId for polling."""
         entity_key = "promptVersionId" if entity_type == "prompt" else "workflowId"
@@ -1844,6 +1845,8 @@ class MaximAPI:
         }
         if dataset_entry_id is not None:
             payload["datasetEntryId"] = dataset_entry_id
+        if environment_name is not None:
+            payload["environmentName"] = environment_name
         entry: Dict[str, Any] = {}
         if input is not None:
             entry["input"] = input
@@ -1940,6 +1943,7 @@ class MaximAPI:
         expected_steps: Optional[str] = None,
         context_to_evaluate: Optional[Union[str, List[str]]] = None,
         data_entry: Optional[Dict[str, Union[str, List[str], None, Dict[str, Any]]]] = None,
+        environment_name: Optional[str] = None,
     ) -> ExecuteSimulationStartResponse:
         """Start a prompt simulation (POST). Returns workspaceId and testRunEntryId for polling via get_simulation_prompt_status."""
         return self._execute_simulation_start(
@@ -1954,6 +1958,7 @@ class MaximAPI:
             expected_steps=expected_steps,
             context_to_evaluate=context_to_evaluate,
             data_entry=data_entry,
+            environment_name=environment_name,
         )
 
     def get_simulation_prompt_status(
@@ -1976,6 +1981,7 @@ class MaximAPI:
         expected_steps: Optional[str] = None,
         context_to_evaluate: Optional[Union[str, List[str]]] = None,
         data_entry: Optional[Dict[str, Union[str, List[str], None, Dict[str, Any]]]] = None,
+        environment_name: Optional[str] = None,
     ) -> ExecuteSimulationStartResponse:
         """Start a workflow simulation (POST). Returns workspaceId and testRunEntryId for polling via get_simulation_workflow_status."""
         return self._execute_simulation_start(
@@ -1990,6 +1996,7 @@ class MaximAPI:
             expected_steps=expected_steps,
             context_to_evaluate=context_to_evaluate,
             data_entry=data_entry,
+            environment_name=environment_name,
         )
 
     def get_simulation_workflow_status(

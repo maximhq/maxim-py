@@ -182,6 +182,10 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.17
+
+- feat: Adds support for environment handling in test run's `with_preset` function
+
 ### 3.14.16
 
 - feat: Adds option to use test config presets from platform for test runs using `with_preset`
