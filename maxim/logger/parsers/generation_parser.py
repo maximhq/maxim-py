@@ -360,6 +360,8 @@ def _responses_prepend_thinking_to_message_dict(msg: dict, prefix: str) -> None:
         if block.get("type") == "output_text":
             t = block.get("text")
             if isinstance(t, str):
+                if t.startswith(prefix):
+                    return
                 block["text"] = prefix + t
             else:
                 block["text"] = prefix
