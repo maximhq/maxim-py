@@ -467,20 +467,30 @@ class MaximLangchainTracer(BaseCallbackHandler):
             self.logger.generation_result(str(run_id), result)
             # Call generation.result callback
             generation_container = self.generation_container_store.get(str(run_id))
-            if generation_container is not None and self.callback is not None:
-                generation_id = str(run_id)
-                generation_name = getattr(generation_container, "_name", None)
-                token_usage = result.get("usage", {})
-                self.callback(
-                    "generation.result",
-                    {
-                        "generation_id": generation_id,
-                        "generation_name": generation_name,
-                        "token_usage": token_usage,
-                    },
-                )
-                # Clean up the store entry to prevent leaks
-                self.generation_container_store.delete(str(run_id))
+            if generation_container is not None:
+                try:
+                    if self.callback is not None:
+                        generation_id = str(run_id)
+                        generation_name = getattr(generation_container, "_name", None)
+                        token_usage = result.get("usage", {})
+                        self.callback(
+                            "generation.result",
+                            {
+                                "generation_id": generation_id,
+                                "generation_name": generation_name,
+                                "token_usage": token_usage,
+                            },
+                        )
+                except Exception as e:
+                    # The callback is user-supplied; a failure in it must not skip
+                    # the cleanup below (or the container/evaluator cleanup after).
+                    scribe().warning(
+                        "[MaximSDK] generation.result callback raised: %s", e
+                    )
+                finally:
+                    # Clean up the store entry to prevent leaks, whether or not a
+                    # callback is configured and whether or not it raised.
+                    self.generation_container_store.delete(str(run_id))
             # Remove mapping for this run_id when top-level (do not end here)
             if container.parent() is None:
                 self.container_manager.remove_run_id_mapping(str(run_id))
@@ -499,9 +509,9 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 except Exception:
                     pass
             # check if need to attach evaluator
-            if self.to_be_evaluated_container_store.get(str(run_id)):
-                obj = self.to_be_evaluated_container_store.get(str(run_id))
-                if obj:
+            obj = self.to_be_evaluated_container_store.get(str(run_id))
+            if obj:
+                try:
                     generation_container: Generation = obj["generation_container"]
                     output = None
                     tool_call_name = None
@@ -539,6 +549,9 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     generation_container.evaluate().with_evaluators(
                         *obj["evaluators"]
                     ).with_variables(variable_dict)
+                finally:
+                    # Clean up the store entry to prevent leaks
+                    self.to_be_evaluated_container_store.delete(str(run_id))
         except Exception as e:
             import traceback
 
@@ -790,15 +803,37 @@ class MaximLangchainTracer(BaseCallbackHandler):
             if container is None:
                 scribe().error("[MaximSDK] Couldn't find a container for chain")
                 return
-            chain_error = parse_langchain_llm_error(error)
-            container.add_error(
-                {
-                    "id": str(run_id),
-                    "message": chain_error.message,
-                    "type": chain_error.type,
-                    "code": chain_error.code,
-                }
-            )
+            try:
+                chain_error = parse_langchain_llm_error(error)
+                container.add_error(
+                    {
+                        "id": str(run_id),
+                        "message": chain_error.message,
+                        "type": chain_error.type,
+                        "code": chain_error.code,
+                    }
+                )
+            finally:
+                # Clean up the run_id mapping to prevent leaks, symmetric with
+                # on_chain_end. This runs even if parsing or add_error fails.
+                # Failures below surface via the outer handler rather than being
+                # silently swallowed.
+                self.container_manager.remove_run_id_mapping(str(run_id))
+                # If this is a top-level chain (no parent), also end the root trace
+                if parent_run_id is None:
+                    parent_container = self.container_manager.pop_root_trace(
+                        str(run_id)
+                    )
+                    if parent_container is not None:
+                        parent_container.end()
+                        if self.callback is not None:
+                            self.callback(
+                                "trace.ended",
+                                {
+                                    "trace_id": parent_container.id(),
+                                    "trace_name": parent_container.name(),
+                                },
+                            )
         except Exception as e:
             import traceback
 

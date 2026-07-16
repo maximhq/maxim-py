@@ -337,7 +337,9 @@ def parse_langchain_generation_chunk(generation: GenerationChunk):
 
 def parse_langchain_text_generation(generation: Generation):
     choices = []
-    messages = parse_langchain_messages([generation.text], "system")
+    # parse_langchain_messages returns a (messages, attachments) tuple; text
+    # generations carry no attachments so we only need the messages list.
+    messages, _ = parse_langchain_messages([generation.text], "system")
     if len(messages) > 0:
         for i, message in enumerate(messages):
             choices.append(
