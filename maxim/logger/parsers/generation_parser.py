@@ -1,5 +1,10 @@
+import datetime
+import decimal
 import enum
 import json
+import pathlib
+import types
+import uuid
 from typing import Any, Dict, List, Optional
 
 # A bit of workaround to make sure there are no breakages when openai is not installed
@@ -219,13 +224,69 @@ def default_json_serializer(o: Any) -> Any:
     """
     if isinstance(o, enum.Enum):
         return o.value
-    if hasattr(o, "to_dict"):
+    # Read-only dict wrappers (e.g. a class' __dict__) are not JSON serializable
+    # by default.
+    if isinstance(o, types.MappingProxyType):
+        return dict(o)
+    # Classes must be handled before the instance-method branches below, since
+    # those methods exist on the class as unbound functions and would raise if
+    # called without an instance. A model *class* is how structured-output
+    # formats are usually declared (e.g. response_format=MyModel), and its
+    # schema is the meaningful representation.
+    if isinstance(o, type):
+        # pydantic v2 model class
+        if callable(getattr(o, "model_json_schema", None)):
+            return o.model_json_schema()
+        # pydantic v1 model class
+        if callable(getattr(o, "schema", None)):
+            return o.schema()
+        return {"type": o.__name__}
+    if isinstance(o, (datetime.datetime, datetime.date, datetime.time)):
+        return o.isoformat()
+    if isinstance(o, datetime.timedelta):
+        return o.total_seconds()
+    if isinstance(o, decimal.Decimal):
+        return float(o)
+    if isinstance(o, uuid.UUID):
+        return str(o)
+    if isinstance(o, pathlib.PurePath):
+        return str(o)
+    if isinstance(o, (set, frozenset)):
+        return list(o)
+    if isinstance(o, (bytes, bytearray)):
+        return o.decode("utf-8", errors="replace")
+    if callable(getattr(o, "to_dict", None)):
         return o.to_dict()
+    # Pydantic v2 model instances expose model_dump().
+    if callable(getattr(o, "model_dump", None)):
+        return o.model_dump()
+    # numpy scalars and arrays (duck-typed, so numpy stays an optional import).
+    # tolist() covers both and returns native python types.
+    if callable(getattr(o, "tolist", None)):
+        return o.tolist()
+    # Functions and exceptions would otherwise fall through to vars() and
+    # serialize as a misleading empty dict, so describe them instead.
+    if isinstance(
+        o, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)
+    ):
+        return {"type": getattr(o, "__name__", "function")}
+    if isinstance(o, BaseException):
+        return {"type": type(o).__name__, "message": str(o)}
 
     try:
         return vars(o)
     except TypeError:
         pass
+
+    # Objects using __slots__ have no __dict__, so vars() above fails on them.
+    slots: List[str] = []
+    for klass in type(o).__mro__:
+        klass_slots = getattr(klass, "__slots__", ())
+        if isinstance(klass_slots, str):
+            klass_slots = (klass_slots,)
+        slots.extend(klass_slots)
+    if slots:
+        return {s: getattr(o, s) for s in slots if hasattr(o, s)}
 
     raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
 
