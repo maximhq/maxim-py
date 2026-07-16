@@ -182,6 +182,11 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.19
+
+- fix: adds robust handling for generation parser for different types
+- fix: addresses memory leak issues in `MaximLangchainTracer`
+
 ### 3.14.18
 
 - fix: Fixes thinking block duplication in generations.
