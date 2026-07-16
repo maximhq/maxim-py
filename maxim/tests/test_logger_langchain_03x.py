@@ -446,7 +446,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         logger = self.maxim.logger(LoggerConfig(id=repoId))
         model = AnthropicLLM(
             api_key=anthropicApiKey,
-            model_name="claude-3-5-sonnet-20240620",
+            model_name="claude-sonnet-5",
             callbacks=[MaximLangchainTracer(logger)],
         )
         messages = [
@@ -465,7 +465,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         model = ChatAnthropic(
             api_key=anthropicApiKey,
             callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-5-sonnet-20240620",
+            model_name="claude-sonnet-5",
             timeout=10,
             stop=None,
         )
@@ -485,7 +485,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         model = ChatAnthropic(
             api_key=anthropicApiKey,
             callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-5-sonnet-20240620",
+            model_name="claude-sonnet-5",
             timeout=10,
             stop=None,
             stream_usage=True,
@@ -571,7 +571,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         model = ChatAnthropic(
             api_key=anthropicApiKey,
             callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-5-sonnet-20240620",
+            model_name="claude-sonnet-5",
             timeout=10,
             stop=None,
         )
@@ -592,7 +592,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         model = ChatAnthropic(
             api_key=anthropicApiKey,
             callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-sonnet-20240229",
+            model_name="claude-sonnet-5",
             timeout=10,
             stop=None,
         )
@@ -612,7 +612,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         model = ChatAnthropic(
             api_key=anthropicApiKey,
             callbacks=[MaximLangchainTracer(logger)],
-            model_name="claude-3-haiku-20240307",
+            model_name="claude-haiku-4-5",
             timeout=10,
             stop=None,
         )
@@ -1080,7 +1080,7 @@ class TestLoggingUsingLangchain(unittest.TestCase):
         model = ChatOpenAI(
             callbacks=[tracer],
             api_key=openAIKey,
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             temperature=0,
         )
 

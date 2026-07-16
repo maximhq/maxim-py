@@ -4,6 +4,7 @@ This module contains data models used for tracking and logging LangChain operati
 including metadata storage and run information.
 """
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
@@ -535,6 +536,15 @@ class SessionContainer(Container):
         self._logger.session_end(self._id)
 
 
+# Backstop TTL (seconds) after which a run_id mapping is considered abandoned
+# and swept. This is only a safety net for runs whose terminal callback
+# (on_*_end / on_*_error) never fires - e.g. a cancelled stream or a client
+# disconnect. It is refreshed on every access, so genuinely active (even very
+# long-running) traces are never evicted. Set generously to avoid dropping a
+# slow-but-live run. 2 hours.
+CONTAINER_MAPPING_TTL = 60 * 60 * 2
+
+
 class ContainerManager:
     """
     Manages mapping between LangChain run IDs and Maxim containers (trace/span).
@@ -542,29 +552,69 @@ class ContainerManager:
     This mirrors the behavior of the JS ContainerManager used by the Maxim LangChain tracer,
     ensuring we never overwrite a parent trace container mapping with a child span container
     and allowing proper lifecycle management.
+
+    Each mapping is timestamped so that runs which never reach a terminal callback
+    (cancelled streams, client disconnects, exceptions raised inside LangChain before
+    the end event) cannot accumulate indefinitely. Timestamps are refreshed on access
+    and expired entries are swept on writes.
     """
 
-    def __init__(self) -> None:
-        # Map a run_id (as string) to its current container (TraceContainer or SpanContainer)
-        self._run_id_to_container: dict[str, Container] = {}
-        # Track top-level root trace containers keyed by the originating run_id (no parent)
-        self._root_run_id_to_trace: dict[str, TraceContainer] = {}
+    def __init__(self, ttl_seconds: int = CONTAINER_MAPPING_TTL) -> None:
+        # Map a run_id (as string) to (container, last_touched_epoch)
+        self._run_id_to_container: dict[str, tuple[Container, float]] = {}
+        # Track top-level root trace containers keyed by run_id -> (trace, last_touched_epoch)
+        self._root_run_id_to_trace: dict[str, tuple[TraceContainer, float]] = {}
+        self._ttl_seconds = ttl_seconds
+
+    def _sweep_expired(self) -> None:
+        """Remove mappings that have not been touched within the TTL window."""
+        cutoff = time.time() - self._ttl_seconds
+        expired_runs = [
+            run_id
+            for run_id, (_, touched) in self._run_id_to_container.items()
+            if touched < cutoff
+        ]
+        for run_id in expired_runs:
+            del self._run_id_to_container[run_id]
+        expired_roots = [
+            run_id
+            for run_id, (_, touched) in self._root_run_id_to_trace.items()
+            if touched < cutoff
+        ]
+        for run_id in expired_roots:
+            del self._root_run_id_to_trace[run_id]
 
     def get_container(self, run_id: str) -> Optional[Container]:
-        return self._run_id_to_container.get(run_id)
+        entry = self._run_id_to_container.get(run_id)
+        if entry is None:
+            return None
+        container, _ = entry
+        # Refresh the timestamp so active runs are never swept.
+        self._run_id_to_container[run_id] = (container, time.time())
+        return container
 
     def set_container(self, run_id: str, container: Container) -> None:
-        self._run_id_to_container[run_id] = container
+        self._run_id_to_container[run_id] = (container, time.time())
+        self._sweep_expired()
 
     def remove_run_id_mapping(self, run_id: str) -> None:
-        if run_id in self._run_id_to_container:
-            _ = self._run_id_to_container.pop(run_id)
+        self._run_id_to_container.pop(run_id, None)
 
     def set_root_trace(self, run_id: str, trace_container: TraceContainer) -> None:
-        self._root_run_id_to_trace[run_id] = trace_container
+        self._root_run_id_to_trace[run_id] = (trace_container, time.time())
+        self._sweep_expired()
 
     def get_root_trace(self, run_id: str) -> Optional[TraceContainer]:
-        return self._root_run_id_to_trace.get(run_id)
+        entry = self._root_run_id_to_trace.get(run_id)
+        if entry is None:
+            return None
+        trace_container, _ = entry
+        self._root_run_id_to_trace[run_id] = (trace_container, time.time())
+        return trace_container
 
     def pop_root_trace(self, run_id: str) -> Optional[TraceContainer]:
-        return self._root_run_id_to_trace.pop(run_id, None)
+        entry = self._root_run_id_to_trace.pop(run_id, None)
+        if entry is None:
+            return None
+        trace_container, _ = entry
+        return trace_container
