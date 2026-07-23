@@ -182,6 +182,15 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.20
+
+- fix: Fixes `mappingproxy` serialization errors in log payloads by unifying scalar handling across both log serializers
+- fix: Compacts `modelParameters` serialization - class references now serialize as type names instead of full JSON schemas, and duplicated structured-output schemas are collapsed (~10x smaller generation payloads)
+- fix: Fixes remaining container and generation store leaks in `MaximLangchainTracer` for runs passing `session_id` metadata; adds missing `on_retriever_error` handler and root trace cleanup on tool and retriever runs
+- fix: Bounds log writer memory when the backend is slower than the log rate by spilling overflow batches to disk and replaying them later (no logs are dropped)
+- fix: Hardens spilled log replay - unique spill filenames, quarantine of persistently failing files as `.failed`, and `raise_exceptions` now propagates replay failures
+- feat: Adds `MAXIM_CONTAINER_MAPPING_TTL_SECONDS` and `MAXIM_GENERATION_STORE_TTL_SECONDS` env variables to tune the idle-container cleanup TTL (default raised to 1 hour, refreshed on activity so long-running traces are never swept mid-run)
+
 ### 3.14.19
 
 - fix: adds robust handling for generation parser for different types
