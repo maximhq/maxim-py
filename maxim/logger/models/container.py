@@ -12,6 +12,7 @@ from typing_extensions import override
 
 from typing import Union
 
+from ...env_config import env_int
 from ...scribe import scribe
 from ..__init__ import (
     ErrorConfig,
@@ -538,11 +539,29 @@ class SessionContainer(Container):
 
 # Backstop TTL (seconds) after which a run_id mapping is considered abandoned
 # and swept. This is only a safety net for runs whose terminal callback
-# (on_*_end / on_*_error) never fires - e.g. a cancelled stream or a client
-# disconnect. It is refreshed on every access, so genuinely active (even very
-# long-running) traces are never evicted. Set generously to avoid dropping a
-# slow-but-live run. 2 hours.
-CONTAINER_MAPPING_TTL = 60 * 60 * 2
+# (on_*_end / on_*_error) never fires - e.g. a cancelled stream, a client
+# disconnect, or a process killed mid-run.
+#
+# The timestamp is refreshed on every access, and every child callback touches
+# its parent, so the window only has to outlast the gap between two consecutive
+# callbacks of the same run - never the run's total duration. A multi-step
+# agent that keeps emitting callbacks is never evicted no matter how long it
+# runs. The one thing this window must exceed is a single leaf call (one LLM
+# generation or tool execution) that emits no callbacks while in flight, so an
+# active-but-slow trace is not swept out from under its own terminal callback.
+#
+# One hour by default: comfortably longer than any realistic single LLM or tool
+# call. Now that terminal callbacks release their mappings, the only entries
+# that actually reach this TTL are genuinely abandoned runs, whose volume is
+# tiny, so a generous window costs almost nothing in memory. Deployments with
+# legitimately long-idle (e.g. human-in-the-loop) traces can raise it via
+# MAXIM_CONTAINER_MAPPING_TTL_SECONDS.
+CONTAINER_MAPPING_TTL_ENV = "MAXIM_CONTAINER_MAPPING_TTL_SECONDS"
+DEFAULT_CONTAINER_MAPPING_TTL = 60 * 60
+
+
+def _default_container_ttl() -> int:
+    return env_int(CONTAINER_MAPPING_TTL_ENV, DEFAULT_CONTAINER_MAPPING_TTL, minimum=1)
 
 
 class ContainerManager:
@@ -559,12 +578,17 @@ class ContainerManager:
     and expired entries are swept on writes.
     """
 
-    def __init__(self, ttl_seconds: int = CONTAINER_MAPPING_TTL) -> None:
+    def __init__(self, ttl_seconds: Optional[int] = None) -> None:
         # Map a run_id (as string) to (container, last_touched_epoch)
         self._run_id_to_container: dict[str, tuple[Container, float]] = {}
         # Track top-level root trace containers keyed by run_id -> (trace, last_touched_epoch)
         self._root_run_id_to_trace: dict[str, tuple[TraceContainer, float]] = {}
-        self._ttl_seconds = ttl_seconds
+        # Read the env default lazily (at construction, not import) so it can be
+        # set by an embedding app or a test before the manager is created. An
+        # explicit ttl_seconds always wins.
+        self._ttl_seconds = (
+            ttl_seconds if ttl_seconds is not None else _default_container_ttl()
+        )
 
     def _sweep_expired(self) -> None:
         """Remove mappings that have not been touched within the TTL window."""

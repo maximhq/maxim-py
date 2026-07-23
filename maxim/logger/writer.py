@@ -22,6 +22,27 @@ from ..apis import MaximAPI
 from ..scribe import scribe
 from .components.types import CommitLog
 
+# Concurrent uploads of log batches. A single worker serialized every flush
+# behind one HTTP round trip, so any latency in the backend translated
+# directly into an unbounded in-memory backlog.
+FLUSH_WORKERS = 4
+
+# Batches allowed in the executor at once before further batches are spilled to
+# disk rather than queued in memory. This is what bounds memory when the
+# backend is slow or unreachable: logs are never dropped, they move to disk and
+# are replayed by flush_log_files.
+MAX_IN_FLIGHT_BATCHES = 5
+
+# Spilled files replayed per flush cycle. Replaying every file each cycle made
+# a large backlog re-read itself from scratch on every pass.
+MAX_REPLAY_FILES_PER_CYCLE = 20
+
+# Consecutive push failures after which a spilled file is quarantined rather
+# than retried forever. A file the server will never accept (malformed, or too
+# large for the endpoint) otherwise blocks every file behind it and is fully
+# re-read into memory on every cycle.
+MAX_FILE_REPLAY_ATTEMPTS = 5
+
 
 class LogWriterConfig:
     """
@@ -92,7 +113,7 @@ class LogWriter:
         self.maxim_api = MaximAPI(config.base_url, config.api_key)
         self.queue = Queue()
         self.upload_queue = Queue()
-        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.executor = ThreadPoolExecutor(max_workers=FLUSH_WORKERS)
         self.upload_executor = ThreadPoolExecutor(max_workers=1)
         self.max_in_memory_logs = 100
         self.is_debug = config.is_debug
@@ -102,6 +123,18 @@ class LogWriter:
         )
         self.sinks: list[LogWriter] = []
         self.__flush_thread = None
+        # Number of batches handed to the executor and not yet finished. The
+        # executor's own queue is unbounded, so without this counter a backend
+        # that is slower than the log rate lets batches stack in memory until
+        # the process dies. Batches beyond the limit go to disk instead.
+        self.__in_flight = 0
+        self.__in_flight_lock = threading.Lock()
+        # flush_log_files may now run on several workers at once; without this
+        # two workers can read and push the same file, duplicating logs.
+        self.__file_replay_lock = threading.Lock()
+        # Consecutive push failures per spilled file, so that one file the
+        # server will never accept cannot block every file behind it forever.
+        self.__file_failures: dict[str, int] = {}
         try:
             os.makedirs(self.logs_dir, exist_ok=True)
         except Exception:
@@ -341,10 +374,16 @@ class LogWriter:
             Exception: If raise_exceptions is True and writing fails.
         """
         try:
-            filename = f"logs-{time.strftime('%Y-%m-%dT%H:%M:%SZ')}.log"
+            # The timestamp alone is only second-resolution and the file is
+            # opened truncating, so two spills within the same second used to
+            # overwrite each other - losing a whole batch precisely when the
+            # backend was struggling and spills were most frequent.
+            filename = (
+                f"logs-{time.strftime('%Y-%m-%dT%H:%M:%SZ')}-{uuid.uuid4().hex[:8]}.log"
+            )
             filepath = os.path.join(self.logs_dir, filename)
             scribe().info(f"[MaximSDK] Writing logs to file: {filename}")
-            with open(filepath, "w") as file:
+            with open(filepath, "x") as file:
                 for log in logs:
                     file.write(log.serialize() + "\n")
             return filepath
@@ -356,6 +395,39 @@ class LogWriter:
                 raise e
             return None
 
+    def __record_replay_failure(self, file: str, filepath: str, error: Exception) -> bool:
+        """
+        Count one failed replay attempt for ``file`` and quarantine it once it
+        has exhausted MAX_FILE_REPLAY_ATTEMPTS.
+
+        Returns:
+            bool: True when the file was quarantined (renamed to ``.failed``),
+                so the caller should move on to the next file.
+        """
+        attempts = self.__file_failures.get(file, 0) + 1
+        self.__file_failures[file] = attempts
+        if attempts < MAX_FILE_REPLAY_ATTEMPTS:
+            return False
+        # Park it under a name this loop no longer picks up. The data stays
+        # on disk for inspection rather than being deleted, but it stops
+        # blocking every file behind it and stops being re-read every cycle.
+        self.__file_failures.pop(file, None)
+        try:
+            os.rename(filepath, filepath + ".failed")
+            scribe().error(
+                "[MaximSDK] Giving up on spilled log file %s after "
+                "%s attempts; kept as %s.failed. Last error: %s",
+                file,
+                attempts,
+                file,
+                error,
+            )
+        except Exception:
+            scribe().error(
+                f"[MaximSDK] Failed to quarantine log file {file}: {error}"
+            )
+        return True
+
     def flush_log_files(self):
         """
         Flush logs from files to the Maxim API.
@@ -366,24 +438,71 @@ class LogWriter:
         Raises:
             Exception: If raise_exceptions is True and an error occurs.
         """
+        # Several flush workers can reach this concurrently; without the lock
+        # two of them read and push the same file, duplicating those logs.
+        if not self.__file_replay_lock.acquire(blocking=False):
+            return
         try:
-            if not os.path.exists(self.logs_dir):
+            # Only the directory listing is guarded here: every failure inside
+            # the replay loop below is handled per-file, and a deliberate
+            # raise_exceptions re-raise must propagate rather than being
+            # swallowed as a filesystem warning.
+            try:
+                if not os.path.exists(self.logs_dir):
+                    return
+                files = sorted(
+                    f for f in os.listdir(self.logs_dir) if f.endswith(".log")
+                )
+            except Exception as e:
+                scribe().warning(
+                    f"[MaximSDK] Failed to access filesystem. Error: {e}"
+                )
                 return
-            files = os.listdir(self.logs_dir)
+            if len(files) > MAX_REPLAY_FILES_PER_CYCLE:
+                scribe().warning(
+                    "[MaximSDK] %s spilled log files pending; replaying %s this "
+                    "cycle, the rest follow on later cycles.",
+                    len(files),
+                    MAX_REPLAY_FILES_PER_CYCLE,
+                )
+                files = files[:MAX_REPLAY_FILES_PER_CYCLE]
             for file in files:
-                with open(os.path.join(self.logs_dir, file), "r") as f:
-                    logs = f.read()
+                filepath = os.path.join(self.logs_dir, file)
                 try:
-                    self.maxim_api.push_logs(self.config.repository_id, logs)
-                    os.remove(os.path.join(self.logs_dir, file))
+                    with open(filepath, "r") as f:
+                        logs = f.read()
                 except Exception as e:
                     scribe().warning(
-                        f"[MaximSDK] Failed to access filesystem. Error: {e}"
+                        f"[MaximSDK] Failed to read spilled log file {file}. Error: {e}"
+                    )
+                    # An unreadable file counts against the same attempt budget
+                    # as an unpushable one; otherwise it is retried forever and
+                    # occupies one of the MAX_REPLAY_FILES_PER_CYCLE slots on
+                    # every cycle.
+                    self.__record_replay_failure(file, filepath, e)
+                    continue
+                try:
+                    self.maxim_api.push_logs(self.config.repository_id, logs)
+                    os.remove(filepath)
+                    self.__file_failures.pop(file, None)
+                except Exception as e:
+                    if self.__record_replay_failure(file, filepath, e):
+                        continue
+                    scribe().warning(
+                        "[MaximSDK] Failed to push spilled log file %s "
+                        "(attempt %s/%s). Error: %s",
+                        file,
+                        self.__file_failures[file],
+                        MAX_FILE_REPLAY_ATTEMPTS,
+                        e,
                     )
                     if self.raise_exceptions:
-                        raise Exception(e)
-        except Exception as e:
-            scribe().warning(f"[MaximSDK] Failed to access filesystem. Error: {e}")
+                        raise Exception(e) from e
+                    # Stop this cycle: the backend is unhappy, and hammering it
+                    # with the remaining files achieves nothing.
+                    break
+        finally:
+            self.__file_replay_lock.release()
 
     def can_access_filesystem(self):
         """
@@ -593,6 +712,35 @@ class LogWriter:
                 self.upload_attachments(items)
         scribe().debug(f"[MaximSDK] Flushed {len(items)} attachments")
 
+    def __should_spill_instead_of_submitting(self) -> bool:
+        """
+        True when the executor already holds its limit of unfinished batches.
+        """
+        with self.__in_flight_lock:
+            return self.__in_flight >= MAX_IN_FLIGHT_BATCHES
+
+    def __submit_flush(self, items: "list[CommitLog]") -> None:
+        """
+        Hand a batch to the executor, tracking it so the backlog stays bounded.
+        """
+        with self.__in_flight_lock:
+            self.__in_flight += 1
+
+        def run():
+            try:
+                self.flush_logs(items)
+            finally:
+                with self.__in_flight_lock:
+                    self.__in_flight -= 1
+
+        try:
+            self.executor.submit(run)
+        except Exception:
+            # submit() failed, so run() will never decrement the counter.
+            with self.__in_flight_lock:
+                self.__in_flight -= 1
+            raise
+
     def flush_commit_logs(self, is_sync=False):
         """
         Flush all queued commit logs to the Maxim API.
@@ -610,14 +758,32 @@ class LogWriter:
         scribe().debug(
             f"[MaximSDK] Flushing logs to server {time.strftime('%Y-%m-%dT%H:%M:%S')} with {len(items)} items"
         )
-        for item in items:
-            scribe().debug(f"[MaximSDK] {item.serialize()[:1000]}")
+        if self.is_debug:
+            # serialize() is not free, and the f-string built its result for
+            # every log on every flush even with debug logging switched off.
+            for item in items:
+                scribe().debug(f"[MaximSDK] {item.serialize()[:1000]}")
         # if we are running on lambda - we will flush without submitting to the executor
         if self.is_running_on_lambda() or is_sync:
             self.flush_logs(items)
+        elif self.__should_spill_instead_of_submitting():
+            # The executor is saturated. Its internal queue is unbounded, so
+            # submitting anyway is how a slow backend turns into an OOM. Spill
+            # to disk instead: nothing is dropped, and flush_log_files replays
+            # these once the backend keeps up again.
+            scribe().warning(
+                "[MaximSDK] %s log batches already in flight; writing this batch "
+                "to disk to bound memory. It will be retried on a later flush.",
+                MAX_IN_FLIGHT_BATCHES,
+            )
+            if self.write_to_file(items) is None:
+                # No filesystem to spill to. Submitting is worse than blocking
+                # here, so push synchronously and let backpressure reach the
+                # caller rather than growing the backlog without limit.
+                self.flush_logs(items)
         else:
             try:
-                self.executor.submit(self.flush_logs, items)
+                self.__submit_flush(items)
             except Exception as e:
                 scribe().warning(
                     f"[MaximSDK] Error while flushing logs from worker. Error: {e}.\nFlushing synchronously"
