@@ -29,6 +29,7 @@ from ...logger import (
     ToolCallConfigDict,
     ToolCallErrorDict,
 )
+from ...env_config import env_int
 from ...scribe import scribe
 from ..__init__ import Generation
 from ..models import Container, Metadata, SpanContainer, TraceContainer
@@ -42,8 +43,20 @@ from .utils import (
     parse_langchain_provider,
 )
 
-# 20 minutes
-DEFAULT_TIMEOUT = 60 * 20
+# Retention for the generation and to-be-evaluated stores. These hold a
+# Generation between its start and end callbacks so the `generation.result`
+# event can be emitted and any evaluator attached. Unlike the container TTL
+# this is an absolute expiry from the start callback (it is not refreshed), so
+# it must exceed the longest single generation for the result callback to still
+# fire. One hour by default, matching the container TTL; overridable via
+# MAXIM_GENERATION_STORE_TTL_SECONDS.
+GENERATION_STORE_TTL_ENV = "MAXIM_GENERATION_STORE_TTL_SECONDS"
+DEFAULT_GENERATION_STORE_TTL = 60 * 60
+
+
+def _default_generation_store_ttl() -> int:
+    return env_int(GENERATION_STORE_TTL_ENV, DEFAULT_GENERATION_STORE_TTL, minimum=1)
+
 
 tracer_callback_type = Callable[[str, Any], None]
 
@@ -80,6 +93,8 @@ class MaximLangchainTracer(BaseCallbackHandler):
             ExpiringKeyValueStore()
         )
         self.generation_container_store: ExpiringKeyValueStore = ExpiringKeyValueStore()
+        # Read once per tracer so the env override is picked up at construction.
+        self._generation_store_ttl: int = _default_generation_store_ttl()
         self.metadata: Union[dict[str, Any], None] = None
         self.eval_config: Union[dict[str, list[str]], None] = eval_config
         self.callback: Union[tracer_callback_type, None] = callback
@@ -238,6 +253,41 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 container = trace_container
         return container
 
+    def __release_top_level_run(
+        self, run_id: UUID, parent_run_id: Optional[UUID] = None
+    ) -> None:
+        """
+        Releases the container mapping registered for a top-level run and ends
+        its trace.
+
+        Cleanup is keyed on `parent_run_id is None` - i.e. "did this run create
+        the mapping" - and never on `container.parent()`. A trace created with
+        a session_id has a non-None parent while still being the run that owns
+        the mapping, so gating on the container's parent leaked every mapping
+        for anyone passing metadata={"maxim": {"session_id": ...}}, which is the
+        common shape for a chat application.
+
+        Removal uses the same key the registration used, so this is a no-op for
+        child runs, whose container belongs to the parent and must outlive them.
+        """
+        if parent_run_id is not None:
+            return
+        self.container_manager.remove_run_id_mapping(str(run_id))
+        root = self.container_manager.pop_root_trace(str(run_id))
+        if root is None:
+            return
+        root.end()
+        if self.callback is not None:
+            try:
+                self.callback(
+                    "trace.ended",
+                    {"trace_id": root.id(), "trace_name": root.name()},
+                )
+            except Exception as e:
+                # User-supplied callback; its failure must not propagate now
+                # that the mapping has already been released.
+                scribe().warning("[MaximSDK] trace.ended callback raised: %s", e)
+
     def __get_metadata(
         self, metadata: Optional[Dict[str, Any]] = None
     ) -> Optional[Metadata]:
@@ -301,7 +351,11 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 return
             if not container.is_created():
                 container.create()
-            if container.parent() is None:
+            # Register under this run_id only when this run is the top-level
+            # one, so that registration and teardown use the same key and the
+            # same condition. Gating on container.parent() instead registered a
+            # parent's container under a child's run_id.
+            if parent_run_id is None:
                 self.container_manager.set_container(str(run_id), container)
                 if isinstance(container, TraceContainer):
                     self.container_manager.set_root_trace(str(run_id), container)
@@ -314,7 +368,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
             generation_container = container.add_generation(generation_config)
             # Store generation container for callback
             self.generation_container_store.set(
-                str(run_id), generation_container, DEFAULT_TIMEOUT
+                str(run_id), generation_container, self._generation_store_ttl
             )
             if len(attachments) > 0:
                 for attachment in attachments:
@@ -338,7 +392,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     "input": last_input_message,
                 }
                 self.to_be_evaluated_container_store.set(
-                    str(generation_container.id), eval_data, DEFAULT_TIMEOUT
+                    str(generation_container.id), eval_data, self._generation_store_ttl
                 )
         except Exception as e:
             import traceback
@@ -362,6 +416,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
             scribe().debug("[MaximSDK: Langchain] on_chat_model_start called")
             self._parse_metadata(metadata)
             run_id = kwargs.get("run_id", None)
+            parent_run_id = kwargs.get("parent_run_id", None)
             model, model_parameters = parse_langchain_model_parameters(**kwargs)
             provider = parse_langchain_provider(serialized)
             model, provider = parse_langchain_model_and_provider(model, provider)
@@ -391,7 +446,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     "tags": maxim_metadata.generation_tags if maxim_metadata else None,
                 }
             )
-            container = self.__get_container(run_id, kwargs.get("parent_run_id", None))
+            container = self.__get_container(run_id, parent_run_id)
             if container is None:
                 scribe().error(
                     "[MaximSDK][on_chat_model_start] Couldn't find a container for generation]"
@@ -399,7 +454,11 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 return
             if not container.is_created():
                 container.create()
-            if container.parent() is None:
+            # Register under this run_id only when this run is the top-level
+            # one, so that registration and teardown use the same key and the
+            # same condition. Gating on container.parent() instead registered a
+            # parent's container under a child's run_id.
+            if parent_run_id is None:
                 self.container_manager.set_container(str(run_id), container)
                 if isinstance(container, TraceContainer):
                     self.container_manager.set_root_trace(str(run_id), container)
@@ -415,7 +474,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     generation_container.add_attachment(attachment)
             # Store generation container for callback
             self.generation_container_store.set(
-                str(run_id), generation_container, DEFAULT_TIMEOUT
+                str(run_id), generation_container, self._generation_store_ttl
             )
             # checking if we need to attach evaluator
             if (
@@ -436,7 +495,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     "input": last_input_message,
                 }
                 self.to_be_evaluated_container_store.set(
-                    str(generation_container.id), eval_data, DEFAULT_TIMEOUT
+                    str(generation_container.id), eval_data, self._generation_store_ttl
                 )
         except Exception as e:
             import traceback
@@ -452,9 +511,9 @@ class MaximLangchainTracer(BaseCallbackHandler):
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> Any:
         """Run when LLM ends running."""
+        run_id = kwargs.get("run_id", None)
         try:
             scribe().debug("[MaximSDK][Langchain] on_llm_end called")
-            run_id = kwargs.get("run_id", None)
             parent_run_id = kwargs.get("parent_run_id", None)
             result = parse_langchain_llm_result(response)
             container = self.__get_container(run_id, parent_run_id)
@@ -491,23 +550,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     # Clean up the store entry to prevent leaks, whether or not a
                     # callback is configured and whether or not it raised.
                     self.generation_container_store.delete(str(run_id))
-            # Remove mapping for this run_id when top-level (do not end here)
-            if container.parent() is None:
-                self.container_manager.remove_run_id_mapping(str(run_id))
-                try:
-                    root = self.container_manager.pop_root_trace(str(run_id))
-                    if root is not None:
-                        root.end()
-                        if self.callback is not None:
-                            self.callback(
-                                "trace.ended",
-                                {
-                                    "trace_id": root.id(),
-                                    "trace_name": root.name(),
-                                },
-                            )
-                except Exception:
-                    pass
+            self.__release_top_level_run(run_id, parent_run_id)
             # check if need to attach evaluator
             obj = self.to_be_evaluated_container_store.get(str(run_id))
             if obj:
@@ -560,14 +603,23 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 e,
                 traceback.format_exc(),
             )
+        finally:
+            # Both stores hold a live Generation (and the input text) and are
+            # keyed by run_id, so they must be released on every exit from this
+            # handler - including the early return when no container is found,
+            # and any exception raised before the cleanup above is reached.
+            # Deletes are idempotent, so repeating them here is harmless.
+            if run_id is not None:
+                self.generation_container_store.delete(str(run_id))
+                self.to_be_evaluated_container_store.delete(str(run_id))
 
     def on_llm_error(
         self, error: Union[Exception, BaseException, KeyboardInterrupt], **kwargs: Any
     ) -> Any:
         """Run when LLM errors."""
+        run_id = kwargs.get("run_id", None)
         try:
             scribe().debug("[MaximSDK] on_llm_error called")
-            run_id = kwargs.get("run_id", None)
             parent_run_id = kwargs.get("parent_run_id", None)
             container = self.__get_container(run_id, parent_run_id)
             if container is None:
@@ -577,25 +629,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 return
             generation_error = parse_langchain_llm_error(error)
             self.logger.generation_error(str(run_id), generation_error)
-            # Clean up generation container store to prevent leaks
-            self.generation_container_store.delete(str(run_id))
-            # Remove mapping for this run_id when top-level (do not end here)
-            if container.parent() is None:
-                self.container_manager.remove_run_id_mapping(str(run_id))
-                try:
-                    root = self.container_manager.pop_root_trace(str(run_id))
-                    if root is not None:
-                        root.end()
-                        if self.callback is not None:
-                            self.callback(
-                                "trace.ended",
-                                {
-                                    "trace_id": root.id(),
-                                    "trace_name": root.name(),
-                                },
-                            )
-                except Exception:
-                    pass
+            self.__release_top_level_run(run_id, parent_run_id)
         except Exception as e:
             import traceback
 
@@ -604,6 +638,13 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 e,
                 traceback.format_exc(),
             )
+        finally:
+            # Symmetric with on_llm_end. The evaluator store was previously
+            # never cleaned on the error path at all, retaining a Generation
+            # and the input text for every failed call.
+            if run_id is not None:
+                self.generation_container_store.delete(str(run_id))
+                self.to_be_evaluated_container_store.delete(str(run_id))
 
     def on_retriever_start(
         self,
@@ -656,13 +697,57 @@ class MaximLangchainTracer(BaseCallbackHandler):
                 return
             documents_list: List[str] = [doc.page_content for doc in documents]
             self.logger.retrieval_output(str(run_id), documents_list)
-            if container.parent() is None:
-                self.container_manager.remove_run_id_mapping(str(run_id))
+            # Previously this removed the run_id mapping but never popped the
+            # root trace, so a retriever-rooted run leaked one entry in
+            # _root_run_id_to_trace and left the trace permanently open.
+            self.__release_top_level_run(run_id, parent_run_id)
         except Exception as e:
             import traceback
 
             scribe().error(
                 "[MaximSDK] Failed to process retriever-end: %s\n%s",
+                e,
+                traceback.format_exc(),
+            )
+
+    def on_retriever_error(
+        self,
+        error: Union[Exception, BaseException, KeyboardInterrupt],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        Run when Retriever errors.
+
+        Without this handler a failing retriever - a vector store timeout is
+        the common case - had no terminal callback at all, so the container and
+        root trace registered by on_retriever_start were never released.
+        """
+        try:
+            scribe().debug("[MaximSDK] on_retriever_error called")
+            container = self.__get_container(run_id, parent_run_id)
+            if container is None:
+                scribe().error("[MaximSDK] Couldn't find a container for retrieval")
+                return
+            try:
+                retrieval_error = parse_langchain_llm_error(error)
+                container.add_error(
+                    {
+                        "id": str(run_id),
+                        "message": retrieval_error.message,
+                        "type": retrieval_error.type,
+                        "code": retrieval_error.code,
+                    }
+                )
+            finally:
+                self.__release_top_level_run(run_id, parent_run_id)
+        except Exception as e:
+            import traceback
+
+            scribe().error(
+                "[MaximSDK] Failed to process retriever-error: %s\n%s",
                 e,
                 traceback.format_exc(),
             )
@@ -921,8 +1006,10 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     }
                 )
             )
-            if container.parent() is None:
+            if parent_run_id is None:
                 self.container_manager.set_container(str(run_id), container)
+                if isinstance(container, TraceContainer):
+                    self.container_manager.set_root_trace(str(run_id), container)
         except Exception as e:
             import traceback
 
@@ -971,8 +1058,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                         str(run_id), output.get("content", None)
                     )
 
-            if container.parent() is None:
-                self.container_manager.remove_run_id_mapping(str(run_id))
+            self.__release_top_level_run(run_id, parent_run_id)
         except Exception as e:
             import traceback
 
@@ -987,7 +1073,8 @@ class MaximLangchainTracer(BaseCallbackHandler):
     ) -> Any:
         try:
             run_id = kwargs.get("run_id", None)
-            container = self.__get_container(run_id, kwargs.get("parent_run_id", None))
+            parent_run_id = kwargs.get("parent_run_id", None)
+            container = self.__get_container(run_id, parent_run_id)
             if container is None:
                 scribe().error("[MaximSDK] Couldn't find a container for tool_call")
                 return
@@ -996,8 +1083,7 @@ class MaximLangchainTracer(BaseCallbackHandler):
                     str(run_id),
                     ToolCallErrorDict({"message": str(error), "code": "", "type": ""}),
                 )
-            if container.parent() is None:
-                self.container_manager.remove_run_id_mapping(str(run_id))
+            self.__release_top_level_run(run_id, parent_run_id)
         except Exception as e:
             import traceback
 

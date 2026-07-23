@@ -61,12 +61,13 @@ class TestDefaultJsonSerializer(unittest.TestCase):
             default_json_serializer(HasModelDump()), {"kind": "model_dump"}
         )
 
-    def test_pydantic_model_class_returns_json_schema(self):
+    def test_pydantic_model_class_returns_compact_descriptor(self):
         # A model *class* must not hit the model_dump() branch, which would
-        # call an unbound method and raise.
+        # call an unbound method and raise. It must also not expand into its
+        # full JSON schema: that is hundreds of bytes on every generation and
+        # no consumer reads it, so we record only the class name.
         result = default_json_serializer(Weather)
-        self.assertIsInstance(result, dict)
-        self.assertEqual(sorted(result["properties"].keys()), ["city", "temp"])
+        self.assertEqual(result, {"type": "Weather"})
 
     def test_pydantic_model_instance_still_uses_model_dump(self):
         self.assertEqual(
@@ -107,15 +108,17 @@ class TestDefaultJsonSerializer(unittest.TestCase):
         self.assertIsInstance(result, str)
         self.assertEqual(result, "�")
 
-    def test_plain_object_falls_back_to_vars(self):
+    def test_plain_object_is_described_not_expanded(self):
+        # An object that declares no serialization contract is recorded by
+        # type name. Walking vars(o) had no size bound: a parameter holding a
+        # client or callback manager expanded into a document far larger than
+        # the parameter itself, on every generation.
         self.assertEqual(
-            default_json_serializer(PlainObject()), {"a": 1, "b": "two"}
+            default_json_serializer(PlainObject()), {"type": "PlainObject"}
         )
 
-    def test_unserializable_object_raises_type_error(self):
-        with self.assertRaises(TypeError):
-            # a raw class' __dict__ contains C-level descriptors
-            default_json_serializer(object())
+    def test_unknown_object_is_described_not_raised(self):
+        self.assertEqual(default_json_serializer(object()), {"type": "object"})
 
 
 class TestStdlibScalarTypes(unittest.TestCase):
@@ -154,7 +157,7 @@ class TestStdlibScalarTypes(unittest.TestCase):
 class TestObjectShapes(unittest.TestCase):
     """Objects whose natural fallback would be lossy or wrong."""
 
-    def test_slotted_object_uses_slots(self):
+    def test_slotted_object_is_described_not_expanded(self):
         class Slotted:
             __slots__ = ("a", "b")
 
@@ -162,17 +165,7 @@ class TestObjectShapes(unittest.TestCase):
                 self.a = 1
                 self.b = 2
 
-        # vars() raises on __slots__ objects; must fall back to slot names.
-        self.assertEqual(default_json_serializer(Slotted()), {"a": 1, "b": 2})
-
-    def test_string_slots_are_handled(self):
-        class OneSlot:
-            __slots__ = "a"  # a bare string, not a tuple
-
-            def __init__(self):
-                self.a = 1
-
-        self.assertEqual(default_json_serializer(OneSlot()), {"a": 1})
+        self.assertEqual(default_json_serializer(Slotted()), {"type": "Slotted"})
 
     def test_function_is_named_not_empty_dict(self):
         def a_tool(city: str) -> str:
@@ -187,20 +180,15 @@ class TestObjectShapes(unittest.TestCase):
             {"type": "ValueError", "message": "bad"},
         )
 
-    def test_numpy_like_scalar_uses_tolist(self):
-        # duck-typed so numpy stays an optional dependency
-        class FakeScalar:
-            def tolist(self):
-                return 5
-
-        self.assertEqual(default_json_serializer(FakeScalar()), 5)
-
-    def test_numpy_like_array_uses_tolist(self):
+    def test_numpy_like_array_is_described_not_expanded(self):
+        # tolist() was the most expensive expansion in practice: a single
+        # embedding vector is ~1536 floats, tens of KB of JSON, on every
+        # generation. An array is not metadata about the call.
         class FakeArray:
             def tolist(self):
                 return [1, 2, 3]
 
-        self.assertEqual(default_json_serializer(FakeArray()), [1, 2, 3])
+        self.assertEqual(default_json_serializer(FakeArray()), {"type": "FakeArray"})
 
 
 class TestNotConsumedOrGuessed(unittest.TestCase):
@@ -213,13 +201,15 @@ class TestNotConsumedOrGuessed(unittest.TestCase):
         parse_model_parameters({"g": gen})
         self.assertEqual(list(gen), [0, 1, 2])
 
-    def test_circular_reference_is_skipped_not_raised(self):
+    def test_circular_reference_is_described_not_raised(self):
+        # The cycle is unreachable now that objects are not walked, but the
+        # shape must still not raise.
         class Circular:
             def __init__(self):
                 self.self_ref = self
 
         out = parse_model_parameters({"c": Circular(), "model": "gpt-4"})
-        self.assertNotIn("c", out)
+        self.assertEqual(json.loads(out["c"]), {"type": "Circular"})
         self.assertEqual(out["model"], "gpt-4")
 
     def test_raising_to_dict_is_skipped_not_raised(self):
@@ -268,12 +258,73 @@ class TestParseModelParameters(unittest.TestCase):
         # Regression: response_format=MyModel is the usual way structured output
         # is declared. vars() on the class yields a mappingproxy, which produced
         # the original "Object of type mappingproxy is not JSON serializable".
+        # It must serialize without raising, but compactly - see
+        # test_pydantic_model_class_response_format_stays_small.
         out = parse_model_parameters({"response_format": Weather, "model": "gpt-4"})
         self.assertIn("response_format", out)
-        self.assertEqual(
-            sorted(json.loads(out["response_format"])["properties"].keys()),
-            ["city", "temp"],
+        self.assertEqual(json.loads(out["response_format"]), {"type": "Weather"})
+
+    def test_pydantic_model_class_response_format_stays_small(self):
+        # Guards the 3.14.19 regression: expanding response_format into a full
+        # JSON schema inflated model parameters ~33x on every generation, which
+        # stalled the log writer and risked tripping the ingest per-line limit.
+        out = parse_model_parameters({"response_format": Weather, "model": "gpt-4"})
+        self.assertLess(len(out["response_format"]), 100)
+
+    def test_duplicate_structured_output_schema_is_collapsed(self):
+        # LangChain reports the same structured-output class in two places.
+        # Only one copy should be expanded.
+        out = parse_model_parameters(
+            {
+                "response_format": Weather,
+                "ls_structured_output_format": {
+                    "kwargs": {"method": "json_schema", "schema": Weather}
+                },
+            }
         )
+        ls_format = json.loads(out["ls_structured_output_format"])
+        self.assertEqual(ls_format["kwargs"]["method"], "json_schema")
+        self.assertEqual(ls_format["kwargs"]["schema"], "<same as response_format>")
+
+    def test_distinct_structured_output_schema_is_left_alone(self):
+        # A genuinely different schema in the second slot must survive.
+        class Other(BaseModel):
+            other: str
+
+        out = parse_model_parameters(
+            {
+                "response_format": Weather,
+                "ls_structured_output_format": {
+                    "kwargs": {"method": "json_schema", "schema": Other}
+                },
+            }
+        )
+        ls_format = json.loads(out["ls_structured_output_format"])
+        self.assertEqual(ls_format["kwargs"]["schema"], {"type": "Other"})
+
+    def test_oversized_parameter_is_replaced_with_placeholder(self):
+        # Objects are no longer walked, but native containers and explicit
+        # to_dict()/model_dump() results are still expanded and have no size
+        # bound of their own, so the cap remains the backstop.
+        class Big:
+            def to_dict(self):
+                return {f"k{i}": "x" * 500 for i in range(500)}
+
+        out = parse_model_parameters({"bound": Big(), "model": "gpt-4"})
+        self.assertEqual(out["model"], "gpt-4")
+        self.assertIn("bound", out)
+        self.assertLess(len(out["bound"]), 200)
+        self.assertIn("omitted", out["bound"])
+
+    def test_oversized_native_container_is_replaced_with_placeholder(self):
+        out = parse_model_parameters({"blob": {f"k{i}": "x" * 500 for i in range(500)}})
+        self.assertIn("omitted", out["blob"])
+
+    def test_parameter_just_under_cap_is_kept_whole(self):
+        # The cap must not disturb values that legitimately fit.
+        value = {"data": "x" * 1000}
+        out = parse_model_parameters({"payload": value})
+        self.assertEqual(json.loads(out["payload"]), value)
 
     def test_nested_values_are_serialized(self):
         # Nested is the common real shape; the serializer is applied recursively.
@@ -300,10 +351,11 @@ class TestParseModelParameters(unittest.TestCase):
         out = parse_model_parameters({"blob": b"hello"})
         self.assertEqual(json.loads(out["blob"]), "hello")
 
-    def test_unserializable_value_is_skipped_not_raised(self):
-        # Value that cannot be represented is skipped, other keys survive.
+    def test_unrepresentable_value_is_described_not_skipped(self):
+        # Recording the type is strictly better than dropping the key: the
+        # caller can see the parameter was set without us shipping its guts.
         out = parse_model_parameters({"bad": object(), "model": "gpt-4"})
-        self.assertNotIn("bad", out)
+        self.assertEqual(json.loads(out["bad"]), {"type": "object"})
         self.assertEqual(out["model"], "gpt-4")
 
 

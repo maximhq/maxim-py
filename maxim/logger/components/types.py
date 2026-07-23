@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, TypedDict, Union
 from typing_extensions import deprecated
 
 from ...scribe import scribe
+from ..parsers.json_safe import UNHANDLED, json_safe_scalar
 
 
 class Entity(Enum):
@@ -33,28 +34,46 @@ class CustomEncoder(json.JSONEncoder):
     """
 
     def default(self, o):
-        # Handle datetime objects
-        if isinstance(o, datetime):
-            return o.isoformat()
+        # Scalar conversions are shared with default_json_serializer. Keeping
+        # them in one place is what stops a type from being handled on the
+        # model-parameter path but raising here, on the payload path that every
+        # log line passes through - the shape of the original
+        # "Object of type mappingproxy is not JSON serializable" report.
+        converted = json_safe_scalar(o)
+        if converted is not UNHANDLED:
+            return converted
+
+        # Classes must be handled before the instance-method branches below.
+        # Those methods exist on the class as unbound functions, so calling
+        # them without an instance raises; and vars() of a class returns a
+        # mappingproxy, which used to re-enter default() and fail. A class in a
+        # payload is a type reference, not content, so name it.
+        if isinstance(o, type):
+            return {"type": o.__name__}
 
         # Handle any object with model_dump (newer Pydantic)
-        if hasattr(o, "model_dump") and callable(o.model_dump):
+        if callable(getattr(o, "model_dump", None)):
             return o.model_dump()
 
         # Handle any object with dict (older Pydantic)
-        if hasattr(o, "dict") and callable(o.dict):
+        if callable(getattr(o, "dict", None)):
             return o.dict()
 
         # Handle any object with to_dict
-        if hasattr(o, "to_dict") and callable(o.to_dict):
+        if callable(getattr(o, "to_dict", None)):
             return o.to_dict()
 
         # Handle any object with __dict__
+        #
+        # Unlike default_json_serializer, which records unknown objects by type
+        # name, this encoder expands them. It serializes the log payload -
+        # messages, results, metadata - where the object *is* the content, and
+        # collapsing a message to its type name would empty the log.
         if hasattr(o, "__dict__"):
             return vars(o)
 
         # Handle any object with _asdict (namedtuples)
-        if hasattr(o, "_asdict") and callable(o._asdict):
+        if callable(getattr(o, "_asdict", None)):
             return o._asdict()
 
         return super().default(o)

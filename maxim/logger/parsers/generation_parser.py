@@ -1,10 +1,5 @@
-import datetime
-import decimal
-import enum
 import json
-import pathlib
 import types
-import uuid
 from typing import Any, Dict, List, Optional
 
 # A bit of workaround to make sure there are no breakages when openai is not installed
@@ -16,6 +11,7 @@ except Exception:  # pragma: no cover
     Function = None  # type: ignore[assignment]
 
 from ...scribe import scribe
+from .json_safe import UNHANDLED, json_safe_scalar
 from .core import (
     validate_content,
     validate_optional_type,
@@ -222,50 +218,34 @@ def default_json_serializer(o: Any) -> Any:
     Returns:
         The serialized object.
     """
-    if isinstance(o, enum.Enum):
-        return o.value
-    # Read-only dict wrappers (e.g. a class' __dict__) are not JSON serializable
-    # by default.
-    if isinstance(o, types.MappingProxyType):
-        return dict(o)
+    # Scalar conversions are shared with CustomEncoder so that a type handled
+    # here cannot raise on the payload path (or vice versa).
+    converted = json_safe_scalar(o)
+    if converted is not UNHANDLED:
+        return converted
     # Classes must be handled before the instance-method branches below, since
     # those methods exist on the class as unbound functions and would raise if
     # called without an instance. A model *class* is how structured-output
-    # formats are usually declared (e.g. response_format=MyModel), and its
-    # schema is the meaningful representation.
+    # formats are usually declared (e.g. response_format=MyModel).
+    #
+    # We deliberately record only the class name, not its expanded JSON schema.
+    # A schema runs to hundreds of bytes on every generation, and nothing
+    # consumes it: it is stored in an opaque jsonb column, is never indexed,
+    # filtered or aggregated, and the UI renders model parameters via
+    # String(value) into a truncated cell. Expanding it here inflated payloads
+    # ~33x, which is enough to stall the log writer and, past the ingest
+    # 900KB-per-line limit, to get the whole log line dropped.
     if isinstance(o, type):
-        # pydantic v2 model class
-        if callable(getattr(o, "model_json_schema", None)):
-            return o.model_json_schema()
-        # pydantic v1 model class
-        if callable(getattr(o, "schema", None)):
-            return o.schema()
         return {"type": o.__name__}
-    if isinstance(o, (datetime.datetime, datetime.date, datetime.time)):
-        return o.isoformat()
-    if isinstance(o, datetime.timedelta):
-        return o.total_seconds()
-    if isinstance(o, decimal.Decimal):
-        return float(o)
-    if isinstance(o, uuid.UUID):
-        return str(o)
-    if isinstance(o, pathlib.PurePath):
-        return str(o)
-    if isinstance(o, (set, frozenset)):
-        return list(o)
-    if isinstance(o, (bytes, bytearray)):
-        return o.decode("utf-8", errors="replace")
+    # Explicit serialization contracts are honoured: an object that defines
+    # to_dict()/model_dump() is declaring how it wants to be represented, and
+    # the size cap in parse_model_parameters bounds the result.
     if callable(getattr(o, "to_dict", None)):
         return o.to_dict()
     # Pydantic v2 model instances expose model_dump().
     if callable(getattr(o, "model_dump", None)):
         return o.model_dump()
-    # numpy scalars and arrays (duck-typed, so numpy stays an optional import).
-    # tolist() covers both and returns native python types.
-    if callable(getattr(o, "tolist", None)):
-        return o.tolist()
-    # Functions and exceptions would otherwise fall through to vars() and
-    # serialize as a misleading empty dict, so describe them instead.
+    # Functions and exceptions are described rather than expanded.
     if isinstance(
         o, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)
     ):
@@ -273,22 +253,17 @@ def default_json_serializer(o: Any) -> Any:
     if isinstance(o, BaseException):
         return {"type": type(o).__name__, "message": str(o)}
 
-    try:
-        return vars(o)
-    except TypeError:
-        pass
-
-    # Objects using __slots__ have no __dict__, so vars() above fails on them.
-    slots: List[str] = []
-    for klass in type(o).__mro__:
-        klass_slots = getattr(klass, "__slots__", ())
-        if isinstance(klass_slots, str):
-            klass_slots = (klass_slots,)
-        slots.extend(klass_slots)
-    if slots:
-        return {s: getattr(o, s) for s in slots if hasattr(o, s)}
-
-    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
+    # Anything else is described, not structurally expanded.
+    #
+    # We previously walked objects that declare no serialization contract:
+    # vars(o), a __slots__ fallback, and a duck-typed tolist() hook, with
+    # json.dumps recursing into whatever came back. That has no size bound. A
+    # parameter holding a client or a callback manager expands into a document
+    # orders of magnitude larger than the parameter itself, and tolist() turns
+    # a single embedding vector into tens of KB - on every generation. Model
+    # parameters are metadata about a call, so for an object that never said
+    # how to serialize itself, the type name is the part worth keeping.
+    return {"type": type(o).__name__}
 
 
 def is_openai_response_structure(data: Any) -> bool:
@@ -605,6 +580,66 @@ def parse_messages(messages: List[Any]) -> List[Any]:
     return [parse_message(message) for message in messages]
 
 
+# Backstop on the serialized size of a single model parameter. The serializer
+# falls back to vars(o), which json.dumps then walks recursively, so a parameter
+# holding an ordinary object (a bound client, a callback manager) can expand
+# into an arbitrarily large document. Set high enough that no real parameter
+# reaches it - this guards the runaway walk, it is not a general size policy.
+MAX_SERIALIZED_PARAM_BYTES = 64 * 1024
+
+
+def _dumps_capped(value: Any, max_bytes: int) -> Optional[str]:
+    """
+    Serialize a value, abandoning the attempt once it exceeds max_bytes.
+
+    Uses iterencode so an oversized object graph is abandoned partway through
+    rather than fully materialized and then measured. That bounds the peak
+    memory and CPU of the walk, not just the size of the retained result.
+
+    Returns None if the value does not fit.
+    """
+    encoder = json.JSONEncoder(default=default_json_serializer)
+    chunks: List[str] = []
+    total = 0
+    for chunk in encoder.iterencode(value):
+        total += len(chunk)
+        if total > max_bytes:
+            return None
+        chunks.append(chunk)
+    return "".join(chunks)
+
+
+def _collapse_duplicate_structured_output_schema(
+    parameters: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Drop the structured-output schema that LangChain reports twice.
+
+    For structured output LangChain populates both `response_format` and
+    `ls_structured_output_format.kwargs.schema` with the *same* object, so both
+    expand to the same value. We keep `response_format` and replace the
+    duplicate with a reference, retaining the surrounding `method` field.
+
+    Compares by identity, so a genuinely different schema in either slot is
+    left alone. Returns a shallow copy; the caller's dict is not mutated.
+    """
+    response_format = parameters.get("response_format")
+    ls_format = parameters.get("ls_structured_output_format")
+    if response_format is None or not isinstance(ls_format, dict):
+        return parameters
+    kwargs = ls_format.get("kwargs")
+    if not isinstance(kwargs, dict) or "schema" not in kwargs:
+        return parameters
+    if kwargs["schema"] is not response_format:
+        return parameters
+    collapsed = dict(parameters)
+    collapsed["ls_structured_output_format"] = {
+        **ls_format,
+        "kwargs": {**kwargs, "schema": "<same as response_format>"},
+    }
+    return collapsed
+
+
 def parse_model_parameters(parameters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Parse model parameters from a dictionary.
@@ -618,6 +653,7 @@ def parse_model_parameters(parameters: Optional[Dict[str, Any]]) -> Dict[str, An
     # convert parameters dict into JSON string
     if parameters is None:
         return {}
+    parameters = _collapse_duplicate_structured_output_schema(parameters)
     new_parameters = {}
     # we will go through each key and make sure it is a string
     # if not we will do json.dumps on it
@@ -626,11 +662,25 @@ def parse_model_parameters(parameters: Optional[Dict[str, Any]]) -> Dict[str, An
             continue
         if not isinstance(value, str):
             try:
-                new_parameters[key] = json.dumps(value, default=default_json_serializer)
+                serialized = _dumps_capped(value, MAX_SERIALIZED_PARAM_BYTES)
             except Exception as e:
                 scribe().warning(
                     f'[MaximSDK] Failed to stringify model_parameters key - "{key}": {e}. Skipping it'
                 )
+                continue
+            if serialized is None:
+                # Record that the parameter was present rather than dropping it
+                # silently, but do not ship an unbounded payload for it.
+                scribe().warning(
+                    f'[MaximSDK] model_parameters key - "{key}" exceeds '
+                    f"{MAX_SERIALIZED_PARAM_BYTES} bytes serialized. "
+                    "Logging a placeholder instead."
+                )
+                serialized = json.dumps(
+                    f"<omitted: {type(value).__name__} exceeds "
+                    f"{MAX_SERIALIZED_PARAM_BYTES} bytes>"
+                )
+            new_parameters[key] = serialized
         else:
             new_parameters[key] = value
     return new_parameters
