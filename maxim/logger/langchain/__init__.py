@@ -1,4 +1,5 @@
 from .tracer import MaximLangchainTracer
+from .instrumenter import instrument_langchain
 from .utils import (
     parse_base_message_to_maxim_generation,
     parse_langchain_chat_generation,
@@ -32,4 +33,5 @@ __all__ = [
     "parse_langchain_message",
     "parse_langchain_tool_call",
     "parse_base_message_to_maxim_generation",
+    "instrument_langchain",
 ]
