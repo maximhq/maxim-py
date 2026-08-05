@@ -1460,6 +1460,7 @@ class TestRunBuilder(Generic[T]):
                                 yielded_output = YieldedOutput(
                                     data=output_text,
                                     retrieved_context_to_evaluate=self._config.prompt_version.context_to_evaluate,
+                                    messages=prompt_response.resolved_messages or None,
                                     meta=YieldedOutputMeta(
                                         entity_type="PROMPT",
                                         entity_id=self._config.prompt_version.id,
@@ -1827,6 +1828,7 @@ class TestRunBuilder(Generic[T]):
                                 yielded_output = YieldedOutput(
                                     data=output_text,
                                     retrieved_context_to_evaluate=self._config.prompt_version.context_to_evaluate,
+                                    messages=prompt_response.resolved_messages or None,
                                     meta=YieldedOutputMeta(
                                         entity_type="PROMPT",
                                         entity_id=self._config.prompt_version.id,
