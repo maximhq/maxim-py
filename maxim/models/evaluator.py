@@ -551,7 +551,10 @@ class VariableMappingInput:
     Attributes:
         data: The main output string from the run
         retrieved_context_to_evaluate: Optional context retrieved during the run
-        messages: Optional list of messages from the run (conversation history for simulation)
+        messages: Optional list of messages from the run. For simulations this is the
+            conversation history; for prompt-version runs this is the resolved input
+            messages sent to the model (system + user, with variables interpolated).
+            Also accessible as run.get("input_messages") / run.get("resolved_messages").
         meta: Optional metadata including usage and cost information
         simulation_outputs: Optional list of outputs from each simulation turn
         simulation_meta: Optional full simulation metadata (messages, usage, cost, etc.)
@@ -570,7 +573,7 @@ class VariableMappingInput:
             return self.data
         elif key == "retrieved_context_to_evaluate" or key == "retrieval":
             return self.retrieved_context_to_evaluate
-        elif key == "messages":
+        elif key == "messages" or key == "input_messages" or key == "resolved_messages":
             return self.messages
         elif key == "meta":
             return self.meta
