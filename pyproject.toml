@@ -61,7 +61,7 @@ dev = [
   "fireworks-ai>=0.17.9",
   "langchain-google-vertexai>=2.1.2",
   "livekit-plugins-noise-cancellation~=0.2",
-  "crewai==0.130.0",
+  "crewai>=0.130.0",
   "llama-index-core>=0.12.49",
   "llama-index-llms-openai>=0.4.7",
   "tavily-python>=0.7.9",
@@ -76,3 +76,9 @@ dev = [
   "livekit-plugins-turn-detector>=1.3.8",
   "pytest-asyncio>=1.3.0",
 ]
+
+# The dev tooling (crewai, google-adk, livekit-agents, ...) has dropped Python 3.9,
+# so resolve the dev lockfile against 3.10+ only. This does NOT affect the published
+# package, which still supports Python >= 3.9.20 per [project].requires-python.
+[tool.uv]
+environments = ["python_full_version >= '3.10'"]
