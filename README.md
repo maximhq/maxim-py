@@ -182,6 +182,10 @@ On `generation.result` events, the callback is invoked with a payload containing
 
 ## Version changelog
 
+### 3.14.21
+
+- feat: Exposes the resolved prompt input messages (system + user, with variables interpolated) to evaluator variable mappings on prompt-version test runs. The mapping `run` object now returns them via `run.get("messages")`, `run.get("input_messages")`, or `run.get("resolved_messages")` — e.g. map a `system_prompt` evaluator variable to the run's resolved system message instead of a dataset column.
+
 ### 3.14.20
 
 - fix: Fixes `mappingproxy` serialization errors in log payloads by unifying scalar handling across both log serializers

@@ -22,6 +22,7 @@ from maxim.models import (
 from maxim.models.evaluator import (
     PassFailCriteriaForTestrunOverall,
     PassFailCriteriaOnEachEntry,
+    VariableMappingInput,
 )
 
 with open(str(f"{os.getcwd()}/maxim/tests/testConfig.json")) as f:
@@ -884,3 +885,62 @@ class TestTestRuns(unittest.TestCase):
         # Clear singleton instance
         if hasattr(Maxim, "_instance"):
             delattr(Maxim, "_instance")
+
+
+class TestVariableMappingResolvedMessages(unittest.TestCase):
+    """
+    Offline tests for exposing a prompt run's resolved input messages
+    (system + user, variables interpolated) to evaluator variable mappings.
+
+    These run without a live Maxim instance / network, unlike TestTestRuns.
+    """
+
+    def _run(self, messages):
+        yielded = YieldedOutput(
+            data="Here is the summary.",
+            messages=messages,
+            meta=YieldedOutputMeta(
+                entity_type="PROMPT",
+                entity_id="pv_123",
+                usage=YieldedOutputTokenUsage(
+                    prompt_tokens=1, completion_tokens=2, total_tokens=3, latency=0.1
+                ),
+            ),
+        )
+        return VariableMappingInput.from_yielded_output(
+            output=yielded, input_value="Summarize the labs."
+        )
+
+    def test_resolved_messages_are_exposed_to_mapping(self):
+        resolved = [
+            {"role": "system", "content": "You are a careful clinical assistant."},
+            {"role": "user", "content": "Summarize the labs."},
+        ]
+        run = self._run(resolved)
+
+        # All three access keys return the resolved input messages
+        self.assertEqual(run.get("messages"), resolved)
+        self.assertEqual(run.get("input_messages"), resolved)
+        self.assertEqual(run.get("resolved_messages"), resolved)
+        self.assertEqual(run.messages, resolved)
+
+        # A system_prompt mapping can be sourced from the run instead of a dataset column
+        system_prompt = lambda run, dataset, version: next(
+            (m["content"] for m in (run.get("messages") or []) if m.get("role") == "system"),
+            "",
+        )
+        self.assertEqual(
+            system_prompt(run, {}, None), "You are a careful clinical assistant."
+        )
+
+        # Output/input aliases keep working alongside messages
+        self.assertEqual(run.data, "Here is the summary.")
+        self.assertEqual(run.get("output"), "Here is the summary.")
+        self.assertEqual(run.get("input"), "Summarize the labs.")
+
+    def test_absent_messages_stay_none(self):
+        # No resolved messages (e.g. workflow/yields_output runs) -> None, not [].
+        run = self._run(None)
+        self.assertIsNone(run.get("messages"))
+        self.assertIsNone(run.get("input_messages"))
+        self.assertIsNone(run.get("resolved_messages"))
