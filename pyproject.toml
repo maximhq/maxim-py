@@ -82,3 +82,8 @@ dev = [
 # package, which still supports Python >= 3.9.20 per [project].requires-python.
 [tool.uv]
 environments = ["python_full_version >= '3.10'"]
+constraint-dependencies = [
+  "pyjwt>=2.15.0",
+  "urllib3>=2.8.0",
+  "oauthlib>=4.0.0",
+]
